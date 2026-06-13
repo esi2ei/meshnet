@@ -1,0 +1,6 @@
+{
+  "name": "MeshNet",
+  "description": "Interactive Offline Mesh & Encrypted Blockchain-Tethering Simulator & Code Generator",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
