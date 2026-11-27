@@ -8,7 +8,7 @@ import java.security.MessageDigest
 
 /** Bounded durable outbox and persistent receiver replay cache. */
 class MeshQueueStore(context: Context) : SQLiteOpenHelper(
-    context.applicationContext, "meshnet-outbox.db", null, 2
+    context.applicationContext, "meshnet-outbox.db", null, 3
 ) {
     override fun onCreate(db: SQLiteDatabase) {
         createOutbox(db)
@@ -17,6 +17,11 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) createReceived(db)
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE outbox ADD COLUMN message_id TEXT")
+            db.execSQL("ALTER TABLE outbox ADD COLUMN frame_kind TEXT NOT NULL DEFAULT 'MESSAGE'")
+            db.execSQL("CREATE INDEX IF NOT EXISTS outbox_message_id ON outbox(message_id)")
+        }
     }
 
     private fun createOutbox(db: SQLiteDatabase) {
@@ -24,11 +29,14 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             """CREATE TABLE IF NOT EXISTS outbox (
                 frame_id TEXT PRIMARY KEY NOT NULL,
                 frame BLOB NOT NULL,
+                message_id TEXT,
+                frame_kind TEXT NOT NULL DEFAULT 'MESSAGE',
                 created_at INTEGER NOT NULL,
                 attempts INTEGER NOT NULL DEFAULT 0
             )""".trimIndent()
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS outbox_created_at ON outbox(created_at)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS outbox_message_id ON outbox(message_id)")
     }
 
     private fun createReceived(db: SQLiteDatabase) {
@@ -47,10 +55,13 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
         val now = System.currentTimeMillis()
         val db = writableDatabase
         db.delete("outbox", "created_at < ?", arrayOf((now - MAX_AGE_MS).toString()))
+        val decoded = try { MeshFrame.decode(frame) } catch (_: Exception) { return false }
         val id = digest(frame)
         val values = ContentValues().apply {
             put("frame_id", id)
             put("frame", frame)
+            put("message_id", decoded.id)
+            put("frame_kind", decoded.kind)
             put("created_at", now)
             put("attempts", 0)
         }
@@ -73,6 +84,16 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             "SELECT frame FROM outbox ORDER BY created_at ASC LIMIT ?",
             arrayOf(limit.coerceIn(1, MAX_ENTRIES).toString())
         ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getBlob(0)) } }
+    }
+
+    /** Removes a locally originated message only after an authenticated group receipt arrives. */
+    @Synchronized
+    fun acknowledge(messageId: String): Int {
+        if (messageId.isBlank()) return 0
+        return writableDatabase.delete(
+            "outbox", "message_id = ? AND frame_kind = ?",
+            arrayOf(messageId, MeshFrame.KIND_MESSAGE)
+        )
     }
 
     @Synchronized
