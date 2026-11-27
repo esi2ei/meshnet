@@ -372,6 +372,8 @@ pub struct ArbitrateOrder<'info> {
     pub vault: Account<'info, TokenAccount>,
     #[account(mut, associated_token::mint = mint, associated_token::authority = provider)]
     pub provider_token: Account<'info, TokenAccount>,
+    #[account(mut, associated_token::mint = mint, associated_token::authority = buyer)]
+    pub buyer_token: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
 }
 
