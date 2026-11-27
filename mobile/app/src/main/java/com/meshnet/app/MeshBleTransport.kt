@@ -134,13 +134,7 @@ class MeshBleTransport(
     private fun clientCallback(address: String) = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS || newState == BluetoothProfile.STATE_DISCONNECTED) {
-                clients.remove(address)
-                negotiatedMtu.remove(address)
-                seen.remove(address)
-                writeQueues.remove(address)
-                writing.remove(address)
-                onPeer(address, false)
-                gatt.close()
+                closeClient(address, gatt)
             } else if (newState == BluetoothProfile.STATE_CONNECTED) {
                 onPeer(address, true)
                 if (!gatt.requestMtu(MAX_MTU)) gatt.discoverServices()
@@ -154,14 +148,15 @@ class MeshBleTransport(
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                onState("GATT service discovery failed: $address")
+                onState("GATT service discovery failed: $address (status $status)")
+                closeClient(address, gatt)
                 return
             }
             val remote = gatt.getService(SERVICE_UUID)?.getCharacteristic(CHARACTERISTIC_UUID)
             if (remote == null ||
                 (remote.properties and BluetoothGattCharacteristic.PROPERTY_WRITE) == 0) {
                 onState("Peer is missing a writable MeshNet GATT channel: $address")
-                gatt.disconnect()
+                closeClient(address, gatt)
                 return
             }
             clients[address] = gatt
@@ -227,6 +222,18 @@ class MeshBleTransport(
         } catch (error: Exception) {
             onState("Unable to start BLE advertising or scanning: ${error.message}")
         }
+    }
+
+    private fun closeClient(address: String, gatt: BluetoothGatt) {
+        val clientRemoved = clients.remove(address, gatt)
+        val wasSeen = seen.remove(address)
+        val wasKnown = clientRemoved || wasSeen
+        negotiatedMtu.remove(address)
+        writeQueues.remove(address)
+        writing.remove(address)
+        if (wasKnown) onPeer(address, false)
+        runCatching { gatt.disconnect() }
+        runCatching { gatt.close() }
     }
 
     private fun connect(device: BluetoothDevice) {
