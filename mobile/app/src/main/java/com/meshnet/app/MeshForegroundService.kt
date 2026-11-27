@@ -137,7 +137,7 @@ class MeshForegroundService : Service() {
     }
 
     private fun promoteForMicrophone() {
-        if (Build.VERSION.SDK_INT >= 30) {
+        if (Build.VERSION.SDK_INT >= 29) {
             startForeground(
                 NOTIFICATION_ID, notification("MeshNet live voice active"),
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE

@@ -15,6 +15,7 @@ import java.io.File
 import java.security.MessageDigest
 
 class MeshFileTransferTest {
+    private val transfers = mutableListOf<MeshFileTransfer>()
     private lateinit var context: Context
     private lateinit var source: File
     private lateinit var receivedDir: File
@@ -28,13 +29,18 @@ class MeshFileTransferTest {
     }
 
     @After fun tearDown() {
+        transfers.forEach { runCatching { it.close() } }
+        transfers.clear()
         source.delete()
         receivedDir.deleteRecursively()
     }
 
+    private fun track(transfer: MeshFileTransfer): MeshFileTransfer =
+        transfer.also { transfers.add(it) }
+
     @Test fun reconstructsOutOfOrderChunksAndVerifiesDigest() {
         val events = mutableListOf<String>()
-        val receiver = MeshFileTransfer(context, { true }, { events.add(it) })
+        val receiver = track(MeshFileTransfer(context, { true }, { events.add(it) }))
         val (manifest, chunks) = protocolMessages(source, "transfer_0001")
         assertTrue(receiver.accept(manifest))
         chunks.reversed().forEach { receiver.accept(it) }
@@ -48,7 +54,7 @@ class MeshFileTransferTest {
         val voice = File(context.cacheDir, "a-very-long-mesh-voice-recording-name.m4a")
         voice.writeBytes(ByteArray(2048) { (it % 127).toByte() })
         val (manifest, chunks) = protocolMessages(voice, "voicefile_001")
-        val receiver = MeshFileTransfer(context, { true }, {})
+        val receiver = track(MeshFileTransfer(context, { true }, {}))
         receiver.accept(manifest)
         chunks.forEach { receiver.accept(it) }
         assertTrue(receiver.latestVoiceNote()?.exists() == true)
@@ -57,20 +63,21 @@ class MeshFileTransferTest {
 
     @Test fun preflightsOutboxAndDoesNotQueuePartialFile() {
         val frames = mutableListOf<String>()
-        val sender = MeshFileTransfer(context, { frames.add(it); true }, {}, canQueueBatch = { false })
+        val sender = track(MeshFileTransfer(context, { frames.add(it); true }, {}, canQueueBatch = { false }))
         assertFalse(sender.send(Uri.fromFile(source)))
         assertTrue(frames.isEmpty())
     }
 
     @Test fun resumesFromDurableReceiverCheckpointAfterRecreation() {
         val (manifest, chunks) = protocolMessages(source, "resume_00001")
-        val firstReceiver = MeshFileTransfer(context, { true }, {})
+        val firstReceiver = track(MeshFileTransfer(context, { true }, {})))
         firstReceiver.accept(manifest)
         val half = chunks.size / 2
         chunks.take(half).forEach { firstReceiver.accept(it) }
+        firstReceiver.close()
 
         val acks = mutableListOf<String>()
-        val restartedReceiver = MeshFileTransfer(context, { message -> acks.add(message); true }, {})
+        val restartedReceiver = track(MeshFileTransfer(context, { message -> acks.add(message); true }, {})))
         restartedReceiver.accept(manifest)
         val savedNext = acks.first { it.startsWith("~F2A|") }.substringAfterLast('|').toInt()
         assertEquals(half, savedNext)
@@ -84,8 +91,8 @@ class MeshFileTransferTest {
     @Test fun sendsThroughBoundedWindowsAndCompletesAfterReceiverAcknowledges() {
         val sent = mutableListOf<String>()
         lateinit var sender: MeshFileTransfer
-        val receiver = MeshFileTransfer(context, { message -> sender.accept(message); true }, {})
-        sender = MeshFileTransfer(context, { message -> sent.add(message); receiver.accept(message); true }, {})
+        val receiver = track(MeshFileTransfer(context, { message -> sender.accept(message); true }, {})))
+        sender = track(MeshFileTransfer(context, { message -> sent.add(message); receiver.accept(message); true }, {})))
         assertTrue(sender.send(Uri.fromFile(source)))
         assertTrue(sent.first().startsWith("~F2M|"))
         assertTrue(sent.any { it.startsWith("~F2C|") })
@@ -94,7 +101,7 @@ class MeshFileTransferTest {
     @Test fun acceptsFileAt10MiBBoundaryUsingStreamingSource() {
         source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES))
         val events = mutableListOf<String>()
-        val sender = MeshFileTransfer(context, { true }, { events.add(it) }, canQueueBatch = { false })
+        val sender = track(MeshFileTransfer(context, { true }, { events.add(it) }, canQueueBatch = { false })))
         assertFalse(sender.send(Uri.fromFile(source)))
         assertTrue(events.any { it.contains("outbox has no room") })
         assertEquals(10 * 1024 * 1024, MeshFileTransfer.MAX_FILE_BYTES)
@@ -102,7 +109,7 @@ class MeshFileTransferTest {
 
     @Test fun rejectsFilesLargerThan10MiBTransferLimit() {
         source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES + 1))
-        val sender = MeshFileTransfer(context, { true }, {})
+        val sender = track(MeshFileTransfer(context, { true }, {})))
         var rejected = false
         try { sender.send(Uri.fromFile(source)) } catch (_: IllegalArgumentException) { rejected = true }
         assertTrue(rejected)
