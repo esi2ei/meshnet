@@ -36,9 +36,7 @@ pub mod meshnet_escrow {
         expires_at: i64,
     ) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
-        require!(amount > 0, EscrowError::InvalidAmount);
-        require!(expires_at > now, EscrowError::InvalidExpiry);
-        require!(expires_at <= now + MAX_ORDER_LIFETIME, EscrowError::ExpiryTooFar);
+        validate_order_terms(amount, now, expires_at)?;
         require!(ctx.accounts.provider.key() != ctx.accounts.buyer.key(), EscrowError::InvalidProvider);
 
         let order = &mut ctx.accounts.order;
@@ -97,6 +95,40 @@ pub mod meshnet_escrow {
     pub fn arbitrate_refund(ctx: Context<ArbitrateRefund>) -> Result<()> {
         require_keys_eq!(ctx.accounts.arbitrator.key(), ctx.accounts.order.arbitrator, EscrowError::WrongArbitrator);
         settle_to_buyer_arbitrated(ctx)
+    }
+}
+
+
+fn validate_order_terms(amount: u64, now: i64, expires_at: i64) -> Result<()> {
+    require!(amount > 0, EscrowError::InvalidAmount);
+    require!(expires_at > now, EscrowError::InvalidExpiry);
+    require!(expires_at <= now + MAX_ORDER_LIFETIME, EscrowError::ExpiryTooFar);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_positive_amount_and_expiry_within_thirty_days() {
+        assert!(validate_order_terms(1_000_000, 1_000, 1_000 + 86_400).is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_amount() {
+        assert!(validate_order_terms(0, 1_000, 2_000).is_err());
+    }
+
+    #[test]
+    fn rejects_expiry_in_the_past_or_now() {
+        assert!(validate_order_terms(1, 1_000, 1_000).is_err());
+        assert!(validate_order_terms(1, 1_000, 999).is_err());
+    }
+
+    #[test]
+    fn rejects_expiry_beyond_thirty_days() {
+        assert!(validate_order_terms(1, 1_000, 1_000 + MAX_ORDER_LIFETIME + 1).is_err());
     }
 }
 
