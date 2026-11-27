@@ -1,6 +1,6 @@
 # MeshNet Android app
 
-The Android APK now presents the same React/Vite dashboard as the web project. Gradle builds the dashboard and packages it into the APK under `web/`; the app opens it from `file:///android_asset/web/index.html`. A restricted JavaScript bridge connects the bundled UI to native Android BLE, Wi-Fi, messaging, file and voice APIs. The draggable topology graphic remains a simulator and is explicitly separate from actual phone-radio status.
+The Android APK now presents the same React/Vite dashboard as the web project. Gradle builds the dashboard and packages it into the APK under `web/`; the app serves it through AndroidX WebViewAssetLoader from the virtual `https://appassets.androidplatform.net/assets/web/index.html` origin; requests are fulfilled from the APK without contacting a server. A restricted JavaScript bridge connects the bundled UI to native Android BLE, Wi-Fi, messaging, file and voice APIs. The draggable topology graphic remains a simulator and is explicitly separate from actual phone-radio status.
 
 The packaged dashboard is offline-first: relative asset URLs, local system fonts, no remote avatar images, blocked external navigation, and a Content Security Policy that denies network requests from the WebView. Optional online integrations are disabled by default; enabling them permits only the explicitly user-started Solana Devnet wallet-adapter flow currently implemented. No cloud messaging, telemetry, automatic uploads, or payment transactions are provided.
 
