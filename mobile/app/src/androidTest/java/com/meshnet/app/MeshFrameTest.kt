@@ -41,6 +41,38 @@ class MeshFrameTest {
     }
 
     @Test
+    fun directedFrameRoundTripsAndAuthenticatesDestination() {
+        val frame = MeshFrame(
+            id = "directed_01",
+            origin = "node_01",
+            ttl = MeshFrame.MAX_TTL,
+            hops = listOf("node_01"),
+            nonce = "nonce",
+            ciphertext = "ciphertext",
+            destination = "node_02"
+        )
+        val decoded = MeshFrame.decode(frame.encode())
+        assertEquals("node_02", decoded.destination)
+        assertEquals(MeshFrame.PROTOCOL_VERSION, org.json.JSONObject(frame.encode().toString(Charsets.UTF_8)).getInt("v"))
+    }
+
+    @Test
+    fun rejectsInvalidDestinationNodeId() {
+        val frame = MeshFrame(
+            id = "directed_02",
+            origin = "node_01",
+            ttl = MeshFrame.MAX_TTL,
+            hops = listOf("node_01"),
+            nonce = "nonce",
+            ciphertext = "ciphertext",
+            destination = "invalid node"
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            MeshFrame.decode(frame.encode())
+        }
+    }
+
+    @Test
     fun rejectsReceiptWithoutTarget() {
         val frame = MeshFrame(
             id = "receipt_01",
