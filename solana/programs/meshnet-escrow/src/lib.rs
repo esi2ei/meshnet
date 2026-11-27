@@ -107,6 +107,11 @@ fn validate_order_terms(amount: u64, now: i64, expires_at: i64) -> Result<()> {
     Ok(())
 }
 
+fn validate_vault_balance(vault_amount: u64, order_amount: u64) -> Result<()> {
+    require!(vault_amount >= order_amount, EscrowError::VaultBalanceMismatch);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,6 +133,17 @@ mod tests {
     }
 
     #[test]
+    fn accepts_exact_or_excess_vault_balance() {
+        assert!(validate_vault_balance(100, 100).is_ok());
+        assert!(validate_vault_balance(125, 100).is_ok());
+    }
+
+    #[test]
+    fn rejects_underfunded_vault() {
+        assert!(validate_vault_balance(99, 100).is_err());
+    }
+
+    #[test]
     fn rejects_expiry_beyond_thirty_days() {
         assert!(validate_order_terms(1, 1_000, 1_000 + MAX_ORDER_LIFETIME + 1).is_err());
     }
@@ -136,7 +152,7 @@ mod tests {
 fn settle_to_provider(ctx: Context<SettleOrder>) -> Result<()> {
     require!(ctx.accounts.order.status == OrderStatus::Open, EscrowError::AlreadySettled);
     require_keys_eq!(ctx.accounts.mint.key(), ctx.accounts.order.mint, EscrowError::InvalidMint);
-    require!(ctx.accounts.vault.amount >= ctx.accounts.order.amount, EscrowError::VaultBalanceMismatch);
+    validate_vault_balance(ctx.accounts.vault.amount, ctx.accounts.order.amount)?;
     let order_key = ctx.accounts.order.key();
     let bump = [ctx.accounts.order.bump];
     let seeds: &[&[u8]] = &[
@@ -238,7 +254,7 @@ fn close_vault<'info>(
 fn settle_to_provider_arbitrated(ctx: Context<ArbitrateOrder>) -> Result<()> {
     require_keys_eq!(ctx.accounts.arbitrator.key(), ctx.accounts.order.arbitrator, EscrowError::WrongArbitrator);
     require!(ctx.accounts.order.status == OrderStatus::Open, EscrowError::AlreadySettled);
-    require!(ctx.accounts.vault.amount >= ctx.accounts.order.amount, EscrowError::VaultBalanceMismatch);
+    validate_vault_balance(ctx.accounts.vault.amount, ctx.accounts.order.amount)?;
     let key = ctx.accounts.order.key();
     let bump = [ctx.accounts.order.bump];
     let seeds: &[&[u8]] = &[ORDER_SEED, ctx.accounts.order.buyer.as_ref(), ctx.accounts.order.order_id.as_ref(), &bump];
@@ -274,7 +290,7 @@ fn settle_to_provider_arbitrated(ctx: Context<ArbitrateOrder>) -> Result<()> {
 fn settle_to_buyer_arbitrated(ctx: Context<ArbitrateRefund>) -> Result<()> {
     require_keys_eq!(ctx.accounts.arbitrator.key(), ctx.accounts.order.arbitrator, EscrowError::WrongArbitrator);
     require!(ctx.accounts.order.status == OrderStatus::Open, EscrowError::AlreadySettled);
-    require!(ctx.accounts.vault.amount >= ctx.accounts.order.amount, EscrowError::VaultBalanceMismatch);
+    validate_vault_balance(ctx.accounts.vault.amount, ctx.accounts.order.amount)?;
     let key = ctx.accounts.order.key();
     let bump = [ctx.accounts.order.bump];
     let seeds: &[&[u8]] = &[ORDER_SEED, ctx.accounts.order.buyer.as_ref(), ctx.accounts.order.order_id.as_ref(), &bump];
