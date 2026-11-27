@@ -133,8 +133,9 @@ class MeshBleTransport(
                 gatt.close()
             } else if (newState == BluetoothProfile.STATE_CONNECTED) {
                 onPeer(address, true)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) gatt.requestMtu(517)
-                else gatt.discoverServices()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    if (!gatt.requestMtu(517)) gatt.discoverServices()
+                } else gatt.discoverServices()
             }
         }
 
@@ -144,8 +145,13 @@ class MeshBleTransport(
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) return
-            val service = gatt.getService(SERVICE_UUID) ?: return
-            val remote = service.getCharacteristic(CHARACTERISTIC_UUID) ?: return
+            val service = gatt.getService(SERVICE_UUID)
+            val remote = service?.getCharacteristic(CHARACTERISTIC_UUID)
+            if (remote == null) {
+                onState("Peer is missing the MeshNet GATT characteristic: $address")
+                gatt.disconnect()
+                return
+            }
             if (remote.properties and BluetoothGattCharacteristic.PROPERTY_WRITE == 0) {
                 onState("Peer does not expose a writable MeshNet channel: $address")
                 gatt.disconnect()
