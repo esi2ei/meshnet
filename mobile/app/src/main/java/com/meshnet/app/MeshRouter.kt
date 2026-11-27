@@ -26,6 +26,8 @@ class MeshRouter(
     private val sendToPeer: (ByteArray, String) -> Boolean = { _, _ -> false },
     private val onRouteObserved: (List<String>, String?) -> Unit = { _, _ -> },
     private val validateAcknowledgement: (String, String) -> Boolean = { _, _ -> true },
+    private val recordDestination: (String, String) -> Unit = { _, _ -> },
+    private val forgetDestination: (String) -> Unit = {},
     private val identity: MeshDeviceIdentity? = null
 ) {
     private val seen = LinkedHashSet<String>()
@@ -75,6 +77,7 @@ class MeshRouter(
             nonce = "", ciphertext = "", createdAt = createdAt, id = id, destination = destination
         )
         val encryptedFrame = encryptOriginFrame(frame, text)
+        if (destination != null) recordDestination(id, destination)
         remember(seen, id)
         val encoded = encryptedFrame.encode()
         val accepted = if (destination == null) send(encoded) else {
@@ -87,6 +90,7 @@ class MeshRouter(
         }
         if (!accepted) {
             seen.remove(id)
+            if (destination != null) forgetDestination(id)
             onMessage("Outbox rejected message; it was not queued")
             return false
         }

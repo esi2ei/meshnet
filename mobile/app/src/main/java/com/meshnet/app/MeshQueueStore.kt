@@ -8,11 +8,12 @@ import java.security.MessageDigest
 
 /** Bounded durable outbox and persistent receiver replay cache. */
 class MeshQueueStore(context: Context) : SQLiteOpenHelper(
-    context.applicationContext, "meshnet-outbox.db", null, 8
+    context.applicationContext, "meshnet-outbox.db", null, 9
 ) {
     override fun onCreate(db: SQLiteDatabase) {
         createOutbox(db)
         createReceived(db)
+        createDirectedTargets(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -47,6 +48,7 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             db.delete("outbox", null, null)
             db.delete("received_ids", null, null)
         }
+        if (oldVersion < 9) createDirectedTargets(db)
     }
 
     private fun createOutbox(db: SQLiteDatabase) {
@@ -62,6 +64,16 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS outbox_created_at ON outbox(created_at)")
         db.execSQL("CREATE INDEX IF NOT EXISTS outbox_message_id ON outbox(message_id)")
+    }
+
+    private fun createDirectedTargets(db: SQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS directed_targets (
+                message_id TEXT PRIMARY KEY NOT NULL,
+                destination TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )""".trimIndent()
+        )
     }
 
     private fun createReceived(db: SQLiteDatabase) {
@@ -131,12 +143,31 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     @Synchronized
     fun acknowledge(messageId: String): Int {
         if (messageId.isBlank()) return 0
-        return writableDatabase.delete(
+        val removed = writableDatabase.delete(
             "outbox", "message_id = ? AND frame_kind = ?",
             arrayOf(messageId, MeshFrame.KIND_MESSAGE)
         )
+        val targetRemoved = forgetDestination(messageId)
+        return maxOf(removed, targetRemoved)
     }
 
+
+    @Synchronized
+    fun recordDestination(messageId: String, destination: String) {
+        if (messageId.isBlank() || !destination.matches(Regex("[A-Za-z0-9_-]{1,32}"))) return
+        val values = ContentValues().apply {
+            put("message_id", messageId)
+            put("destination", destination)
+            put("created_at", System.currentTimeMillis())
+        }
+        writableDatabase.insertWithOnConflict(
+            "directed_targets", null, values, SQLiteDatabase.CONFLICT_REPLACE
+        )
+    }
+
+    @Synchronized
+    fun forgetDestination(messageId: String): Int =
+        writableDatabase.delete("directed_targets", "message_id = ?", arrayOf(messageId))
 
     /**
      * Directed messages can only be retired by a receipt signed by their intended destination.
@@ -145,6 +176,11 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     @Synchronized
     fun receiptMatches(messageId: String, receiptOrigin: String): Boolean {
         if (messageId.isBlank() || receiptOrigin.isBlank()) return false
+        val recordedDestination = writableDatabase.rawQuery(
+            "SELECT destination FROM directed_targets WHERE message_id = ? LIMIT 1",
+            arrayOf(messageId)
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        if (recordedDestination != null) return recordedDestination == receiptOrigin
         val encoded = writableDatabase.rawQuery(
             "SELECT frame FROM outbox WHERE message_id = ? AND frame_kind = ? LIMIT 1",
             arrayOf(messageId, MeshFrame.KIND_MESSAGE)
@@ -225,6 +261,7 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
         try {
             db.delete("outbox", null, null)
             db.delete("received_ids", null, null)
+            db.delete("directed_targets", null, null)
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()

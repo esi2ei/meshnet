@@ -527,6 +527,8 @@ class MeshForegroundService : Service() {
             markReceived = outbox::markReceived,
             acknowledge = outbox::acknowledge,
             validateAcknowledgement = outbox::receiptMatches,
+            recordDestination = outbox::recordDestination,
+            forgetDestination = outbox::forgetDestination,
             identity = identity,
             onFramePayload = ::handleOfflineLibraryPayload,
             onPayload = { plaintext ->
