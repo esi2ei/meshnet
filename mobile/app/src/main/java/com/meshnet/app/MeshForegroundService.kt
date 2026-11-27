@@ -36,8 +36,12 @@ class MeshForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
+        if (intent?.action == ACTION_STOP || intent?.action == ACTION_FORGET_CREDENTIALS) {
             stopMesh()
+            if (intent.action == ACTION_FORGET_CREDENTIALS) {
+                secretStore.clear()
+                emit("Saved group credentials deleted from this device")
+            }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -96,13 +100,12 @@ class MeshForegroundService : Service() {
                     false
                 } else {
                     transport?.sendToPeers(frame)
-                    true // durable local acceptance, not remote delivery confirmation
+                    true
                 }
             },
             onMessage = ::emit,
             markReceived = outbox::markReceived
         )
-
         transport = MeshBleTransport(
             this,
             { address, connected ->
@@ -189,6 +192,7 @@ class MeshForegroundService : Service() {
     companion object {
         const val ACTION_START = "com.meshnet.app.START"
         const val ACTION_STOP = "com.meshnet.app.STOP"
+        const val ACTION_FORGET_CREDENTIALS = "com.meshnet.app.FORGET_CREDENTIALS"
         const val EXTRA_PASSPHRASE = "group_passphrase"
         private const val CHANNEL_ID = "meshnet_connection"
         private const val NOTIFICATION_ID = 73
