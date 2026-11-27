@@ -286,6 +286,7 @@ fn settle_to_provider_arbitrated(ctx: Context<ArbitrateOrder>) -> Result<()> {
         authority: ctx.accounts.order.to_account_info(),
     };
     token::close_account(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), close, signer))?;
+    ctx.accounts.order.status = OrderStatus::Released;
     emit!(OrderSettled { order: key, status: OrderStatus::Released, amount });
     Ok(())
 }
@@ -312,6 +313,7 @@ fn settle_to_buyer_arbitrated(ctx: Context<ArbitrateRefund>) -> Result<()> {
         authority: ctx.accounts.order.to_account_info(),
     };
     token::close_account(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), close, signer))?;
+    ctx.accounts.order.status = OrderStatus::Refunded;
     emit!(OrderSettled { order: key, status: OrderStatus::Refunded, amount });
     Ok(())
 }
