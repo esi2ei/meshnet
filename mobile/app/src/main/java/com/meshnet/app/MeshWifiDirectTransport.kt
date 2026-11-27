@@ -26,7 +26,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 class MeshWifiDirectTransport(
     context: Context,
     private val onPayload: (String, ByteArray) -> Unit,
-    private val onState: (String) -> Unit
+    private val onState: (String) -> Unit,
+    private val onPeerConnection: (String, Boolean) -> Unit = { _, _ -> }
 ) {
     private val app = context.applicationContext
     private val manager = app.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
@@ -139,6 +140,7 @@ class MeshWifiDirectTransport(
                     val socket = listener.accept()
                     socket.tcpNoDelay = true
                     sockets.add(socket)
+                    onPeerConnection(socket.inetAddress.hostAddress ?: "unknown", true)
                     onState("Wi-Fi Direct data channel ready")
                     startReader(socket)
                 }
@@ -162,6 +164,7 @@ class MeshWifiDirectTransport(
                         socket.connect(java.net.InetSocketAddress(address, PORT), CONNECT_TIMEOUT_MS)
                         socket.tcpNoDelay = true
                         sockets.add(socket)
+                        onPeerConnection(socket.inetAddress.hostAddress ?: "unknown", true)
                         onState("Wi-Fi Direct data channel ready")
                         startReader(socket)
                         return@Thread
@@ -195,6 +198,7 @@ class MeshWifiDirectTransport(
             } finally {
                 sockets.remove(socket)
                 runCatching { socket.close() }
+                onPeerConnection(socket.inetAddress.hostAddress ?: "unknown", false)
                 onState("Wi-Fi Direct peer disconnected")
             }
         }, "meshnet-wifi-p2p-reader").apply { isDaemon = true; start() }
