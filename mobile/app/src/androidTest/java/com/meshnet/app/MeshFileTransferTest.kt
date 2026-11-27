@@ -87,7 +87,11 @@ class MeshFileTransferTest {
         val receiver = track(MeshFileTransfer(context, { true }, {}))
         receiver.accept(manifest)
         chunks.forEach { receiver.accept(it) }
-        assertTrue(receiver.latestVoiceNote()?.exists() == true)
+        val receivedVoice = receiver.latestVoiceNote()
+        assertNotNull("A verified .m4a voice note should be discoverable", receivedVoice)
+        assertEquals("m4a", receivedVoice!!.extension)
+        assertTrue(receivedVoice.exists())
+        assertArrayEquals(voice.readBytes(), receivedVoice.readBytes())
         voice.delete()
     }
 
@@ -346,7 +350,7 @@ class MeshFileTransferTest {
         )
         val count = (bytes.size + 47) / 48
         val safeName = Base64.encodeToString(
-            file.name.take(20).toByteArray(Charsets.UTF_8),
+            file.name.toByteArray(Charsets.UTF_8),
             Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
         )
         val manifest = "~F2M|$id|${bytes.size}|$count|$digest|$safeName"
