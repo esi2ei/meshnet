@@ -125,7 +125,8 @@ class MeshForegroundService : Service() {
         fileTransfer = MeshFileTransfer(
             context = this,
             sendMessage = { text -> router?.sendMessage(text) ?: false },
-            onEvent = ::emit
+            onEvent = ::emit,
+            canQueueBatch = outbox::canAcceptBatch
         )
         router = MeshRouter(
             nodeId = nodeId,
