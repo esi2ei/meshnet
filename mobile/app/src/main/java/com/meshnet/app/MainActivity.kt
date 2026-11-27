@@ -67,6 +67,7 @@ class MainActivity : Activity() {
     private var pendingExportFileName: String? = null
     private var pendingExportUri: Uri? = null
     private lateinit var walletAuthStore: MeshWalletAuthorizationStore
+    private lateinit var offlineWalletStore: MeshOfflineWalletStore
     @Volatile private var walletScenario: LocalAssociationScenario? = null
     @Volatile private var walletBusy = false
     @Volatile private var walletAuthToken: String? = null
@@ -91,6 +92,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         walletAuthStore = MeshWalletAuthorizationStore(applicationContext)
+        offlineWalletStore = MeshOfflineWalletStore(applicationContext)
         receivedFileAccess = MeshFileTransfer(
             context = applicationContext,
             sendMessage = { false },
@@ -223,6 +225,7 @@ class MainActivity : Activity() {
             .put("onlineIntegrationsEnabled", appPreferences.getBoolean(KEY_ONLINE_INTEGRATIONS, false))
             .put("walletBusy", walletBusy)
             .put("walletAddress", walletAddress ?: JSONObject.NULL)
+            .put("offlineWalletAddress", runCatching { offlineWalletStore.address() }.getOrNull() ?: JSONObject.NULL)
             .put("recentEvents", events)
             .toString()
     }
@@ -384,6 +387,23 @@ class MainActivity : Activity() {
                 append(if (enabled) "Optional online integrations enabled by user" else "Optional online integrations disabled")
             }
         }
+
+        @JavascriptInterface
+        fun getOfflineWalletAddress(): String = runCatching { offlineWalletStore.address() }.getOrElse { "" }
+
+        @JavascriptInterface
+        fun sendOfflinePayment(recipientAddress: String, amountMinor: Long): Boolean =
+            runOnMainBlocking {
+                try {
+                    val accepted = meshService?.sendOfflinePayment(recipientAddress.trim(), amountMinor)
+                        ?: throw IllegalStateException("Start the local mesh before sending an offline wallet transfer")
+                    append(if (accepted) "Offline wallet transfer queued" else "Offline wallet transfer was not fully queued")
+                    accepted
+                } catch (error: Exception) {
+                    append(error.message ?: "Unable to create offline wallet transfer")
+                    false
+                }
+            } ?: false
 
         @JavascriptInterface
         fun connectWallet() {
