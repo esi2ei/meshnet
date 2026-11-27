@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -18,6 +19,7 @@ class MeshForegroundService : Service() {
     private val binder = LocalBinder()
     private var transport: MeshBleTransport? = null
     private var router: MeshRouter? = null
+    private var fileTransfer: MeshFileTransfer? = null
     private lateinit var outbox: MeshQueueStore
     private lateinit var secretStore: MeshSecretStore
     private var listener: ((String) -> Unit)? = null
@@ -94,6 +96,11 @@ class MeshForegroundService : Service() {
         return activeRouter.sendMessage(message)
     }
 
+    fun sendFile(uri: Uri): Boolean {
+        val transfer = fileTransfer ?: throw IllegalStateException("Mesh service is not ready")
+        return transfer.send(uri)
+    }
+
     private fun startMesh(passphrase: String) {
         // Encode the full 128-bit random UUID as compact base64url to keep route headers bounded.
         val nodeUuid = java.util.UUID.randomUUID()
@@ -110,6 +117,11 @@ class MeshForegroundService : Service() {
             stopSelf()
             return
         }
+        fileTransfer = MeshFileTransfer(
+            context = this,
+            sendMessage = { text -> router?.sendMessage(text) ?: false },
+            onEvent = ::emit
+        )
         router = MeshRouter(
             nodeId = nodeId,
             crypto = crypto,
@@ -127,7 +139,7 @@ class MeshForegroundService : Service() {
                     true
                 }
             },
-            onMessage = ::emit,
+            onMessage = { message -> if (fileTransfer?.accept(message) != true) emit(message) },
             hasReceived = outbox::hasReceived,
             markReceived = outbox::markReceived,
             acknowledge = outbox::acknowledge
@@ -202,6 +214,7 @@ class MeshForegroundService : Service() {
         transport?.stop()
         transport = null
         router = null
+        fileTransfer = null
         replayFrames = emptyList()
         replayIndex = 0
         replayActive = false
