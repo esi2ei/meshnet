@@ -187,4 +187,43 @@ class MeshRouterReceiptTest {
         assertEquals(message.id, receipt.ackFor)
         assertTrue(message.id in acknowledged)
     }
+    @Test
+    fun everyMeshNodeCanOriginateAndReceiveMessagesInBothDirections() {
+        val passphrase = "a sufficiently long group passphrase"
+        val aToB = mutableListOf<ByteArray>()
+        val bToA = mutableListOf<ByteArray>()
+        val eventsA = mutableListOf<String>()
+        val eventsB = mutableListOf<String>()
+        val seenA = mutableSetOf<String>()
+        val seenB = mutableSetOf<String>()
+        val nodeA = MeshRouter(
+            nodeId = "node_A001",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { aToB.add(it); true },
+            onMessage = { eventsA.add(it) },
+            hasReceived = { it in seenA },
+            markReceived = { id, _ -> !seenA.add(id) },
+            acknowledge = { 0 }
+        )
+        val nodeB = MeshRouter(
+            nodeId = "node_B001",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { bToA.add(it); true },
+            onMessage = { eventsB.add(it) },
+            hasReceived = { it in seenB },
+            markReceived = { id, _ -> !seenB.add(id) },
+            acknowledge = { 0 }
+        )
+
+        assertTrue(nodeA.sendMessage("from A to B"))
+        val aMessage = aToB.map(MeshFrame::decode).first { it.kind == MeshFrame.KIND_MESSAGE }
+        nodeB.receive(aMessage.encode())
+        assertTrue(eventsB.any { it.contains("from A to B") })
+
+        assertTrue(nodeB.sendMessage("from B to A"))
+        val bMessage = bToA.map(MeshFrame::decode).first { it.kind == MeshFrame.KIND_MESSAGE }
+        nodeA.receive(bMessage.encode())
+        assertTrue(eventsA.any { it.contains("from B to A") })
+    }
+
 }
