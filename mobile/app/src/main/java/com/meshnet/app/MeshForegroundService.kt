@@ -36,7 +36,8 @@ class MeshForegroundService : Service() {
             stopMesh()
             if (action == ACTION_FORGET_CREDENTIALS) {
                 secretStore.clear()
-                emit("Saved group credentials deleted from this device")
+                outbox.clearAll()
+                emit("Saved group credentials and local mesh queue deleted")
             }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -44,13 +45,27 @@ class MeshForegroundService : Service() {
         }
 
         val supplied = intent?.getStringExtra(EXTRA_PASSPHRASE)?.takeIf { it.isNotBlank() }
+        val stored = try { secretStore.load() } catch (error: Exception) {
+            if (supplied == null) {
+                emit(error.message ?: "Unable to unlock saved group credentials")
+                stopSelf(startId)
+                return START_NOT_STICKY
+            }
+            null // A new user-supplied passphrase can replace an unreadable old credential.
+        }
+
         val passphrase = try {
             if (supplied != null) {
+                if (stored != null && stored != supplied) {
+                    stopMesh()
+                    outbox.clearAll()
+                    emit("Group changed; old encrypted frames and replay IDs were discarded")
+                }
                 secretStore.save(supplied)
                 supplied
-            } else secretStore.load()
+            } else stored
         } catch (error: Exception) {
-            emit(error.message ?: "Unable to unlock saved group credentials")
+            emit(error.message ?: "Unable to save group credentials")
             stopSelf(startId)
             return START_NOT_STICKY
         }
