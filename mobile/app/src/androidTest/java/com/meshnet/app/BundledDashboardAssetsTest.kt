@@ -25,7 +25,7 @@ class BundledDashboardAssetsTest {
             Uri.parse("https://appassets.androidplatform.net/assets/web/index.html")
         )
         assertNotNull("The virtual appassets origin must resolve directly from APK assets", response)
-        assertTrue("The local HTML response must have an HTML MIME type", response!!.mimeType.contains("html"))
+        assertTrue("The local HTML response must have an HTML MIME type", response!!.mimeType?.contains("html") == true)
     }
 
     @Test
