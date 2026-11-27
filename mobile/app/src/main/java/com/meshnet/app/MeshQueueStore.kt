@@ -57,6 +57,13 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
         db.delete("outbox", "created_at < ?", arrayOf((now - MAX_AGE_MS).toString()))
         val decoded = try { MeshFrame.decode(frame) } catch (_: Exception) { return false }
         val id = digest(frame)
+        if (decoded.kind == MeshFrame.KIND_ACK) {
+            val pendingAck = db.rawQuery(
+                "SELECT 1 FROM outbox WHERE message_id = ? AND frame_kind = ?",
+                arrayOf(decoded.id, MeshFrame.KIND_ACK)
+            ).use { it.moveToFirst() }
+            if (pendingAck) return true
+        }
         val values = ContentValues().apply {
             put("frame_id", id)
             put("frame", frame)
