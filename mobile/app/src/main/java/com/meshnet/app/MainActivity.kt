@@ -224,12 +224,16 @@ class MainActivity : Activity() {
         }
         val peers = JSONArray()
         synchronized(activeBlePeers) {
-            activeBlePeers.forEach { (address, connectedAt) ->
-                peers.put(JSONObject()
-                    .put("id", address)
-                    .put("address", address)
-                    .put("transport", "BLE/GATT")
-                    .put("connectedAt", connectedAt))
+            if (meshService?.isRunning() == true) {
+                activeBlePeers.forEach { (address, connectedAt) ->
+                    peers.put(JSONObject()
+                        .put("id", address)
+                        .put("address", address)
+                        .put("transport", "BLE/GATT")
+                        .put("connectedAt", connectedAt))
+                }
+            } else {
+                activeBlePeers.clear()
             }
         }
         val outgoingTransfers = JSONArray()
