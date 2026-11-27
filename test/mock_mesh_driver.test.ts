@@ -1,8 +1,8 @@
 /**
- * Mock Mesh Driver Test
- * Simulates three Android virtual devices (Node A, Node B, Node C) in-memory
- * to verify Routing Specification (Epidemic Flooding), Encryption Specification (re-encryption on relay),
- * and priority-based queue handling (Voice > Text > Files).
+ * LEGACY SIMULATOR TEST ONLY — NOT A DEVICE, CRYPTOGRAPHY, OR HARDWARE TEST.
+ * This in-memory mock intentionally does not prove BLE transport, Signal Protocol,
+ * real encryption, persistent queues, or physical multi-hop behavior. The native
+ * Android prototype and physical-device acceptance checks are documented in mobile/README.md.
  */
 
 interface MeshPacket {
