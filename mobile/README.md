@@ -9,7 +9,7 @@ The packaged dashboard is offline-first: relative asset URLs, local system fonts
 ## Implemented
 
 - Bundled React/Vite dashboard hosted from APK assets, with a local-only WebView origin and a narrow `@JavascriptInterface` bridge. The bridge exposes only the user actions needed by the dashboard; non-local WebView navigation and content access are denied.
-- Native device controls in the original dashboard: start/stop BLE mesh, encrypted text queueing, file selection and export, voice-note recording/playback, opt-in live voice, Wi-Fi Aware and Wi-Fi Direct actions, an offline signed local-unit wallet transfer prototype, and optional Devnet wallet authorization/native SOL transfer.
+- Native device controls in the bundled dashboard: start/stop BLE mesh, encrypted text queueing, file selection and export, voice-note recording/playback, opt-in live voice, Wi-Fi Aware and Wi-Fi Direct actions, an offline signed local-unit wallet transfer prototype, and optional Devnet wallet authorization/native SOL transfer.
 - Persisted online-integration switch, defaulting to off. BLE and local peer-to-peer features work without enabling it. WebView content has no network connection permission through its Content Security Policy.
 - BLE service UUID advertising, filtered scanning, GATT server/client connections, and reconnect discovery.
 - User-controlled Wi-Fi Direct group creation, peer discovery, explicit MAC-address connection, and length-prefixed TCP frame transport; optional Wi-Fi Aware publish/subscribe discovery with PSK-protected TCP data-path negotiation on supported hardware. BLE remains active when Wi-Fi Direct is unavailable or its optional permission is denied; Wi-Fi Aware is the default high-throughput peer transport when available.
