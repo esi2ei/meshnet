@@ -87,7 +87,7 @@ class MeshQueueStoreTest {
         )
         legacy.execSQL("CREATE TABLE received_ids (frame_id TEXT PRIMARY KEY NOT NULL, created_at INTEGER NOT NULL)")
         val oldFrame = frame("old_frame_01", MeshFrame.KIND_MESSAGE).encode()
-            .toString(Charsets.UTF_8).replace("\\\"v\\\":5", "\\\"v\\\":4").toByteArray(Charsets.UTF_8)
+            .toString(Charsets.UTF_8).replace("\"v\":5", "\"v\":4").toByteArray(Charsets.UTF_8)
         legacy.insertOrThrow("outbox", null, ContentValues().apply {
             put("frame_id", "legacy-row")
             put("frame", oldFrame)
