@@ -26,11 +26,11 @@ data class MeshFrame(
 
     companion object {
         fun decode(bytes: ByteArray): MeshFrame {
-            require(bytes.size <= MAX_FRAME_BYTES) { "Frame exceeds the BLE transport limit" }
+            require(bytes.size in 1..MAX_FRAME_BYTES) { "Invalid BLE frame size" }
             val json = JSONObject(bytes.toString(Charsets.UTF_8))
             require(json.optInt("v") == 1) { "Unsupported MeshNet frame version" }
             val hops = json.optString("hops").split(",").filter { it.isNotBlank() }
-            return MeshFrame(
+            val frame = MeshFrame(
                 id = json.getString("id"),
                 origin = json.getString("origin"),
                 ttl = json.getInt("ttl"),
@@ -38,13 +38,28 @@ data class MeshFrame(
                 nonce = json.getString("nonce"),
                 ciphertext = json.getString("ciphertext"),
                 createdAt = json.getLong("createdAt")
-            ).also {
-                require(it.ttl in 0..MAX_TTL) { "Invalid TTL" }
-                require(it.hops.size <= MAX_TTL) { "Route history too long" }
+            )
+            val now = System.currentTimeMillis()
+            require(frame.id.length in 1..64) { "Invalid frame ID" }
+            require(frame.origin.matches(Regex("[A-Za-z0-9_-]{1,32}"))) { "Invalid origin ID" }
+            require(frame.ttl in 1..MAX_TTL) { "Invalid TTL" }
+            require(frame.hops.size in 1..MAX_TTL) { "Invalid route history" }
+            require(frame.hops.first() == frame.origin) { "Route does not begin at origin" }
+            require(frame.hops.all { it.matches(Regex("[A-Za-z0-9_-]{1,32}")) }) { "Invalid hop ID" }
+            require(frame.hops.distinct().size == frame.hops.size) { "Route contains a loop" }
+            require(frame.ttl + frame.hops.size == MAX_TTL + 1) { "Inconsistent TTL and route history" }
+            require(frame.createdAt in (now - MAX_AGE_MS)..(now + MAX_CLOCK_SKEW_MS)) {
+                "Frame is expired or has an invalid timestamp"
             }
+            require(frame.nonce.isNotBlank() && frame.ciphertext.isNotBlank()) {
+                "Missing encrypted payload"
+            }
+            return frame
         }
 
         const val MAX_TTL = 8
         const val MAX_FRAME_BYTES = 480
+        private const val MAX_AGE_MS = 24L * 60L * 60L * 1000L
+        private const val MAX_CLOCK_SKEW_MS = 5L * 60L * 1000L
     }
 }
