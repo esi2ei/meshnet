@@ -852,18 +852,19 @@ class MainActivity : Activity() {
             val bluetoothGranted = permissions.indices
                 .filter { permissions[it] in bluetoothRequired }
                 .all { grantResults.getOrNull(it) == PackageManager.PERMISSION_GRANTED }
-            if (bluetoothGranted) {
-                if (permissions.indices.any {
-                    (permissions[it] == Manifest.permission.NEARBY_WIFI_DEVICES ||
-                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && permissions[it] == Manifest.permission.ACCESS_FINE_LOCATION)) &&
-                        grantResults.getOrNull(it) != PackageManager.PERMISSION_GRANTED
-                }) toast("Wi-Fi proximity permission denied; Wi-Fi Direct may be unavailable, BLE can still run")
-                if (permissions.indices.any {
-                    permissions[it] == Manifest.permission.POST_NOTIFICATIONS &&
-                        grantResults.getOrNull(it) != PackageManager.PERMISSION_GRANTED
-                }) toast("Notification permission denied; Android may show the foreground notification only in system task controls")
-                startMeshService()
-            } else toast("Bluetooth permissions are required for mesh discovery")
+            if (!bluetoothGranted) {
+                toast("Bluetooth permission denied; BLE is unavailable. MeshNet will still start so you can use another supported local radio.")
+            }
+            if (permissions.indices.any {
+                (permissions[it] == Manifest.permission.NEARBY_WIFI_DEVICES ||
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && permissions[it] == Manifest.permission.ACCESS_FINE_LOCATION)) &&
+                    grantResults.getOrNull(it) != PackageManager.PERMISSION_GRANTED
+            }) toast("Wi-Fi proximity permission denied; Wi-Fi Direct/Aware discovery may be unavailable.")
+            if (permissions.indices.any {
+                permissions[it] == Manifest.permission.POST_NOTIFICATIONS &&
+                    grantResults.getOrNull(it) != PackageManager.PERMISSION_GRANTED
+            }) toast("Notification permission denied; Android may show the foreground notification only in system task controls")
+            startMeshService()
         }
     }
 
@@ -876,7 +877,7 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
             else startService(intent)
             if (!bound) bound = bindService(Intent(this, MeshForegroundService::class.java), connection, BIND_AUTO_CREATE)
-            status.text = "Starting foreground BLE service…"
+            status.text = "Starting local mesh service…"
             keyInput.text.clear()
         } catch (error: Exception) {
             toast(error.message ?: "Unable to start foreground service")
