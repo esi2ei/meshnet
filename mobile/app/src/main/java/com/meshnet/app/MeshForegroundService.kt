@@ -284,11 +284,16 @@ class MeshForegroundService : Service() {
                     true
                 }
             },
-            onMessage = ::handleRouterMessage,
+            onMessage = ::emit,
             hasReceived = outbox::hasReceived,
             markReceived = outbox::markReceived,
             acknowledge = outbox::acknowledge,
-            onPayload = { plaintext -> fileTransfer?.accept(plaintext) == true },
+            onPayload = { plaintext ->
+                if (plaintext.startsWith(\"$OFFLINE_PAYMENT_PREFIX|\")) {
+                    handleRouterMessage(plaintext)
+                    true
+                } else fileTransfer?.accept(plaintext) == true
+            },
             sendEphemeralFrame = { frame ->
                 val bleSent = transport?.sendToPeers(frame) == true
                 val p2pSent = wifiTransport?.sendToPeers(frame) == true
