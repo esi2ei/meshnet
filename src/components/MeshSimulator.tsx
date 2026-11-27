@@ -30,7 +30,7 @@ export default function MeshSimulator({ running, native, peers, routes, localNod
     return { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
   });
 
-  // Route observations are authenticated frame histories that reached this device.
+  // Route observations are group-key-authenticated frame histories that reached this device.
   // Keep their graph separate from live radio links: a recently observed path is not
   // proof that every hop is still connected at this instant.
   const validRoutes = routes.filter(route =>
@@ -127,12 +127,12 @@ export default function MeshSimulator({ running, native, peers, routes, localNod
             </div>
             {validRoutes.length === 0 || !localNodeId ? (
               <p className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-500">
-                No forwarded route has reached this device yet. When a message crosses relay nodes, its authenticated hop history will appear here. These observations expire and are not presented as currently active links.
+                No forwarded route has reached this device yet. When a message crosses relay nodes, its group-key-authenticated hop history will appear here. These observations expire and are not presented as currently active links.
               </p>
             ) : (
               <>
                 <div className="mt-3 overflow-hidden rounded-xl border border-slate-800 bg-[#0d1117]">
-                  <svg viewBox={`0 0 ${routeWidth} ${routeHeight}`} role="img" aria-label="Observed multi-hop routes from authenticated mesh frames" className="h-auto w-full">
+                  <svg viewBox={`0 0 ${routeWidth} ${routeHeight}`} role="img" aria-label="Observed multi-hop routes from group-key-authenticated mesh frames" className="h-auto w-full">
                     <defs><pattern id="route-grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M 24 0 L 0 0 0 24" fill="none" stroke="#1e293b" strokeWidth="0.7" /></pattern></defs>
                     <rect width={routeWidth} height={routeHeight} fill="url(#route-grid)" />
                     {routeEdges.map(edge => {
