@@ -33,7 +33,10 @@ internal class MeshRouteRegistry {
                 val destination = path[index]
                 val distance = localIndex - index
                 val candidates = nextHops.getOrPut(destination) { linkedMapOf() }
-                candidates[ingressPeer] = NextHop(ingressPeer, distance, now)
+                val previousHop = candidates[ingressPeer]
+                if (previousHop == null || distance < previousHop.distance || distance == previousHop.distance) {
+                    candidates[ingressPeer] = NextHop(ingressPeer, distance, now)
+                }
                 while (candidates.size > MAX_ALTERNATIVES) {
                     val worst = candidates.values.maxWithOrNull(compareBy<NextHop> { it.distance }.thenBy { it.observedAt }) ?: break
                     candidates.remove(worst.peer)
