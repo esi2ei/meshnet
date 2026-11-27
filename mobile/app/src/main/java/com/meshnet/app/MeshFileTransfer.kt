@@ -32,7 +32,7 @@ class MeshFileTransfer(
             System.currentTimeMillis()-it.lastModified()>OUTGOING_ID_TTL_MS }?.forEach { it.delete() }
     }
 
-    @Synchronized fun send(uri:Uri):Boolean {
+    fun send(uri:Uri):Boolean {
         val name=queryName(uri).take(MAX_NAME_CHARS).ifBlank{"mesh-file.bin"}.replace(Regex("[^A-Za-z0-9._-]"),"_")
         val bytes=context.contentResolver.openInputStream(uri)?.use { input ->
             val output=java.io.ByteArrayOutputStream(); val buffer=ByteArray(CHUNK_BYTES)
@@ -160,6 +160,7 @@ class MeshFileTransfer(
         if(!temp.renameTo(state.meta)) { temp.delete(); throw IllegalStateException("Unable to persist transfer resume state") }
     }
 
+    @Synchronized
     private fun transferIdFor(digest:String,name:String):String {
         val key=MessageDigest.getInstance("SHA-256").digest("$digest|$name".toByteArray(Charsets.UTF_8))
             .joinToString(""){"%02x".format(it)}
