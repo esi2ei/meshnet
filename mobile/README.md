@@ -6,7 +6,8 @@ The native Android target uses real Android BLE advertising, scanning, and GATT.
 
 - BLE service UUID advertising, filtered scanning, GATT server/client connections, and reconnect discovery.
 - GATT frame fragmentation sized to the negotiated MTU, ordered per-peer writes, bounded write queues, bounded reassembly buffers, and reassembly expiry.
-- AES-256-GCM encrypted text frames with authenticated origin, frame ID, and creation timestamp; TTL-based multi-hop relay.
+- AES-256-GCM encrypted text and receipt frames with authenticated frame type, origin, frame ID, timestamp, and receipt target; TTL-based multi-hop relay.
+- Group-level application receipts: a sender retires its queued message when any authenticated member of the shared group receives it; receipt frames are themselves queued and relayed.
 - Persistent SQLite outbox (500-frame cap, 24-hour retention) and persistent receiver replay-ID cache (bounded to 4,096 IDs).
 - User-started Android connected-device foreground service with an ongoing notification.
 - Group passphrase encrypted at rest with an Android Keystore AES-GCM key; it can be reused after process recreation and explicitly forgotten from the app.
@@ -24,9 +25,9 @@ For a multi-hop check, use three phones with each device within BLE range of at 
 
 ## Delivery and security boundaries
 
-- “Queued” means accepted into this device's encrypted-frame outbox. A successful GATT write only means the BLE stack accepted a chunk; it does **not** prove remote application delivery. There is no end-to-end acknowledgement protocol, so outbox entries are retained until 24-hour expiry and may be replayed. Persistent receiver deduplication reduces duplicate display but does not establish delivery.
+- “Queued” means accepted into this device's encrypted-frame outbox. A successful GATT write only means the BLE stack accepted a chunk; it does **not** prove remote application delivery. The current receipt is a group-level acknowledgement: any member with the shared group key can generate it, and it does not prove delivery to a named recipient. Messages remain queued until a valid receipt arrives or the 24-hour expiry is reached. Receipts are queued and replayed; persistent receiver deduplication reduces duplicate display.
 - The outbox and received-ID cache are local SQLite data. Group credentials are encrypted using an Android Keystore key; losing/resetting that key makes the saved credential unreadable and requires entering the group passphrase again.
-- The shared passphrase is a temporary group-key bootstrap, not Signal Protocol. There is no per-device identity authentication, forward secrecy, key rotation, or protection from a malicious member of the shared group.
+- The shared passphrase is a temporary group-key bootstrap, not Signal Protocol. There is no per-device identity authentication, forward secrecy, or protection from a malicious member of the shared group. Group key changes clear the local queue; there is no secure multi-device key rotation protocol.
 - GATT chunking here transports one bounded MeshFrame. It is **not** large-file transfer, resumable file transfer, or voice streaming.
 - File/voice transfer, Wi-Fi Aware, Wi-Fi Direct, hotspot metering, adaptive routing/congestion control, iOS, Solana/USDC, and escrow are not implemented.
 - Android may stop a foreground service under exceptional resource or policy conditions. BLE peripheral advertising and concurrent GATT connections vary by chipset and vendor.
