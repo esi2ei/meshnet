@@ -38,6 +38,7 @@ class MeshRouter(
             onMessage("Outbox rejected message; it was not queued")
             return false
         }
+        markReceived(id, createdAt)
         onMessage("Message encrypted and queued; waiting for a group receipt")
         return true
     }
@@ -71,7 +72,7 @@ class MeshRouter(
 
         if (frame.id in seen || hasReceived(frame.id)) {
             // Retry both paths: an earlier receipt or relay may have been queued while no peer was connected.
-            sendReceipt(frame.id)
+            if (frame.origin != nodeId) sendReceipt(frame.id)
             relayIfNeeded(frame)
             return
         }
