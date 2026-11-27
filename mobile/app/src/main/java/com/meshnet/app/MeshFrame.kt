@@ -15,7 +15,7 @@ data class MeshFrame(
     val ackFor: String? = null
 ) {
     fun encode(): ByteArray = JSONObject()
-        .put("v", 1)
+        .put("v", PROTOCOL_VERSION)
         .put("id", id)
         .put("origin", origin)
         .put("ttl", ttl)
@@ -29,13 +29,14 @@ data class MeshFrame(
         .toByteArray(Charsets.UTF_8)
 
     companion object {
+        const val PROTOCOL_VERSION = 2
         const val KIND_MESSAGE = "MESSAGE"
         const val KIND_ACK = "ACK"
 
         fun decode(bytes: ByteArray): MeshFrame {
             require(bytes.size in 1..MAX_FRAME_BYTES) { "Invalid BLE frame size" }
             val json = JSONObject(bytes.toString(Charsets.UTF_8))
-            require(json.optInt("v") == 1) { "Unsupported MeshNet frame version" }
+            require(json.optInt("v") == PROTOCOL_VERSION) { "Unsupported MeshNet frame version; update all mesh devices together" }
             val hops = json.optString("hops").split(",").filter { it.isNotBlank() }
             val ackValue = json.opt("ackFor")
             val frame = MeshFrame(
@@ -74,7 +75,7 @@ data class MeshFrame(
         }
 
         fun aad(frame: MeshFrame): ByteArray =
-            "meshnet-v1|${frame.kind}|${frame.id}|${frame.origin}|${frame.createdAt}|${frame.ackFor.orEmpty()}"
+            "meshnet-v2|${frame.kind}|${frame.id}|${frame.origin}|${frame.createdAt}|${frame.ackFor.orEmpty()}"
                 .toByteArray(Charsets.UTF_8)
 
         const val MAX_TTL = 8
