@@ -1,6 +1,6 @@
 # MeshNet release validation plan
 
-This is a release checklist for the Android prototype. GitHub Actions is configured to build the debug APK and run the instrumentation suite on an API 36 emulator for the designated validation branch. Until a successful run is recorded, do not assume those automated checks have passed. Emulator success does not establish real-phone Bluetooth/Wi-Fi interoperability, Solana contract readiness, independent security audit, or production fitness.
+This is a release checklist for the Android prototype. GitHub Actions is currently manual-only and must not be dispatched unless the owner explicitly requests it. No automated validation is being run as part of the current source-completion work. Emulator success, when later requested, does not establish real-phone Bluetooth/Wi-Fi interoperability, Solana contract readiness, independent security audit, or production fitness.
 
 ## 1. Release blockers that tests alone cannot close
 
