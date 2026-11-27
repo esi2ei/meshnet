@@ -11,8 +11,9 @@ import android.os.Build
 import android.os.IBinder
 
 /**
- * Keeps BLE discovery alive while the app is backgrounded, subject to Android foreground
- * service policy and user-visible notification requirements.
+ * User-started connected-device foreground service. The group credential is persisted only
+ * after encryption with a non-exportable Android Keystore key, so START_STICKY can recover
+ * the transport after process recreation without putting the passphrase in a notification.
  */
 class MeshForegroundService : Service() {
     inner class LocalBinder : Binder() {
@@ -23,12 +24,14 @@ class MeshForegroundService : Service() {
     private var transport: MeshBleTransport? = null
     private var router: MeshRouter? = null
     private lateinit var outbox: MeshQueueStore
+    private lateinit var secretStore: MeshSecretStore
     private var listener: ((String) -> Unit)? = null
     private var nodeId: String = "unknown"
 
     override fun onCreate() {
         super.onCreate()
         outbox = MeshQueueStore(this)
+        secretStore = MeshSecretStore(this)
         createNotificationChannel()
     }
 
@@ -40,11 +43,23 @@ class MeshForegroundService : Service() {
             return START_NOT_STICKY
         }
 
-        val passphrase = intent?.getStringExtra(EXTRA_PASSPHRASE)
+        val supplied = intent?.getStringExtra(EXTRA_PASSPHRASE)?.takeIf { it.isNotBlank() }
+        val passphrase = try {
+            if (supplied != null) {
+                secretStore.save(supplied)
+                supplied
+            } else secretStore.load()
+        } catch (error: Exception) {
+            emit(error.message ?: "Unable to unlock saved group credentials")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+
         if (transport == null && !passphrase.isNullOrBlank()) {
             startForeground(NOTIFICATION_ID, notification("Starting BLE mesh…"))
             startMesh(passphrase)
         } else if (transport == null) {
+            emit("No saved group credentials. Open MeshNet and enter the group passphrase.")
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -58,7 +73,8 @@ class MeshForegroundService : Service() {
     }
 
     fun sendMessage(message: String) {
-        router?.sendMessage(message) ?: emit("Mesh service is not ready")
+        val activeRouter = router ?: throw IllegalStateException("Mesh service is not ready")
+        activeRouter.sendMessage(message)
     }
 
     private fun startMesh(passphrase: String) {
@@ -67,22 +83,31 @@ class MeshForegroundService : Service() {
             MeshCrypto(passphrase.toCharArray())
         } catch (error: Exception) {
             emit(error.message ?: "Invalid group passphrase")
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
         }
-        router = MeshRouter(nodeId, crypto, { frame ->
-            if (!outbox.enqueue(frame)) {
-                emit("Outbox is full or frame is invalid; message was not queued")
-                false
-            } else {
-                transport?.sendToPeers(frame)
-                true // durable local acceptance, not delivery confirmation
-            }
-        }, ::emit)
+        router = MeshRouter(
+            nodeId = nodeId,
+            crypto = crypto,
+            send = { frame ->
+                if (!outbox.enqueue(frame)) {
+                    emit("Outbox is full or frame is invalid; message was not queued")
+                    false
+                } else {
+                    transport?.sendToPeers(frame)
+                    true // durable local acceptance, not remote delivery confirmation
+                }
+            },
+            onMessage = ::emit,
+            markReceived = outbox::markReceived
+        )
 
         transport = MeshBleTransport(
             this,
-            { address, connected -> emit("${if (connected) "Connected" else "Disconnected"}: $address") },
+            { address, connected ->
+                emit("${if (connected) "Connected" else "Disconnected"}: $address")
+            },
             { _, payload -> router?.receive(payload) },
             { state ->
                 emit(state)
@@ -95,6 +120,7 @@ class MeshForegroundService : Service() {
         } catch (error: Exception) {
             emit(error.message ?: "Unable to start BLE")
             stopMesh()
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
     }
@@ -111,7 +137,6 @@ class MeshForegroundService : Service() {
         transport?.stop()
         transport = null
         router = null
-        listener = null
     }
 
     private fun emit(message: String) {
