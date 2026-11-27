@@ -206,7 +206,6 @@ class MeshLiveVoiceCall(
                         )
                         .setOnAudioFocusChangeListener(focusListener)
                         .setAcceptsDelayedFocusGain(false)
-                        .setWillPauseWhenDucked(true)
                         .build()
                     focusRequest = request
                     audioManager.requestAudioFocus(request)
