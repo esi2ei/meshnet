@@ -4,7 +4,7 @@ import java.util.LinkedHashMap
 import java.util.LinkedHashSet
 import java.util.UUID
 
-class MeshRouter(
+internal class MeshRouter(
     private val nodeId: String,
     private val crypto: MeshCrypto,
     /** Returns true when the frame is durably accepted by the local outbox. */
@@ -17,13 +17,19 @@ class MeshRouter(
     private val acknowledge: (String) -> Int,
     /** Returns true when an authenticated plaintext payload is consumed by an application protocol. */
     private val onPayload: (String) -> Boolean = { false },
+    private val onFramePayload: (String, String) -> Boolean = { _, _ -> false },
     private val sendEphemeralFrame: (ByteArray) -> Boolean = send,
     private val onEphemeralPayload: (String, String) -> Unit = { _, _ -> },
     private val sendRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> send(bytes) },
     private val sendEphemeralRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> sendEphemeralFrame(bytes) },
     private val resolveNextHops: (String) -> List<String> = { emptyList() },
     private val sendToPeer: (ByteArray, String) -> Boolean = { _, _ -> false },
-    private val onRouteObserved: (List<String>, String?) -> Unit = { _, _ -> }
+    private val sendEphemeralToPeer: (ByteArray, String) -> Boolean = { _, _ -> false },
+    private val onRouteObserved: (List<String>, String?) -> Unit = { _, _ -> },
+    private val validateAcknowledgement: (String, String) -> Boolean = { _, _ -> true },
+    private val recordDestination: (String, String) -> Unit = { _, _ -> },
+    private val forgetDestination: (String) -> Unit = {},
+    private val identity: MeshDeviceIdentity? = null
 ) {
     private val seen = LinkedHashSet<String>()
     private val displayed = LinkedHashSet<String>()
@@ -31,21 +37,33 @@ class MeshRouter(
     private val peerArrivalAgeMs = LinkedHashMap<String, Double>()
 
     @Synchronized
-    fun sendEphemeral(text: String): Boolean {
+    fun sendEphemeral(text: String): Boolean = sendEphemeralInternal(text, null)
+
+    /** Best-effort unicast data-plane frame; unknown routes use ephemeral flooding, never the durable outbox. */
+    @Synchronized
+    fun sendEphemeralTo(destination: String, text: String): Boolean {
+        require(destination.matches(Regex("[A-Za-z0-9_-]{1,32}")) && destination != nodeId) {
+            "Invalid or local destination node ID"
+        }
+        return sendEphemeralInternal(text, destination)
+    }
+
+    private fun sendEphemeralInternal(text: String, destination: String?): Boolean {
         require(text.isNotBlank()) { "Ephemeral payload cannot be empty" }
         require(text.toByteArray(Charsets.UTF_8).size <= MAX_PLAINTEXT_BYTES) {
             "Ephemeral payload is too large for one frame"
         }
-        val id = UUID.randomUUID().toString()
-        val createdAt = System.currentTimeMillis()
         val frame = MeshFrame(
             origin = nodeId, ttl = MeshFrame.MAX_TTL, hops = listOf(nodeId),
-            nonce = "", ciphertext = "", createdAt = createdAt,
-            id = id, kind = MeshFrame.KIND_EPHEMERAL
+            nonce = "", ciphertext = "", createdAt = System.currentTimeMillis(),
+            id = UUID.randomUUID().toString(), kind = MeshFrame.KIND_EPHEMERAL,
+            destination = destination
         )
-        val (nonce, ciphertext) = crypto.encrypt(text, MeshFrame.aad(frame))
-        val accepted = sendEphemeralFrame(frame.copy(nonce = nonce, ciphertext = ciphertext).encode())
-        return accepted
+        val encoded = encryptOriginFrame(frame, text).encode()
+        if (destination == null) return sendEphemeralFrame(encoded)
+        val candidates = resolveNextHops(destination)
+        if (candidates.any { sendEphemeralToPeer(encoded, it) }) return true
+        return sendEphemeralFrame(encoded)
     }
 
     @Synchronized
@@ -71,8 +89,8 @@ class MeshRouter(
             origin = nodeId, ttl = MeshFrame.MAX_TTL, hops = listOf(nodeId),
             nonce = "", ciphertext = "", createdAt = createdAt, id = id, destination = destination
         )
-        val (nonce, ciphertext) = crypto.encrypt(text, MeshFrame.aad(frame))
-        val encryptedFrame = frame.copy(nonce = nonce, ciphertext = ciphertext)
+        val encryptedFrame = encryptOriginFrame(frame, text)
+        if (destination != null) recordDestination(id, destination)
         remember(seen, id)
         val encoded = encryptedFrame.encode()
         val accepted = if (destination == null) send(encoded) else {
@@ -85,6 +103,7 @@ class MeshRouter(
         }
         if (!accepted) {
             seen.remove(id)
+            if (destination != null) forgetDestination(id)
             onMessage("Outbox rejected message; it was not queued")
             return false
         }
@@ -105,6 +124,10 @@ class MeshRouter(
             onMessage("Rejected frame: authentication failed")
             return
         }
+        if (identity != null && !MeshDeviceIdentity.verify(frame, plaintext)) {
+            onMessage("Rejected frame: device identity signature is missing or invalid")
+            return
+        }
 
         // Record only authenticated, non-looping packet paths that actually reached this node.
         if (viaPeer != null && frame.origin != nodeId && nodeId !in frame.hops) {
@@ -112,7 +135,10 @@ class MeshRouter(
         }
 
         if (frame.destination != null && frame.destination != nodeId) {
-            if (rememberBestRoute(frame, viaPeer)) relayDirected(frame, plaintext, viaPeer)
+            if (rememberBestRoute(frame, viaPeer)) {
+                if (frame.kind == MeshFrame.KIND_EPHEMERAL) relayDirectedEphemeral(frame, plaintext, viaPeer)
+                else relayDirected(frame, plaintext, viaPeer)
+            }
             return
         }
 
@@ -140,6 +166,10 @@ class MeshRouter(
                 return
             }
             val target = frame.ackFor ?: return
+            if (!validateAcknowledgement(target, frame.origin)) {
+                onMessage("Rejected receipt for directed message $target from unexpected device ${frame.origin}")
+                return
+            }
             val removed = acknowledge(target)
             if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
             markReceived(frame.id, frame.createdAt)
@@ -162,7 +192,7 @@ class MeshRouter(
             return
         }
 
-        val handled = onPayload(plaintext)
+        val handled = onFramePayload(frame.origin, plaintext) || onPayload(plaintext)
         if (!handled && displayed.add(frame.id)) {
             onMessage("${frame.origin}: $plaintext (hops: ${frame.hops.size - 1})")
             trim(displayed)
@@ -184,8 +214,7 @@ class MeshRouter(
             nonce = "", ciphertext = "", createdAt = createdAt,
             id = ackId, kind = MeshFrame.KIND_ACK, ackFor = messageId, destination = destination
         )
-        val (nonce, ciphertext) = crypto.encrypt("", MeshFrame.aad(frame))
-        val encoded = frame.copy(nonce = nonce, ciphertext = ciphertext).encode()
+        val encoded = encryptOriginFrame(frame, "").encode()
         val candidates = resolveNextHops(destination)
         val routed = candidates.any { peer -> sendToPeer(encoded, peer) }
         val queued = if (routed) true else if (candidates.isEmpty()) send(encoded) else sendRelay(encoded, null)
@@ -195,6 +224,13 @@ class MeshRouter(
         } else {
             onMessage("Receipt for $messageId could not be queued; it will retry when the frame is received again")
         }
+    }
+
+    private fun encryptOriginFrame(frame: MeshFrame, plaintext: String): MeshFrame {
+        val prepared = identity?.prepare(frame, plaintext) ?: frame
+        val (nonce, ciphertext) = crypto.encrypt(plaintext, MeshFrame.aad(prepared))
+        val encrypted = prepared.copy(nonce = nonce, ciphertext = ciphertext)
+        return identity?.sign(encrypted) ?: encrypted
     }
 
     /** Fewer hops always wins; equal-hop alternatives use peer historical arrival age. */
@@ -220,6 +256,20 @@ class MeshRouter(
         return true
     }
 
+    private fun relayDirectedEphemeral(frame: MeshFrame, plaintext: String, viaPeer: String?) {
+        if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
+        val nextHopFrame = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId)
+        val (nonce, ciphertext) = crypto.encrypt(plaintext, MeshFrame.aad(nextHopFrame))
+        val encoded = nextHopFrame.copy(nonce = nonce, ciphertext = ciphertext).encode()
+        val candidates = resolveNextHops(frame.destination.orEmpty()).filter { it != viaPeer }
+        var accepted = false
+        for (peer in candidates) {
+            if (sendEphemeralToPeer(encoded, peer)) { accepted = true; break }
+        }
+        if (!accepted) accepted = sendEphemeralRelay(encoded, viaPeer)
+        if (!accepted) onMessage("Ephemeral directed relay dropped: no alternate peer accepted the frame")
+    }
+
     private fun relayDirected(frame: MeshFrame, plaintext: String, viaPeer: String?) {
         if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
         val nextHopFrame = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId)
@@ -235,6 +285,9 @@ class MeshRouter(
     }
 
     private fun relayIfNeeded(frame: MeshFrame, plaintext: String, viaPeer: String?) {
+        // Directed traffic is consumed at the final destination; never forward a
+        // delivered message or its receipt beyond the node it targets.
+        if (frame.destination == nodeId) return
         if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
         val nextHopFrame = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId)
         // TTL and route are authenticated; relays re-encrypt after updating route metadata.

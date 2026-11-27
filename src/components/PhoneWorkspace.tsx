@@ -11,6 +11,10 @@ type NativeRuntimeStatus = {
   offlineWalletAddress: string | null;
   offlineWalletTransfers: Array<{ id: string; recipient: string; amountMinor: number; createdAt: number; status: string }>;
   offlineWalletReceipts: Array<{ id: string; sender: string; amountMinor: number; createdAt: number; asset: string }>;
+  offlineLibrary: Array<{ id: string; name: string; size: number; createdAt: number; local: boolean; origin: string | null; pending: boolean }>;
+  offlineNetworkRunning: boolean;
+  offlineNodeIp: string | null;
+  offlinePortalUrl: string | null;
   platform: string;
   recentEvents: string[];
 };
@@ -39,6 +43,12 @@ type NativeBridge = {
   copyOfflineWalletAddress: () => boolean;
   sendOfflinePayment: (recipientAddress: string, amountMinor: number) => boolean;
   retryPendingOfflinePayments: () => number;
+  selectOfflineContent: () => void;
+  requestOfflineContent: (id: string) => boolean;
+  removeOfflineContent: (id: string) => boolean;
+  startOfflineNetwork: () => void;
+  stopOfflineNetwork: () => void;
+  openOfflinePortal: () => void;
   forgetGroupCredentials: () => void;
   setOnlineIntegrationsEnabled: (enabled: boolean) => void;
 };
@@ -62,6 +72,10 @@ const initialStatus: NativeRuntimeStatus = {
   offlineWalletAddress: null,
   offlineWalletTransfers: [],
   offlineWalletReceipts: [],
+  offlineLibrary: [],
+  offlineNetworkRunning: false,
+  offlineNodeIp: null,
+  offlinePortalUrl: null,
   platform: 'browser',
   recentEvents: [],
 };
@@ -71,6 +85,7 @@ const primaryClass = 'inline-flex min-h-11 items-center justify-center gap-2 rou
 
 export default function PhoneWorkspace() {
   const [runtime, setRuntime] = useState(initialStatus);
+  const [activeTab, setActiveTab] = useState<'network' | 'messages' | 'library' | 'wallet' | 'activity'>('network');
   const [passphrase, setPassphrase] = useState('');
   const [message, setMessage] = useState('');
   const [directDestination, setDirectDestination] = useState('');
@@ -141,7 +156,8 @@ export default function PhoneWorkspace() {
         </div>
         <div className="rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
           <div className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4 text-cyan-400" /> Local security</div>
-          <div className="mt-2 text-sm font-semibold text-slate-200">Encrypted group frames</div>
+          <div className="mt-2 text-xs font-semibold text-emerald-200">Signed device identity + group AES-GCM</div>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-500">P-256 origin signatures · no forward secrecy or device revocation yet</p>
         </div>
       </div>
 
@@ -151,6 +167,32 @@ export default function PhoneWorkspace() {
         </div>
       )}
 
+      <nav aria-label="MeshNet control sections" className="grid grid-cols-5 gap-1 rounded-2xl border border-slate-800 bg-slate-950 p-1">
+        {[
+          { id: 'network', label: 'Network' },
+          { id: 'messages', label: 'Chat & media' },
+          { id: 'library', label: 'Library' },
+          { id: 'wallet', label: 'Wallet' },
+          { id: 'activity', label: 'Activity' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            aria-pressed={activeTab === tab.id}
+            onClick={() => setActiveTab(tab.id as typeof activeTab)}
+            className={`min-h-11 rounded-xl px-2 py-2 text-xs font-semibold transition ${activeTab === tab.id
+              ? 'bg-cyan-500/15 text-cyan-200 ring-1 ring-inset ring-cyan-400/30'
+              : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+      <p className="text-[11px] leading-relaxed text-slate-500">
+        Features are grouped by task. Network controls remain local; online wallet actions are optional and require internet.
+      </p>
+
+<div hidden={activeTab !== 'network'}>
       <div className="space-y-2 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><Power className="h-4 w-4 text-cyan-400" /> Mesh controls</div>
         <label className="block text-xs text-slate-400" htmlFor="mesh-passphrase">Shared group passphrase (24+ characters)</label>
@@ -171,7 +213,9 @@ export default function PhoneWorkspace() {
         </div>
         <p className="text-[11px] leading-relaxed text-slate-500">The passphrase is sent directly to Android and is not saved in the web dashboard or browser storage. Enter the same high-entropy secret on every participating phone.</p>
       </div>
+      </div>
 
+<div hidden={activeTab !== 'messages'}>
       <div className="space-y-2 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><Activity className="h-4 w-4 text-cyan-400" /> Encrypted messaging</div>
         <textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={2} maxLength={120}
@@ -186,7 +230,9 @@ export default function PhoneWorkspace() {
           }}>Queue encrypted message</button>
         </div>
       </div>
+      </div>
 
+<div hidden={activeTab !== 'messages'}>
       <div className="space-y-2 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="text-sm font-semibold text-white">Destination-aware routing</div>
         <p className="text-[11px] leading-relaxed text-slate-400">Your node ID: <span className="break-all font-mono text-cyan-200">{runtime.localNodeId || "Available when the mesh is running"}</span></p>
@@ -206,7 +252,9 @@ export default function PhoneWorkspace() {
             }}>Send to node</button>
         </div>
       </div>
+      </div>
 
+<div hidden={activeTab !== 'messages'}>
       <div className="space-y-2 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><FileUp className="h-4 w-4 text-cyan-400" /> Files and voice</div>
         <div className="grid grid-cols-2 gap-2">
@@ -221,7 +269,9 @@ export default function PhoneWorkspace() {
         </div>
         <p className="text-[11px] leading-relaxed text-slate-500">File transfer is limited to 10 MiB per file. Microphone and file permissions are requested only after you invoke the corresponding action.</p>
       </div>
+      </div>
 
+<div hidden={activeTab !== 'network'}>
       <div className="space-y-3 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><Wifi className="h-4 w-4 text-cyan-400" /> Local radio options</div>
         <div className="grid grid-cols-2 gap-2">
@@ -236,7 +286,30 @@ export default function PhoneWorkspace() {
           <button className={actionClass} disabled={!runtime.native || !runtime.running || !wifiAddress.trim()} onClick={() => native?.connectWifiDirect(wifiAddress.trim())}>Connect</button>
         </div>
       </div>
+      </div>
 
+<div hidden={activeTab !== 'network'}>
+      <div className="space-y-3 rounded-xl border border-cyan-900/60 bg-[#0A0B0D] p-3">
+        <div className="flex items-center gap-2 text-sm font-semibold text-white"><Network className="h-4 w-4 text-cyan-300" /> Offline IPv4 network</div>
+        <p className="text-[11px] leading-relaxed text-slate-400">Create a private IP network between participating MeshNet devices. Android asks for VPN permission before the tunnel starts.</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button className={primaryClass} disabled={!runtime.native || !runtime.running || runtime.offlineNetworkRunning} onClick={() => native?.startOfflineNetwork()}>Start IP mesh</button>
+          <button className={actionClass} disabled={!runtime.native || !runtime.offlineNetworkRunning} onClick={() => native?.stopOfflineNetwork()}>Stop IP mesh</button>
+        </div>
+        {runtime.offlineNetworkRunning ? (
+          <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950 p-3">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500">This device's mesh IP</div>
+            <div className="break-all font-mono text-sm text-cyan-200">{runtime.offlineNodeIp}</div>
+            <div className="text-[10px] uppercase tracking-wide text-slate-500">Offline web portal</div>
+            <div className="break-all font-mono text-xs text-slate-300">{runtime.offlinePortalUrl || 'Starting local portal…'}</div>
+            <button className={actionClass + ' w-full'} disabled={!runtime.offlinePortalUrl} onClick={() => native?.openOfflinePortal()}>Open offline portal</button>
+          </div>
+        ) : null}
+        <p className="text-[10px] leading-relaxed text-amber-200/80">Only the private 100.64.0.0/10 mesh range is routed through this VPN. It does not create public Internet access or share mobile data. Use the portal or node IP addresses for services hosted by mesh devices.</p>
+      </div>
+      </div>
+
+<div hidden={activeTab !== 'wallet'}>
       <div className="space-y-3 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><Wallet className="h-4 w-4 text-cyan-400" /> Offline wallet-to-wallet transfer</div>
         <p className="break-all text-[11px] text-slate-400">This device address: {runtime.offlineWalletAddress || (native ? "Creating local key…" : "Available in the Android APK")}</p>
@@ -275,7 +348,9 @@ export default function PhoneWorkspace() {
           </div>
         )}
       </div>
+      </div>
 
+<div hidden={activeTab !== 'wallet'}>
       <div className="space-y-3 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><Settings2 className="h-4 w-4 text-cyan-400" /> Online integrations</div>
         <label className="flex items-start gap-3 text-sm text-slate-200">
@@ -311,11 +386,53 @@ export default function PhoneWorkspace() {
         )}
         <p className="text-[11px] leading-relaxed text-slate-500">Online integrations are off by default. Enabling this setting permits the explicitly requested wallet adapter and Devnet RPC flow only; it does not enable cloud messaging, analytics, telemetry, remote fonts, or automatic uploads.</p>
       </div>
+      </div>
 
+<div hidden={activeTab !== 'library'}>
+      <div className="space-y-3 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold text-white">Offline library</div>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-400">Publish files explicitly to make them discoverable by other mesh members. No cloud account or Internet connection is required.</p>
+          </div>
+          <button className={primaryClass} disabled={!runtime.native || !runtime.running} onClick={() => native?.selectOfflineContent()}>Publish</button>
+        </div>
+        <div className="flex items-center justify-between text-[11px] text-slate-500">
+          <span>{runtime.offlineLibrary.filter((item) => item.local).length} stored locally</span>
+          <span>{runtime.offlineLibrary.filter((item) => !item.local).length} discovered on mesh</span>
+        </div>
+        {runtime.offlineLibrary.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-slate-700 p-4 text-center text-xs text-slate-500">No published or discovered content yet. Publish a document or media file to seed this offline library.</p>
+        ) : (
+          <div className="space-y-2">
+            {runtime.offlineLibrary.map((item) => (
+              <div key={item.id} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="break-all text-xs font-semibold text-slate-100">{item.name}</div>
+                    <div className="mt-1 text-[10px] text-slate-500">{(item.size / 1024).toFixed(1)} KiB · {item.local ? 'Available on this device' : `Shared by ${item.origin || 'another node'}`}</div>
+                    <div className="mt-1 break-all font-mono text-[9px] text-slate-600">{item.id}</div>
+                  </div>
+                  {item.local ? (
+                    <button className={actionClass} onClick={() => { if (native?.removeOfflineContent(item.id)) refresh(); }}>Remove</button>
+                  ) : (
+                    <button className={primaryClass} disabled={!runtime.running || item.pending} onClick={() => { const accepted = native?.requestOfflineContent(item.id) === true; setLastEvent(accepted ? `Requested ${item.name}` : `Could not request ${item.name}`); refresh(); }}>{item.pending ? 'Pending' : 'Get'}</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="text-[10px] leading-relaxed text-amber-200/80">Published files are visible to the mesh group, not private. Each file is limited to 10 MiB; local storage is capped at 100 MiB. Downloads are verified by SHA-256 before being added to your library.</p>
+      </div>
+      </div>
+
+<div hidden={activeTab !== 'activity'}>
       <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400"><Network className="h-4 w-4 text-cyan-400" /> Latest native event</div>
         <p className="mt-2 break-words text-xs leading-relaxed text-slate-300">{lastEvent}</p>
         <button className="mt-3 text-xs text-cyan-300 underline underline-offset-4" onClick={refresh}>Refresh device status</button>
+      </div>
       </div>
     </section>
   );

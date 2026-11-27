@@ -138,8 +138,10 @@ class MeshWifiDirectTransport(
                 onState("Wi-Fi Direct group-owner socket listening")
                 while (running.get() && !listener.isClosed) {
                     val socket = listener.accept()
-                    socket.tcpNoDelay = true
-                    sockets.add(socket)
+                    if (!registerSocket(socket)) {
+                        if (running.get()) onState("Wi-Fi Direct peer rejected: connection limit reached or duplicate peer")
+                        continue
+                    }
                     onPeerConnection(socket.inetAddress.hostAddress ?: "unknown", true)
                     onState("Wi-Fi Direct data channel ready")
                     startReader(socket)
@@ -162,8 +164,10 @@ class MeshWifiDirectTransport(
                     try {
                         val socket = Socket()
                         socket.connect(java.net.InetSocketAddress(address, PORT), CONNECT_TIMEOUT_MS)
-                        socket.tcpNoDelay = true
-                        sockets.add(socket)
+                        if (!registerSocket(socket)) {
+                            onState("Wi-Fi Direct peer rejected: connection limit reached or duplicate peer")
+                            return@Thread
+                        }
                         onPeerConnection(socket.inetAddress.hostAddress ?: "unknown", true)
                         onState("Wi-Fi Direct data channel ready")
                         startReader(socket)
@@ -180,6 +184,31 @@ class MeshWifiDirectTransport(
                 clientConnecting.set(false)
             }
         }, "meshnet-wifi-p2p-connect").apply { isDaemon = true; start() }
+    }
+
+    /**
+     * Serialize socket admission with accept/connect callbacks. Each peer can hold
+     * one stream per transport, and reader count is bounded by the policy limit.
+     */
+    private fun registerSocket(socket: Socket): Boolean = synchronized(sockets) {
+        val active = sockets.count { !it.isClosed }
+        val address = socket.inetAddress?.hostAddress
+        val duplicatePeer = address != null && sockets.any {
+            !it.isClosed && it.inetAddress?.hostAddress == address
+        }
+        if (!MeshSocketPolicy.canAdmit(running.get(), active) || duplicatePeer) {
+            runCatching { socket.close() }
+            false
+        } else {
+            try {
+                MeshSocketPolicy.configure(socket)
+                sockets.add(socket)
+                true
+            } catch (_: Exception) {
+                runCatching { socket.close() }
+                false
+            }
+        }
     }
 
     private fun startReader(socket: Socket) {

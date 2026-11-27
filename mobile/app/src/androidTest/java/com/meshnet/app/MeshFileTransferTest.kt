@@ -364,4 +364,16 @@ class MeshFileTransferTest {
         }
         return manifest to chunks
     }
+
+    @Test fun invokesContentCallbackOnlyAfterDigestVerifiedCompletion() {
+        val completed = mutableListOf<File>()
+        val receiver = track(MeshFileTransfer(context, { true }, {}, onCompleted = { completed.add(it) }))
+        val (manifest, chunks) = protocolMessages(source, "callback_001")
+        receiver.accept(manifest)
+        chunks.forEach { receiver.accept(it) }
+        assertEquals(1, completed.size)
+        assertArrayEquals(source.readBytes(), completed.single().readBytes())
+    }
+
+
 }

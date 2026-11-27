@@ -6,6 +6,7 @@ import android.app.AlertDialog
 import android.media.MediaRecorder
 import android.media.MediaPlayer
 import android.net.Uri
+import android.net.VpnService
 import java.io.File
 import android.content.ComponentName
 import android.content.Intent
@@ -215,6 +216,14 @@ class MainActivity : Activity() {
         localWebView.loadUrl("https://appassets.androidplatform.net/assets/web/index.html")
     }
 
+    private fun startOfflineVpnService() {
+        val intent = Intent(this, MeshVpnService::class.java).apply {
+            action = MeshVpnService.ACTION_START
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
+        else startService(intent)
+    }
+
     private fun runtimeStatusJson(): String {
         val events = JSONArray()
         synchronized(recentEvents) {
@@ -223,6 +232,8 @@ class MainActivity : Activity() {
         val peers = meshService?.connectedPeersJson() ?: JSONArray()
         val routes = meshService?.observedRoutesJson() ?: JSONArray()
         val localNodeId = meshService?.localNodeIdValue()
+        val offlineNodeIp = meshService?.offlineNodeIpValue()
+        val offlinePortalUrl = meshService?.offlinePortalUrlValue()
         val outgoingTransfers = JSONArray()
         runCatching {
             offlineWalletStore.outgoingHistory().takeLast(8).forEach { transfer ->
@@ -259,6 +270,10 @@ class MainActivity : Activity() {
             .put("offlineWalletAddress", runCatching { offlineWalletStore.address() }.getOrNull() ?: JSONObject.NULL)
             .put("offlineWalletTransfers", outgoingTransfers)
             .put("offlineWalletReceipts", receivedReceipts)
+            .put("offlineLibrary", meshService?.offlineLibraryJson() ?: JSONArray())
+            .put("offlineNetworkRunning", offlineNodeIp != null)
+            .put("offlineNodeIp", offlineNodeIp ?: JSONObject.NULL)
+            .put("offlinePortalUrl", offlinePortalUrl ?: JSONObject.NULL)
             .put("recentEvents", events)
             .put("connectedPeers", peers)
             .put("observedRoutes", routes)
@@ -343,6 +358,61 @@ class MainActivity : Activity() {
                     false
                 }
             } ?: false
+
+        @JavascriptInterface
+        fun startOfflineNetwork() {
+            runOnUiThread {
+                if (meshService?.localNodeIdValue() == null) {
+                    toast("Start the MeshNet radio mesh first")
+                    return@runOnUiThread
+                }
+                val permission = VpnService.prepare(this@MainActivity)
+                if (permission != null) startActivityForResult(permission, REQUEST_OFFLINE_VPN)
+                else startOfflineVpnService()
+            }
+        }
+
+        @JavascriptInterface
+        fun stopOfflineNetwork() {
+            runOnUiThread {
+                startService(Intent(this@MainActivity, MeshVpnService::class.java).apply {
+                    action = MeshVpnService.ACTION_STOP
+                })
+            }
+        }
+
+        @JavascriptInterface
+        fun openOfflinePortal() {
+            runOnUiThread {
+                val url = meshService?.offlinePortalUrlValue()
+                if (url == null) toast("Start the offline IP network first")
+                else runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                    .onFailure { toast("No browser is available to open the offline portal") }
+            }
+        }
+
+        @JavascriptInterface
+        fun selectOfflineContent() {
+            runOnUiThread {
+                val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                }
+                startActivityForResult(picker, REQUEST_PUBLISH_CONTENT)
+            }
+        }
+
+        @JavascriptInterface
+        fun requestOfflineContent(id: String): Boolean = runOnMainBlocking {
+            runCatching { meshService?.requestOfflineContent(id) == true }
+                .onFailure { toast(it.message ?: "Unable to request offline content") }
+                .getOrDefault(false)
+        } ?: false
+
+        @JavascriptInterface
+        fun removeOfflineContent(id: String): Boolean = runOnMainBlocking {
+            meshService?.removeOfflineContent(id) == true
+        } ?: false
 
         @JavascriptInterface
         fun selectFile() {
@@ -510,6 +580,29 @@ class MainActivity : Activity() {
     @Deprecated("Uses the platform document picker for broad Android compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_OFFLINE_VPN) {
+            if (resultCode == RESULT_OK) startOfflineVpnService()
+            else toast("VPN permission was not granted; the offline IP network remains stopped")
+            return
+        }
+        if (requestCode == REQUEST_PUBLISH_CONTENT && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            val grant = data.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
+            if (grant != 0 && (data.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+                runCatching { contentResolver.takePersistableUriPermission(uri, grant) }
+            }
+            val activeService = meshService
+            if (activeService == null) { toast("Start the local mesh before publishing content"); return }
+            Thread({
+                try {
+                    val id = activeService.publishOfflineContent(uri)
+                    runOnUiThread { toast("Published offline content · ${id.take(12)}…"); publishRuntimeStatus() }
+                } catch (error: Exception) {
+                    runOnUiThread { toast(error.message ?: "Unable to publish offline content") }
+                }
+            }, "meshnet-library-publish").apply { isDaemon = true; start() }
+            return
+        }
         if (requestCode == REQUEST_FILE && resultCode == RESULT_OK) {
             val uri = data?.data ?: return
             val readGrant = data.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -1194,6 +1287,8 @@ class MainActivity : Activity() {
         private const val KEY_ONLINE_INTEGRATIONS = "online_integrations_enabled"
         private const val REQUEST_PERMISSIONS = 4102
         private const val REQUEST_FILE = 4103
+        private const val REQUEST_PUBLISH_CONTENT = 4108
+        private const val REQUEST_OFFLINE_VPN = 4109
         private const val REQUEST_AUDIO = 4104
         private const val REQUEST_WALLET = 4106
         private const val REQUEST_EXPORT_FILE = 4107

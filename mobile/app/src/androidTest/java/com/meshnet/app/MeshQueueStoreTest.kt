@@ -70,7 +70,7 @@ class MeshQueueStoreTest {
     }
 
     @Test
-    fun protocolV5UpgradeClearsIncompatibleQueuedFramesAndReplayIds() {
+    fun protocolV6UpgradeClearsIncompatibleQueuedFramesAndReplayIds() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         store.close()
         context.deleteDatabase("meshnet-outbox.db")
@@ -87,7 +87,7 @@ class MeshQueueStoreTest {
         )
         legacy.execSQL("CREATE TABLE received_ids (frame_id TEXT PRIMARY KEY NOT NULL, created_at INTEGER NOT NULL)")
         val oldFrame = frame("old_frame_01", MeshFrame.KIND_MESSAGE).encode()
-            .toString(Charsets.UTF_8).replace("\"v\":5", "\"v\":4").toByteArray(Charsets.UTF_8)
+            .toString(Charsets.UTF_8).replace("\"v\":6", "\"v\":5").toByteArray(Charsets.UTF_8)
         legacy.insertOrThrow("outbox", null, ContentValues().apply {
             put("frame_id", "legacy-row")
             put("frame", oldFrame)
@@ -100,7 +100,7 @@ class MeshQueueStoreTest {
             put("frame_id", "old_frame_01")
             put("created_at", System.currentTimeMillis())
         })
-        legacy.version = 6
+        legacy.version = 7
         legacy.close()
 
         store = MeshQueueStore(context)
@@ -118,4 +118,22 @@ class MeshQueueStoreTest {
         kind = kind,
         ackFor = ackFor
     )
+
+    @Test
+    fun directedReceiptMustMatchPersistedDestinationEvenWithoutOutboxFrame() {
+        store.recordDestination("directed_message_01", "destination_01")
+        assertFalse(store.receiptMatches("directed_message_01", "attacker_01"))
+        assertTrue(store.receiptMatches("directed_message_01", "destination_01"))
+        assertEquals(1, store.acknowledge("directed_message_01"))
+        assertTrue(store.receiptMatches("directed_message_01", "attacker_01"))
+    }
+
+    @Test
+    fun directedDestinationIsAlsoReadFromDurableFrameWhenPresent() {
+        val directed = frame("directed_message_02", MeshFrame.KIND_MESSAGE).copy(destination = "destination_02")
+        assertTrue(store.enqueue(directed.encode()))
+        assertFalse(store.receiptMatches("directed_message_02", "attacker_02"))
+        assertTrue(store.receiptMatches("directed_message_02", "destination_02"))
+    }
+
 }

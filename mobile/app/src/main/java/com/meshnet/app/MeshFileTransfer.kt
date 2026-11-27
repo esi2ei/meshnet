@@ -21,7 +21,8 @@ class MeshFileTransfer(
     private val context: Context,
     private val sendMessage: (String) -> Boolean,
     private val onEvent: (String) -> Unit,
-    private val canQueueBatch: (Int) -> Boolean = { true }
+    private val canQueueBatch: (Int) -> Boolean = { true },
+    private val onCompleted: (File) -> Unit = {}
 ) {
     private data class Incoming(
         val name: String,
@@ -490,6 +491,8 @@ class MeshFileTransfer(
             state.meta.delete()
             incoming.remove(id)
             sendAck(id, state.chunks)
+            runCatching { onCompleted(destination) }
+                .onFailure { onEvent("Completed file callback failed: ${it.message}") }
             onEvent("File received and verified: ${destination.name} (${state.size} bytes)")
         } catch (error: Exception) {
             if (state.file.exists() && state.handle == null) {
@@ -554,6 +557,8 @@ class MeshFileTransfer(
             return true
         }
         sendAck(id, chunks)
+        runCatching { onCompleted(destination) }
+            .onFailure { onEvent("Recovered file callback failed: ${it.message}") }
         onEvent("Recovered completed file: ${destination.name} ($size bytes)")
         return true
     }
