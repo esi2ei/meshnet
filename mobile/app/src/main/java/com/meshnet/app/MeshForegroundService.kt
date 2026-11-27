@@ -83,7 +83,7 @@ class MeshForegroundService : Service() {
             return START_NOT_STICKY
         }
 
-        if (transport == null && !passphrase.isNullOrBlank()) {
+        if (router == null && !passphrase.isNullOrBlank()) {
             if (Build.VERSION.SDK_INT >= 29) {
                 startForeground(NOTIFICATION_ID, notification("Starting BLE mesh…"),
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
@@ -91,7 +91,7 @@ class MeshForegroundService : Service() {
                 startForeground(NOTIFICATION_ID, notification("Starting BLE mesh…"))
             }
             startMesh(passphrase)
-        } else if (transport == null) {
+        } else if (router == null) {
             emit("No saved group credentials. Open MeshNet and enter the group passphrase.")
             stopSelf(startId)
             return START_NOT_STICKY
@@ -101,7 +101,7 @@ class MeshForegroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder = binder
     fun setListener(callback: ((String) -> Unit)?) { listener = callback }
-    fun isRunning(): Boolean = transport != null
+    fun isRunning(): Boolean = router != null
 
     fun sendMessage(message: String): Boolean {
         val activeRouter = router ?: throw IllegalStateException("Mesh service is not ready")
@@ -367,7 +367,11 @@ class MeshForegroundService : Service() {
             }
         )
         try {
-            transport?.start()
+            runCatching { transport?.start() }.onFailure { error ->
+                emit("BLE unavailable on this device; continuing with local Wi-Fi transports: ${error.message}")
+                runCatching { transport?.stop() }
+                transport = null
+            }
             wifiTransport = MeshWifiDirectTransport(
                 this,
                 { peer, payload -> router?.receive(payload, peer) },
@@ -387,7 +391,7 @@ class MeshForegroundService : Service() {
             )
             runCatching { wifiAwareTransport?.start() }
                 .onFailure { emit("Wi-Fi Aware unavailable; other transports remain active: ${it.message}") }
-            emit("BLE foreground service started · Node $nodeId")
+            emit("Mesh service started · BLE ${if (transport != null) "ready" else "unavailable"} · Node $nodeId; Wi-Fi Direct can be started when supported")
         } catch (error: Exception) {
             emit(error.message ?: "Unable to start BLE")
             stopMesh()
@@ -417,7 +421,6 @@ class MeshForegroundService : Service() {
 
     @Synchronized
     private fun pumpOutboxReplay() {
-        val link = transport ?: return
         if (!replayActive) return
         while (replayIndex < replayFrames.size) {
             val frame = replayFrames[replayIndex]
@@ -427,7 +430,7 @@ class MeshForegroundService : Service() {
                 continue
             }
             // A full per-peer BLE queue pauses this pass. Queue-drained callbacks resume it.
-            val bleAccepted = link.sendToPeers(frame)
+            val bleAccepted = transport?.sendToPeers(frame) == true
             val wifiAccepted = wifiTransport?.sendToPeers(frame) == true
             val awareAccepted = wifiAwareTransport?.sendToPeers(frame) == true
             if (!bleAccepted && !wifiAccepted && !awareAccepted) return
