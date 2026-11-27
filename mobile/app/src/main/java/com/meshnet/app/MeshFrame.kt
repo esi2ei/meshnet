@@ -12,7 +12,8 @@ data class MeshFrame(
     val createdAt: Long = System.currentTimeMillis(),
     val id: String = UUID.randomUUID().toString(),
     val kind: String = KIND_MESSAGE,
-    val ackFor: String? = null
+    val ackFor: String? = null,
+    val destination: String? = null
 ) {
     fun encode(): ByteArray = JSONObject()
         .put("v", PROTOCOL_VERSION)
@@ -25,11 +26,12 @@ data class MeshFrame(
         .put("createdAt", createdAt)
         .put("kind", kind)
         .put("ackFor", ackFor ?: JSONObject.NULL)
+        .put("destination", destination ?: JSONObject.NULL)
         .toString()
         .toByteArray(Charsets.UTF_8)
 
     companion object {
-        const val PROTOCOL_VERSION = 4
+        const val PROTOCOL_VERSION = 5
         const val KIND_MESSAGE = "MESSAGE"
         const val KIND_ACK = "ACK"
         const val KIND_EPHEMERAL = "EPHEMERAL"
@@ -49,11 +51,13 @@ data class MeshFrame(
                 ciphertext = json.getString("ciphertext"),
                 createdAt = json.getLong("createdAt"),
                 kind = json.optString("kind", KIND_MESSAGE),
-                ackFor = if (ackValue == null || ackValue == JSONObject.NULL) null else ackValue.toString()
+                ackFor = if (ackValue == null || ackValue == JSONObject.NULL) null else ackValue.toString(),
+                destination = json.opt("destination")?.let { if (it == JSONObject.NULL) null else it.toString() }
             )
             val now = System.currentTimeMillis()
             require(frame.id.matches(Regex("[A-Za-z0-9_-]{1,64}"))) { "Invalid frame ID" }
             require(frame.origin.matches(Regex("[A-Za-z0-9_-]{1,32}"))) { "Invalid origin ID" }
+            require(frame.destination == null || frame.destination.matches(Regex("[A-Za-z0-9_-]{1,32}"))) { "Invalid destination ID" }
             require(frame.ttl in 1..MAX_TTL) { "Invalid TTL" }
             require(frame.hops.size in 1..MAX_TTL) { "Invalid route history" }
             require(frame.hops.first() == frame.origin) { "Route does not begin at origin" }
@@ -76,7 +80,7 @@ data class MeshFrame(
         }
 
         fun aad(frame: MeshFrame): ByteArray =
-            "meshnet-v4|${frame.kind}|${frame.id}|${frame.origin}|${frame.createdAt}|${frame.ackFor.orEmpty()}|${frame.ttl}|${frame.hops.joinToString(",")}"
+            "meshnet-v5|${frame.kind}|${frame.id}|${frame.origin}|${frame.destination.orEmpty()}|${frame.createdAt}|${frame.ackFor.orEmpty()}|${frame.ttl}|${frame.hops.joinToString(",")}"
                 .toByteArray(Charsets.UTF_8)
 
         const val MAX_TTL = 8
