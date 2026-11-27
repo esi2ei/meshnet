@@ -144,10 +144,11 @@ class MeshForegroundService : Service() {
                     true
                 }
             },
-            onMessage = { message -> if (fileTransfer?.accept(message) != true) emit(message) },
+            onMessage = ::emit,
             hasReceived = outbox::hasReceived,
             markReceived = outbox::markReceived,
-            acknowledge = outbox::acknowledge
+            acknowledge = outbox::acknowledge,
+            onPayload = { plaintext -> fileTransfer?.accept(plaintext) == true }
         )
         transport = MeshBleTransport(
             this,
