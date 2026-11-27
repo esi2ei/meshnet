@@ -6,6 +6,41 @@ import org.junit.Test
 
 class MeshRouterReceiptTest {
     @Test
+    fun applicationPayloadHandlerReceivesRawAuthenticatedPlaintext() {
+        val passphrase = "a sufficiently long group passphrase"
+        val frames = mutableListOf<ByteArray>()
+        val handled = mutableListOf<String>()
+        val displayed = mutableListOf<String>()
+        val senderSeen = mutableSetOf<String>()
+        val receiverSeen = mutableSetOf<String>()
+        val sender = MeshRouter(
+            nodeId = "sender_01",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { frames.add(it); true },
+            onMessage = {},
+            hasReceived = { it in senderSeen },
+            markReceived = { id, _ -> !senderSeen.add(id) },
+            acknowledge = { 0 }
+        )
+        val receiver = MeshRouter(
+            nodeId = "receiver1",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { true },
+            onMessage = { displayed.add(it) },
+            hasReceived = { it in receiverSeen },
+            markReceived = { id, _ -> !receiverSeen.add(id) },
+            acknowledge = { 0 },
+            onPayload = { handled.add(it); true }
+        )
+        sender.sendMessage("~F1M|transfer_01|10|1|0123456789abcdef|dGVzdA")
+        val frame = frames.map { MeshFrame.decode(it) }.first { it.kind == MeshFrame.KIND_MESSAGE }
+        receiver.receive(frame.encode())
+
+        assertEquals(listOf("~F1M|transfer_01|10|1|0123456789abcdef|dGVzdA"), handled)
+        assertTrue(displayed.isEmpty())
+    }
+
+    @Test
     fun relayReencryptsPayloadForUpdatedAuthenticatedRoute() {
         val passphrase = "a sufficiently long group passphrase"
         val senderQueue = mutableListOf<ByteArray>()
