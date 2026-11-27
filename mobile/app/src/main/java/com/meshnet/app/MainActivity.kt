@@ -45,7 +45,7 @@ class MainActivity : Activity() {
     private lateinit var keyInput: EditText
     private lateinit var messageInput: EditText
     private lateinit var wifiAddress: EditText
-    private var meshService: MeshForegroundService? = null
+    @Volatile private var meshService: MeshForegroundService? = null
     private var webView: WebView? = null
     private val recentEvents = ArrayList<String>()
     private val appPreferences by lazy {
@@ -218,14 +218,21 @@ class MainActivity : Activity() {
 
     private fun <T> runOnMainBlocking(block: () -> T): T? {
         if (Looper.myLooper() == Looper.getMainLooper()) return runCatching(block).getOrNull()
-        val result = AtomicReference<Result<T>?>(null)
+        val result = AtomicReference<Any?>(null)
+        val failed = java.util.concurrent.atomic.AtomicBoolean(false)
         val latch = CountDownLatch(1)
         runOnUiThread {
-            result.set(runCatching(block))
-            latch.countDown()
+            try {
+                result.set(block())
+            } catch (_: Exception) {
+                failed.set(true)
+            } finally {
+                latch.countDown()
+            }
         }
-        if (!latch.await(5, TimeUnit.SECONDS)) return null
-        return result.get()?.getOrNull()
+        if (!latch.await(5, TimeUnit.SECONDS) || failed.get()) return null
+        @Suppress("UNCHECKED_CAST")
+        return result.get() as? T
     }
 
     inner class MeshNetBridge {
@@ -278,6 +285,23 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun cancelFileTransfer(): Boolean =
             runOnMainBlocking { meshService?.cancelFileTransfers() == true } ?: false
+
+        @JavascriptInterface
+        fun forgetGroupCredentials() {
+            runOnUiThread {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Forget group credentials?")
+                    .setMessage("This deletes the saved group passphrase and local queued mesh data on this phone.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Delete") { _, _ ->
+                        startService(Intent(this@MainActivity, MeshForegroundService::class.java).apply {
+                            action = MeshForegroundService.ACTION_FORGET_CREDENTIALS
+                        })
+                        append("Forget credentials requested")
+                    }
+                    .show()
+            }
+        }
 
         @JavascriptInterface
         fun saveReceivedFile() {
