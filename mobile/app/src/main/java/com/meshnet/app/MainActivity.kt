@@ -133,7 +133,7 @@ class MainActivity : Activity() {
     private fun append(line: String) {
         runOnUiThread {
             log.append("\n$line")
-            status.text = "BLE mesh active · Node $nodeId"
+            status.text = line.take(90)
         }
     }
 
