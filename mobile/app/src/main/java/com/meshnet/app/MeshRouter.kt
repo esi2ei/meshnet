@@ -54,6 +54,6 @@ class MeshRouter(
 
     companion object {
         private const val MAX_SEEN_IDS = 2048
-        private const val MAX_PLAINTEXT_BYTES = 280
+        private const val MAX_PLAINTEXT_BYTES = 120
     }
 }
