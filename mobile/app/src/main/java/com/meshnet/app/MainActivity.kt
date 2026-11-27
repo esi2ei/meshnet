@@ -3,6 +3,7 @@ package com.meshnet.app
 import android.Manifest
 import android.app.Activity
 import android.media.MediaRecorder
+import android.media.MediaPlayer
 import android.net.Uri
 import java.io.File
 import android.content.ComponentName
@@ -32,6 +33,7 @@ class MainActivity : Activity() {
     private var recordingFile: File? = null
     private var isRecording = false
     private var voiceButton: Button? = null
+    private var voicePlayer: MediaPlayer? = null
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -132,6 +134,10 @@ class MainActivity : Activity() {
         }
         root.addView(voiceButton)
         root.addView(Button(this).apply {
+            text = "Play latest received voice note"
+            setOnClickListener { playLatestVoiceNote() }
+        })
+        root.addView(Button(this).apply {
             text = "Send small file (max 16 KiB)"
             setOnClickListener {
                 val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -162,6 +168,31 @@ class MainActivity : Activity() {
             } catch (error: Exception) {
                 toast(error.message ?: "Unable to send file")
             }
+        }
+    }
+
+    private fun playLatestVoiceNote() {
+        val file = meshService?.latestReceivedVoiceNote()
+        if (file == null || !file.exists()) {
+            toast("No received voice note is available")
+            return
+        }
+        try {
+            voicePlayer?.release()
+            voicePlayer = MediaPlayer().apply {
+                setDataSource(file.absolutePath)
+                setOnCompletionListener { player ->
+                    player.release()
+                    if (voicePlayer === player) voicePlayer = null
+                }
+                prepare()
+                start()
+            }
+            toast("Playing ${file.name}")
+        } catch (error: Exception) {
+            voicePlayer?.release()
+            voicePlayer = null
+            toast(error.message ?: "Unable to play voice note")
         }
     }
 
@@ -329,6 +360,8 @@ class MainActivity : Activity() {
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
     override fun onStop() {
+        voicePlayer?.release()
+        voicePlayer = null
         if (isRecording) {
             isRecording = false
             runCatching { recorder?.stop() }
