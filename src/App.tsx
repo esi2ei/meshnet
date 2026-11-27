@@ -76,9 +76,7 @@ export default function App() {
     setBlockchainLogs([]);
   };
 
-  const activeNodeUser = nodes.find(n => n.id === activeNodeId)?.username || 'User';
-
-  return (
+    return (
     <div className="min-h-screen bg-[#0A0B0D] text-slate-200 flex flex-col font-sans transition-all duration-300">
       
       {/* Top Main Navigation HUD */}
@@ -166,17 +164,17 @@ export default function App() {
 
         </div>
 
-        {/* MIDDLE COLUMN: High Fidelity Virtual Emulator Phone Screen frame (4 of 12 widths) */}
+        {/* MIDDLE COLUMN: Native runtime instructions */}
         <div className="lg:col-span-4 flex justify-center w-full">
           <div className="flex flex-col items-center w-full max-w-[340px]">
             
             {/* Display which phone screen is currently loaded */}
             <div className="mb-3 text-center">
               <span className="text-[10px] font-bold uppercase text-slate-500 font-mono tracking-widest">
-                Active Viewscreen
+                Native Runtime
               </span>
               <h2 className="text-xs font-semibold text-slate-300 mt-1 font-display uppercase tracking-wide">
-                {activeNodeUser}'s Console ({activeNodeId})
+                Android setup · {activeNodeId}
               </h2>
             </div>
 
