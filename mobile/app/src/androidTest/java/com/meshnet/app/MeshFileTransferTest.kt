@@ -88,7 +88,7 @@ class MeshFileTransferTest {
         receiver.accept(manifest)
         chunks.forEach { receiver.accept(it) }
         val receivedVoice = receiver.latestVoiceNote()
-        assertNotNull("A verified .m4a voice note should be discoverable", receivedVoice)
+        assertTrue("A verified .m4a voice note should be discoverable", receivedVoice != null)
         assertEquals("m4a", receivedVoice!!.extension)
         assertTrue(receivedVoice.exists())
         assertArrayEquals(voice.readBytes(), receivedVoice.readBytes())
