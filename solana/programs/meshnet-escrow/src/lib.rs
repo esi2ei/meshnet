@@ -136,7 +136,7 @@ mod tests {
 fn settle_to_provider(ctx: Context<SettleOrder>) -> Result<()> {
     require!(ctx.accounts.order.status == OrderStatus::Open, EscrowError::AlreadySettled);
     require_keys_eq!(ctx.accounts.mint.key(), ctx.accounts.order.mint, EscrowError::InvalidMint);
-    require!(ctx.accounts.vault.amount == ctx.accounts.order.amount, EscrowError::VaultBalanceMismatch);
+    require!(ctx.accounts.vault.amount >= ctx.accounts.order.amount, EscrowError::VaultBalanceMismatch);
     let order_key = ctx.accounts.order.key();
     let bump = [ctx.accounts.order.bump];
     let seeds: &[&[u8]] = &[
@@ -147,6 +147,7 @@ fn settle_to_provider(ctx: Context<SettleOrder>) -> Result<()> {
     ];
     let signer = &[seeds];
     let amount = ctx.accounts.order.amount;
+    let excess = ctx.accounts.vault.amount.checked_sub(amount).ok_or(EscrowError::VaultBalanceMismatch)?;
     let cpi = TransferChecked {
         from: ctx.accounts.vault.to_account_info(),
         mint: ctx.accounts.mint.to_account_info(),
@@ -158,6 +159,19 @@ fn settle_to_provider(ctx: Context<SettleOrder>) -> Result<()> {
         amount,
         ctx.accounts.mint.decimals,
     )?;
+    if excess > 0 {
+        let refund_excess = TransferChecked {
+            from: ctx.accounts.vault.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            to: ctx.accounts.buyer_token.to_account_info(),
+            authority: ctx.accounts.order.to_account_info(),
+        };
+        token::transfer_checked(
+            CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), refund_excess, signer),
+            excess,
+            ctx.accounts.mint.decimals,
+        )?;
+    }
     close_vault(
         &ctx.accounts.token_program,
         &ctx.accounts.vault,
@@ -182,7 +196,7 @@ fn settle_to_buyer(ctx: Context<RefundOrder>) -> Result<()> {
         &bump,
     ];
     let signer = &[seeds];
-    let amount = ctx.accounts.order.amount;
+    let amount = ctx.accounts.vault.amount;
     let cpi = TransferChecked {
         from: ctx.accounts.vault.to_account_info(),
         mint: ctx.accounts.mint.to_account_info(),
@@ -224,12 +238,13 @@ fn close_vault<'info>(
 fn settle_to_provider_arbitrated(ctx: Context<ArbitrateOrder>) -> Result<()> {
     require_keys_eq!(ctx.accounts.arbitrator.key(), ctx.accounts.order.arbitrator, EscrowError::WrongArbitrator);
     require!(ctx.accounts.order.status == OrderStatus::Open, EscrowError::AlreadySettled);
-    require!(ctx.accounts.vault.amount == ctx.accounts.order.amount, EscrowError::VaultBalanceMismatch);
+    require!(ctx.accounts.vault.amount >= ctx.accounts.order.amount, EscrowError::VaultBalanceMismatch);
     let key = ctx.accounts.order.key();
     let bump = [ctx.accounts.order.bump];
     let seeds: &[&[u8]] = &[ORDER_SEED, ctx.accounts.order.buyer.as_ref(), ctx.accounts.order.order_id.as_ref(), &bump];
     let signer = &[seeds];
     let amount = ctx.accounts.order.amount;
+    let excess = ctx.accounts.vault.amount.checked_sub(amount).ok_or(EscrowError::VaultBalanceMismatch)?;
     let transfer = TransferChecked {
         from: ctx.accounts.vault.to_account_info(),
         mint: ctx.accounts.mint.to_account_info(),
@@ -237,6 +252,15 @@ fn settle_to_provider_arbitrated(ctx: Context<ArbitrateOrder>) -> Result<()> {
         authority: ctx.accounts.order.to_account_info(),
     };
     token::transfer_checked(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), transfer, signer), amount, ctx.accounts.mint.decimals)?;
+    if excess > 0 {
+        let refund_excess = TransferChecked {
+            from: ctx.accounts.vault.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            to: ctx.accounts.buyer_token.to_account_info(),
+            authority: ctx.accounts.order.to_account_info(),
+        };
+        token::transfer_checked(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), refund_excess, signer), excess, ctx.accounts.mint.decimals)?;
+    }
     let close = CloseAccount {
         account: ctx.accounts.vault.to_account_info(),
         destination: ctx.accounts.buyer.to_account_info(),
@@ -250,12 +274,12 @@ fn settle_to_provider_arbitrated(ctx: Context<ArbitrateOrder>) -> Result<()> {
 fn settle_to_buyer_arbitrated(ctx: Context<ArbitrateRefund>) -> Result<()> {
     require_keys_eq!(ctx.accounts.arbitrator.key(), ctx.accounts.order.arbitrator, EscrowError::WrongArbitrator);
     require!(ctx.accounts.order.status == OrderStatus::Open, EscrowError::AlreadySettled);
-    require!(ctx.accounts.vault.amount == ctx.accounts.order.amount, EscrowError::VaultBalanceMismatch);
+    require!(ctx.accounts.vault.amount >= ctx.accounts.order.amount, EscrowError::VaultBalanceMismatch);
     let key = ctx.accounts.order.key();
     let bump = [ctx.accounts.order.bump];
     let seeds: &[&[u8]] = &[ORDER_SEED, ctx.accounts.order.buyer.as_ref(), ctx.accounts.order.order_id.as_ref(), &bump];
     let signer = &[seeds];
-    let amount = ctx.accounts.order.amount;
+    let amount = ctx.accounts.vault.amount;
     let transfer = TransferChecked {
         from: ctx.accounts.vault.to_account_info(),
         mint: ctx.accounts.mint.to_account_info(),
@@ -324,6 +348,8 @@ pub struct SettleOrder<'info> {
     pub vault: Account<'info, TokenAccount>,
     #[account(mut, associated_token::mint = mint, associated_token::authority = provider)]
     pub provider_token: Account<'info, TokenAccount>,
+    #[account(mut, associated_token::mint = mint, associated_token::authority = buyer)]
+    pub buyer_token: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
 }
 
