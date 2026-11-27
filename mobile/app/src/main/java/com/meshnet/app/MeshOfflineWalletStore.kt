@@ -124,6 +124,8 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         val status: String
     )
 
+    data class PendingVoucher(val id: String, val payload: String)
+
     /** Persist the signed voucher before any radio send is attempted. */
     @Synchronized
     fun recordOutgoing(payload: String) {
@@ -145,6 +147,7 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
             .put("recipient", recipient)
             .put("amountMinor", amount)
             .put("createdAt", createdAt)
+            .put("payload", payload)
             .put("status", "QUEUED"))
         check(preferences.edit().putString(KEY_OUTGOING, entries.toString()).commit()) {
             "Could not persist outgoing offline transfer"
@@ -209,6 +212,19 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
             "Could not persist recipient acknowledgement"
         }
         return OutgoingTransfer(id, recipient, amount, item.getLong("createdAt"), "RECEIVED")
+    }
+
+    /** Return exact signed vouchers that still need a recipient acknowledgement. */
+    @Synchronized
+    fun pendingOutgoingVouchers(): List<PendingVoucher> {
+        val array = readOutgoing()
+        return (0 until array.length()).mapNotNull { index ->
+            runCatching {
+                val item = array.getJSONObject(index)
+                if (item.getString("status") == "RECEIVED") return@runCatching null
+                PendingVoucher(item.getString("id"), item.getString("payload"))
+            }.getOrNull()
+        }
     }
 
     @Synchronized
