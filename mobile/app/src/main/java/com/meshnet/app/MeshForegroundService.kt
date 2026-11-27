@@ -138,24 +138,34 @@ class MeshForegroundService : Service() {
     private fun sendMeshFrameToPeer(frame: ByteArray, peer: String): Boolean {
         val separator = peer.indexOf('/')
         if (separator <= 0 || separator == peer.lastIndex) return false
+        if (!outbox.containsFrame(frame) && !outbox.enqueue(frame)) return false
         val transportName = peer.substring(0, separator)
         val address = peer.substring(separator + 1)
-        return when (transportName) {
+        val accepted = when (transportName) {
             "BLE" -> transport?.sendToPeer(frame, address) == true
             "P2P" -> wifiTransport?.sendToPeer(frame, address) == true
             "AWARE" -> wifiAwareTransport?.sendToPeer(frame, address) == true
             else -> false
         }
+        if (accepted && runCatching { MeshFrame.decode(frame).kind == MeshFrame.KIND_ACK }.getOrDefault(false)) {
+            outbox.retireAcknowledgement(frame)
+        }
+        return accepted
     }
 
     private fun sendMeshFrameToOthers(frame: ByteArray, ingress: String?): Boolean {
+        if (!outbox.containsFrame(frame) && !outbox.enqueue(frame)) return false
         val separator = ingress?.indexOf('/') ?: -1
         val ingressTransport = if (separator > 0) ingress!!.substring(0, separator) else null
         val ingressAddress = if (separator > 0) ingress!!.substring(separator + 1) else ingress
         val bleSent = transport?.sendToPeers(frame, if (ingressTransport == "BLE") ingressAddress else null) == true
         val p2pSent = wifiTransport?.sendToPeers(frame, if (ingressTransport == "P2P") ingressAddress else null) == true
         val awareSent = wifiAwareTransport?.sendToPeers(frame, if (ingressTransport == "AWARE") ingressAddress else null) == true
-        return bleSent || p2pSent || awareSent
+        val accepted = bleSent || p2pSent || awareSent
+        if (accepted && runCatching { MeshFrame.decode(frame).kind == MeshFrame.KIND_ACK }.getOrDefault(false)) {
+            outbox.retireAcknowledgement(frame)
+        }
+        return accepted
     }
 
     fun offlineWalletAddress(): String = offlineWallet.address()
