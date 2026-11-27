@@ -20,6 +20,7 @@ class MeshForegroundService : Service() {
 
     private val binder = LocalBinder()
     private val peerRegistry = MeshPeerRegistry()
+    private val routeRegistry = MeshRouteRegistry()
     private var transport: MeshBleTransport? = null
     private var wifiTransport: MeshWifiDirectTransport? = null
     private var wifiAwareTransport: MeshWifiAwareTransport? = null
@@ -116,6 +117,8 @@ class MeshForegroundService : Service() {
     fun setListener(callback: ((String) -> Unit)?) { listener = callback }
     fun isRunning(): Boolean = router != null
     fun connectedPeersJson(): org.json.JSONArray = if (router != null) peerRegistry.toJson() else org.json.JSONArray()
+    fun observedRoutesJson(): org.json.JSONArray = if (router != null) routeRegistry.toJson() else org.json.JSONArray()
+    fun localNodeIdValue(): String? = if (router != null) nodeId else null
 
     private fun recordPeerConnection(transportName: String, address: String, connected: Boolean) {
         peerRegistry.setConnected(transportName, address, connected)
@@ -415,6 +418,9 @@ class MeshForegroundService : Service() {
                 val p2pSent = wifiTransport?.sendToPeers(frame, ingress) == true
                 val awareSent = wifiAwareTransport?.sendToPeers(frame, ingress) == true
                 bleSent || p2pSent || awareSent
+            },
+            onRouteObserved = { path ->
+                if (routeRegistry.observe(path)) emit("Observed mesh route: ${path.joinToString(" → ")}")
             }
         )
         processCompletedPendingOfflinePayments()
@@ -549,6 +555,7 @@ class MeshForegroundService : Service() {
         wifiAwareTransport?.stop()
         wifiAwareTransport = null
         peerRegistry.clear()
+        routeRegistry.clear()
         router = null
         replayFrames = emptyList()
         replayIndex = 0
