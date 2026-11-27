@@ -684,8 +684,12 @@ class MainActivity : Activity() {
                     val signatureBytes = submitted.signatures.firstOrNull()
                         ?: throw IllegalStateException("Wallet returned no transaction signature")
                     val signature = SolanaDevnetTransfer.encodeBase58(signatureBytes)
-                    val confirmation = runCatching { checkDevnetSignature(signature) }
-                        .getOrElse { "wallet submitted; RPC confirmation read-back unavailable" }
+                    val confirmation = try {
+                        checkDevnetSignature(signature)
+                    } catch (error: Exception) {
+                        if (error.message?.startsWith("Devnet rejected transaction") == true) throw error
+                        "wallet submitted; RPC confirmation read-back unavailable"
+                    }
                     runOnUiThread {
                         walletStatus.text = "Devnet transaction · $confirmation"
                         append("Solana Devnet SOL transfer · $signature · $confirmation")
