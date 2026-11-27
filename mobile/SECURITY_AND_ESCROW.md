@@ -63,6 +63,10 @@ Do not accept or display real deposits until all of these are available and revi
 | iOS | Deferred by product direction | Keep postponed; do not start an iOS port |
 | Physical validation | Not performed | Build and run instrumented tests on at least two real Android phones and a three-node relay topology |
 
+
+
+**Group delivery limitation:** durable frame retirement currently follows a group receipt from a peer; no authenticated group membership roster or per-recipient quorum is available. A receipt therefore proves at least one group member received the frame, not that every group member—including offline members—did.
+
 ## 4. Validation policy for this branch
 
 - Do not run GitHub Actions / CI unless explicitly requested.

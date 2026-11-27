@@ -47,6 +47,10 @@ For a multi-hop BLE check, use three phones with each device within BLE range of
 - Android may stop a foreground service under exceptional resource or policy conditions. BLE peripheral advertising and concurrent GATT connections vary by chipset and vendor.
 - The added Android instrumentation tests have **not** been executed. No Android build or physical-device test has been performed for these commits. Do not use this prototype for sensitive or financial traffic before independent security review and device testing.
 
+
+
+**Group-delivery boundary:** message receipts and file-transfer checkpoints currently confirm receipt by a group member, not a quorum across every previously seen device. MeshNet does not yet maintain an authenticated membership roster or per-recipient delivery ledger, so this must not be treated as guaranteed delivery to every offline group member.
+
 ## Remaining implementation plan
 
 See [SECURITY_AND_ESCROW.md](SECURITY_AND_ESCROW.md) for the Apache-2.0 cryptography candidate, escrow design decision, integration gates, and explicit items that cannot safely be enabled without a deployed and reviewed program.

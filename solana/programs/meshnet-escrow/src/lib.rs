@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
 #[cfg(all(feature = "devnet", feature = "mainnet"))]
 compile_error!("Select exactly one escrow cluster profile: default devnet or --no-default-features --features mainnet.");
+#[cfg(not(any(feature = "devnet", feature = "mainnet")))]
+compile_error!("An explicit escrow cluster profile is required: devnet or mainnet.");
 use anchor_spl::{
     associated_token::AssociatedToken,
     token::{self, CloseAccount, Mint, Token, TokenAccount, TransferChecked},
