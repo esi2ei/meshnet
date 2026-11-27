@@ -23,7 +23,7 @@ The Android Gradle `preBuild` task builds the React dashboard and packages it be
 ## Change boundaries
 
 - Keep the simulated topology clearly labeled as a simulator. Do not present simulated nodes or events as live radio observations.
-- Keep the WebView bridge limited to the bundled local dashboard. Do not enable universal file access, mixed content, external navigation, or broad JavaScript interfaces.
+- Keep the WebView bridge limited to the bundled local dashboard served by AndroidX WebViewAssetLoader; the virtual appassets origin is allowlisted and external navigation is blocked. Do not enable universal file access, mixed content, external navigation, or broad JavaScript interfaces.
 - Keep online integrations opt-in. The current wallet path is Devnet authorization only; it is not a payment or escrow integration.
 - Add or update tests when changing framing, encryption, persistence, file transfer, native bridge behavior, or build packaging.
 - Do not claim physical Bluetooth/Wi-Fi interoperability based only on emulator tests.
