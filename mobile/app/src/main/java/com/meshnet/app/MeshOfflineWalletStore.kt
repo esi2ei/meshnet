@@ -234,6 +234,9 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
     }
 
     @Synchronized
+    fun receiptById(id: String): Receipt? = history().firstOrNull { it.id == id }
+
+    @Synchronized
     fun history(): List<Receipt> {
         val array = readHistory()
         return (0 until array.length()).mapNotNull { index ->
