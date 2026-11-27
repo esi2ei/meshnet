@@ -4,9 +4,9 @@
 
 MeshNet is an offline-first, device-to-device application. Its Android data plane can use BLE/GATT, Wi-Fi Direct and Wi-Fi Aware to carry MeshNet frames between nearby devices. The router supports bounded multi-hop forwarding, destination-aware delivery, receipts and a durable message outbox. The application also has local file and voice features.
 
-This is **not yet a general-purpose offline Internet**. The current transports carry MeshNet application frames; they do not create an IP network for arbitrary apps. There is no production VPN/TUN data plane, IP address allocation, DNS resolver, Internet gateway election, NAT/uplink sharing, generic TCP/UDP forwarding, or offline web content catalogue. When every node has no upstream connection, the global Internet is unreachable. The network can only deliver data and services that participating devices already hold or provide locally.
+MeshNet now includes an **opt-in local IPv4 intranet** in addition to its application-frame transports. The Android app uses VpnService/TUN, deterministic per-device addresses in 100.64.0.0/10, bounded IPv4 fragmentation/reassembly over signed ephemeral MeshNet frames, a local DNS resolver for node-fingerprint mesh names, and a small HTTP portal that exposes only files explicitly published to the offline library.
 
-Do not describe the current release as providing Internet access without an Internet uplink.
+This is still **not public Internet access**. The VPN captures only 100.64.0.0/10; ordinary Internet traffic is not redirected through the mesh. When no node has an upstream connection, public Internet hosts remain unreachable. Gateway election, NAT/uplink sharing, IPv6, and a general-purpose service directory remain out of scope.
 
 ## Implemented foundation
 
@@ -16,6 +16,10 @@ Do not describe the current release as providing Internet access without an Inte
 - Durable outbox and message receipts.
 - File-transfer and voice paths exposed through the Android bridge.
 - Live peer and observed-route telemetry in the local dashboard.
+- An opt-in Android VPN/TUN data plane for the private 100.64.0.0/10 IPv4 overlay.
+- Deterministic device addresses, signed ephemeral multi-hop packet delivery, and bounded IPv4 fragment reassembly.
+- Mesh DNS for node-fingerprint .mesh names, with a reserved virtual DNS service address.
+- A bounded HTTP portal bound to the local overlay IP; it serves only explicitly published content-addressed library files.
 
 The above describes code paths, not a claim of production-grade security or multi-device interoperability. Physical-device tests across different Android vendors and radio combinations are still required.
 
@@ -32,17 +36,17 @@ Before production messaging:
 - prove recovery, multi-device replacement and downgrade resistance with protocol tests;
 - obtain an independent cryptographic review of the custom frame-signature integration.
 
-### 2. General IP connectivity
+### 2. Remaining IP-network and gateway work
 
-A real Internet-like mesh requires a distinct packet plane, not just larger chat messages:
-- Android VpnService/TUN integration with explicit user consent;
-- stable node addressing, MTU-aware packet fragmentation/reassembly and authenticated packet envelopes;
-- multi-hop IP routing, route expiry, congestion/back-pressure and loop prevention;
-- DNS strategy for local names and optional upstream DNS;
-- opt-in gateway advertisement/election, uplink policy, NAT/forwarding, metering and abuse controls;
-- firewall boundaries so a gateway never silently exposes a phone or its LAN.
+The first local IPv4 overlay is implemented in the Android branch:
+- users explicitly grant Android VPN permission before VpnService establishes the TUN;
+- each device gets a deterministic 100.64.0.0/10 address derived from its signed node identity;
+- IPv4 packets are fragmented into bounded, signed ephemeral frames, routed to the destination node, and reassembled before delivery to its TUN;
+- the virtual DNS endpoint resolves node-fingerprint .mesh names using current mesh address announcements;
+- non-mesh DNS lookups are forwarded through a protected UDP socket to the underlying network's DNS server when an uplink exists; with no uplink they return SERVFAIL;
+- public application traffic is deliberately excluded from the VPN route and continues over the device's ordinary network.
 
-A node with no uplink can still provide a **local intranet** when content and services are replicated locally. It cannot provide access to arbitrary public Internet hosts.
+This is a best-effort IPv4 overlay, not a fully validated Internet-like network. DNS forwarding is a bounded UDP path; large DNS replies that require TCP fallback and private-DNS-over-TLS upstreams are not yet handled by the mesh resolver. Physical-device multi-hop testing, route expiry, congestion/back-pressure, loss/retry behavior, IPv6, and interoperability measurements remain outstanding. Gateway advertisement/election, explicit user-controlled uplink sharing, NAT/forwarding, metering and abuse controls are not implemented.
 
 ### 3. Offline content and services
 
@@ -54,7 +58,7 @@ The Android app now includes a first usable offline-library slice:
 - local storage is capped at 100 MiB, each item at 10 MiB, local entries at 32, and remote advertisements expire after seven days;
 - files are not shared automatically: publication is an explicit user action.
 
-This is a mesh-shared file catalogue, not yet a general local HTTP service directory. Remaining intranet work includes signed provider/service identity, a local HTTP portal/API, conflict-aware synchronization, and efficient unicast content delivery rather than the current group transport used by the chunk protocol.
+The HTTP portal now serves files already present in the local library through the overlay address and DNS name. It is intentionally read-only and does not expose arbitrary local files or a general service directory. Remaining content work includes signed service/provider metadata, conflict-aware synchronization, efficient unicast chunk delivery and physical multi-hop transfer validation.
 
 ### 4. Operational reliability
 

@@ -24,6 +24,7 @@ internal class MeshRouter(
     private val sendEphemeralRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> sendEphemeralFrame(bytes) },
     private val resolveNextHops: (String) -> List<String> = { emptyList() },
     private val sendToPeer: (ByteArray, String) -> Boolean = { _, _ -> false },
+    private val sendEphemeralToPeer: (ByteArray, String) -> Boolean = { _, _ -> false },
     private val onRouteObserved: (List<String>, String?) -> Unit = { _, _ -> },
     private val validateAcknowledgement: (String, String) -> Boolean = { _, _ -> true },
     private val recordDestination: (String, String) -> Unit = { _, _ -> },
@@ -36,21 +37,33 @@ internal class MeshRouter(
     private val peerArrivalAgeMs = LinkedHashMap<String, Double>()
 
     @Synchronized
-    fun sendEphemeral(text: String): Boolean {
+    fun sendEphemeral(text: String): Boolean = sendEphemeralInternal(text, null)
+
+    /** Best-effort unicast data-plane frame; unknown routes use ephemeral flooding, never the durable outbox. */
+    @Synchronized
+    fun sendEphemeralTo(destination: String, text: String): Boolean {
+        require(destination.matches(Regex("[A-Za-z0-9_-]{1,32}")) && destination != nodeId) {
+            "Invalid or local destination node ID"
+        }
+        return sendEphemeralInternal(text, destination)
+    }
+
+    private fun sendEphemeralInternal(text: String, destination: String?): Boolean {
         require(text.isNotBlank()) { "Ephemeral payload cannot be empty" }
         require(text.toByteArray(Charsets.UTF_8).size <= MAX_PLAINTEXT_BYTES) {
             "Ephemeral payload is too large for one frame"
         }
-        val id = UUID.randomUUID().toString()
-        val createdAt = System.currentTimeMillis()
         val frame = MeshFrame(
             origin = nodeId, ttl = MeshFrame.MAX_TTL, hops = listOf(nodeId),
-            nonce = "", ciphertext = "", createdAt = createdAt,
-            id = id, kind = MeshFrame.KIND_EPHEMERAL
+            nonce = "", ciphertext = "", createdAt = System.currentTimeMillis(),
+            id = UUID.randomUUID().toString(), kind = MeshFrame.KIND_EPHEMERAL,
+            destination = destination
         )
         val encoded = encryptOriginFrame(frame, text).encode()
-        val accepted = sendEphemeralFrame(encoded)
-        return accepted
+        if (destination == null) return sendEphemeralFrame(encoded)
+        val candidates = resolveNextHops(destination)
+        if (candidates.any { sendEphemeralToPeer(encoded, it) }) return true
+        return sendEphemeralFrame(encoded)
     }
 
     @Synchronized
@@ -122,7 +135,10 @@ internal class MeshRouter(
         }
 
         if (frame.destination != null && frame.destination != nodeId) {
-            if (rememberBestRoute(frame, viaPeer)) relayDirected(frame, plaintext, viaPeer)
+            if (rememberBestRoute(frame, viaPeer)) {
+                if (frame.kind == MeshFrame.KIND_EPHEMERAL) relayDirectedEphemeral(frame, plaintext, viaPeer)
+                else relayDirected(frame, plaintext, viaPeer)
+            }
             return
         }
 
@@ -238,6 +254,20 @@ internal class MeshRouter(
             if (iterator.hasNext()) { iterator.next(); iterator.remove() } else break
         }
         return true
+    }
+
+    private fun relayDirectedEphemeral(frame: MeshFrame, plaintext: String, viaPeer: String?) {
+        if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
+        val nextHopFrame = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId)
+        val (nonce, ciphertext) = crypto.encrypt(plaintext, MeshFrame.aad(nextHopFrame))
+        val encoded = nextHopFrame.copy(nonce = nonce, ciphertext = ciphertext).encode()
+        val candidates = resolveNextHops(frame.destination.orEmpty()).filter { it != viaPeer }
+        var accepted = false
+        for (peer in candidates) {
+            if (sendEphemeralToPeer(encoded, peer)) { accepted = true; break }
+        }
+        if (!accepted) accepted = sendEphemeralRelay(encoded, viaPeer)
+        if (!accepted) onMessage("Ephemeral directed relay dropped: no alternate peer accepted the frame")
     }
 
     private fun relayDirected(frame: MeshFrame, plaintext: String, viaPeer: String?) {

@@ -27,6 +27,10 @@ class MeshForegroundService : Service() {
     private var wifiAwareTransport: MeshWifiAwareTransport? = null
     private var router: MeshRouter? = null
     private var fileTransfer: MeshFileTransfer? = null
+    private var ipPacketRouter: MeshIpPacketRouter? = null
+    private var ipPacketListener: ((ByteArray) -> Unit)? = null
+    private var ipDnsForwarder: ((ByteArray) -> ByteArray?)? = null
+    private var offlinePortalServer: MeshOfflinePortalServer? = null
     private lateinit var offlineLibrary: MeshOfflineLibrary
     private val activeLibraryResponses = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val pendingOfflineDownloadIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -126,6 +130,67 @@ class MeshForegroundService : Service() {
     fun connectedPeersJson(): org.json.JSONArray = if (router != null) peerRegistry.toJson() else org.json.JSONArray()
     fun observedRoutesJson(): org.json.JSONArray = if (router != null) routeRegistry.toJson() else org.json.JSONArray()
     fun localNodeIdValue(): String? = if (router != null) nodeId else null
+    fun offlineNodeIpValue(): String? = ipPacketRouter?.localIp
+    fun offlinePortalUrlValue(): String? {
+        val id = localNodeIdValue() ?: return null
+        if (offlinePortalServer?.isRunning != true) return null
+        return "http://${MeshIpAddress.dnsNameForNodeId(id)}:${MeshOfflinePortalServer.DEFAULT_PORT}/"
+    }
+    fun reportExternalEvent(message: String) = emit(message)
+
+    fun startIpOverlay(localIp: String) {
+        router ?: throw IllegalStateException("Start the local mesh before enabling its IP overlay")
+        require(localIp == MeshIpAddress.forNodeId(nodeId)) { "VPN address does not match this device identity" }
+        if (ipPacketRouter != null) return
+        val packetRouter = MeshIpPacketRouter(
+            localNodeId = nodeId,
+            localIp = localIp,
+            sendToNode = { destination, payload -> router?.sendEphemeralTo(destination, payload) == true },
+            deliverPacket = { packet -> ipPacketListener?.invoke(packet) },
+            resolveName = { name ->
+                val target = MeshIpAddress.nodeIdFromDnsName(name)
+                when {
+                    target == nodeId -> localIp
+                    target != null -> ipPacketRouter?.addressForNode(target)
+                    else -> null
+                }
+            },
+            forwardDnsQuery = { query -> ipDnsForwarder?.invoke(query) }
+        )
+        ipPacketRouter = packetRouter
+        offlinePortalServer = MeshOfflinePortalServer(localIp, offlineLibrary, onEvent = ::emit).also { it.start() }
+        announceIpAddress()
+        router?.sendEphemeral(IP_ADDRESS_QUERY)
+        emit("Offline IPv4 mesh active at $localIp · portal ${offlinePortalUrlValue()}")
+    }
+
+    fun setIpPacketListener(listener: ((ByteArray) -> Unit)?) { ipPacketListener = listener }
+    fun setIpDnsForwarder(forwarder: ((ByteArray) -> ByteArray?)?) { ipDnsForwarder = forwarder }
+    fun sendIpPacket(packet: ByteArray): Boolean = ipPacketRouter?.send(packet) == true
+
+    fun stopIpOverlay() {
+        val wasActive = ipPacketRouter != null || offlinePortalServer != null
+        offlinePortalServer?.close()
+        offlinePortalServer = null
+        ipPacketRouter = null
+        ipPacketListener = null
+        ipDnsForwarder = null
+        if (wasActive) emit("Offline IPv4 mesh stopped")
+    }
+
+    private fun announceIpAddress() {
+        val address = ipPacketRouter?.announcement() ?: return
+        router?.sendEphemeral(address)
+    }
+
+    private fun handleEphemeralPayload(origin: String, plaintext: String) {
+        if (plaintext == IP_ADDRESS_QUERY) {
+            if (ipPacketRouter != null) announceIpAddress()
+            return
+        }
+        if (ipPacketRouter?.accept(origin, plaintext) == true) return
+        liveVoiceCall?.accept(origin, plaintext)
+    }
     fun offlineLibraryJson(): org.json.JSONArray = offlineLibrary.toJson()
 
     fun publishOfflineContent(uri: Uri): String {
@@ -202,7 +267,11 @@ class MeshForegroundService : Service() {
 
     private fun recordPeerConnection(transportName: String, address: String, connected: Boolean) {
         peerRegistry.setConnected(transportName, address, connected)
-        if (connected && router != null) announceOfflineLibrary()
+        if (connected && router != null) {
+            announceOfflineLibrary()
+            announceIpAddress()
+            router?.sendEphemeral(IP_ADDRESS_QUERY)
+        }
         if (!connected) {
             val routeTransport = when (transportName) {
                 "BLE/GATT" -> "BLE"
@@ -227,6 +296,23 @@ class MeshForegroundService : Service() {
     fun sendDirectMessage(destinationNodeId: String, message: String): Boolean {
         val activeRouter = router ?: throw IllegalStateException("Mesh service is not ready")
         return activeRouter.sendMessageTo(destinationNodeId, message)
+    }
+
+    /** Sends transient packet-plane frames without placing them in the durable outbox. */
+    private fun sendEphemeralMeshFrameToPeer(frame: ByteArray, peer: String): Boolean {
+        val separator = peer.indexOf('/')
+        if (separator <= 0 || separator == peer.lastIndex) return false
+        val transportName = peer.substring(0, separator)
+        val address = peer.substring(separator + 1)
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        val accepted = when (transportName) {
+            "BLE" -> transport?.sendToPeer(frame, address) == true
+            "P2P" -> wifiTransport?.sendToPeer(frame, address) == true
+            "AWARE" -> wifiAwareTransport?.sendToPeer(frame, address) == true
+            else -> false
+        }
+        linkQualityRegistry.record(peer, accepted, android.os.SystemClock.elapsedRealtime() - startedAt)
+        return accepted
     }
 
     private fun sendMeshFrameToPeer(frame: ByteArray, peer: String): Boolean {
@@ -543,7 +629,7 @@ class MeshForegroundService : Service() {
                 val awareSent = wifiAwareTransport?.sendToPeers(frame) == true
                 bleSent || p2pSent || awareSent
             },
-            onEphemeralPayload = { origin, plaintext -> liveVoiceCall?.accept(origin, plaintext) },
+            onEphemeralPayload = ::handleEphemeralPayload,
             sendRelay = { frame, ingress ->
                 sendMeshFrameToOthers(frame, ingress)
                 val queued = outbox.containsFrame(frame)
@@ -554,6 +640,7 @@ class MeshForegroundService : Service() {
             sendEphemeralRelay = { frame, ingress -> sendMeshFrameToOthers(frame, ingress, durable = false) },
             resolveNextHops = routeRegistry::nextHopsFor,
             sendToPeer = ::sendMeshFrameToPeer,
+            sendEphemeralToPeer = ::sendEphemeralMeshFrameToPeer,
             onRouteObserved = { path, ingress ->
                 if (routeRegistry.observe(path, ingressPeer = ingress)) emit("Observed mesh route: ${path.joinToString(" → ")}")
             }
@@ -680,6 +767,8 @@ class MeshForegroundService : Service() {
 
     @Synchronized
     private fun stopMesh() {
+        stopIpOverlay()
+        stopService(Intent(this, MeshVpnService::class.java))
         liveVoiceCall?.end()
         liveVoiceCall = null
         fileTransfer?.cancelOutgoing()
@@ -834,6 +923,7 @@ class MeshForegroundService : Service() {
         private const val MAX_OFFLINE_PAYMENT_CHUNKS = 32
         private const val MAX_PENDING_OFFLINE_PAYMENTS = 16
         private const val MAX_LIBRARY_RESPONSES = 2
+        private const val IP_ADDRESS_QUERY = "~IP1Q"
     }
 }
 

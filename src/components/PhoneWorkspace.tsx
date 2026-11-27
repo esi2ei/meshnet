@@ -12,6 +12,9 @@ type NativeRuntimeStatus = {
   offlineWalletTransfers: Array<{ id: string; recipient: string; amountMinor: number; createdAt: number; status: string }>;
   offlineWalletReceipts: Array<{ id: string; sender: string; amountMinor: number; createdAt: number; asset: string }>;
   offlineLibrary: Array<{ id: string; name: string; size: number; createdAt: number; local: boolean; origin: string | null; pending: boolean }>;
+  offlineNetworkRunning: boolean;
+  offlineNodeIp: string | null;
+  offlinePortalUrl: string | null;
   platform: string;
   recentEvents: string[];
 };
@@ -43,6 +46,9 @@ type NativeBridge = {
   selectOfflineContent: () => void;
   requestOfflineContent: (id: string) => boolean;
   removeOfflineContent: (id: string) => boolean;
+  startOfflineNetwork: () => void;
+  stopOfflineNetwork: () => void;
+  openOfflinePortal: () => void;
   forgetGroupCredentials: () => void;
   setOnlineIntegrationsEnabled: (enabled: boolean) => void;
 };
@@ -67,6 +73,9 @@ const initialStatus: NativeRuntimeStatus = {
   offlineWalletTransfers: [],
   offlineWalletReceipts: [],
   offlineLibrary: [],
+  offlineNetworkRunning: false,
+  offlineNodeIp: null,
+  offlinePortalUrl: null,
   platform: 'browser',
   recentEvents: [],
 };
@@ -276,6 +285,27 @@ export default function PhoneWorkspace() {
             placeholder="AA:BB:CC:DD:EE:FF" className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-cyan-400" />
           <button className={actionClass} disabled={!runtime.native || !runtime.running || !wifiAddress.trim()} onClick={() => native?.connectWifiDirect(wifiAddress.trim())}>Connect</button>
         </div>
+      </div>
+      </div>
+
+<div hidden={activeTab !== 'network'}>
+      <div className="space-y-3 rounded-xl border border-cyan-900/60 bg-[#0A0B0D] p-3">
+        <div className="flex items-center gap-2 text-sm font-semibold text-white"><Network className="h-4 w-4 text-cyan-300" /> Offline IPv4 network</div>
+        <p className="text-[11px] leading-relaxed text-slate-400">Create a private IP network between participating MeshNet devices. Android asks for VPN permission before the tunnel starts.</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button className={primaryClass} disabled={!runtime.native || !runtime.running || runtime.offlineNetworkRunning} onClick={() => native?.startOfflineNetwork()}>Start IP mesh</button>
+          <button className={actionClass} disabled={!runtime.native || !runtime.offlineNetworkRunning} onClick={() => native?.stopOfflineNetwork()}>Stop IP mesh</button>
+        </div>
+        {runtime.offlineNetworkRunning ? (
+          <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950 p-3">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500">This device's mesh IP</div>
+            <div className="break-all font-mono text-sm text-cyan-200">{runtime.offlineNodeIp}</div>
+            <div className="text-[10px] uppercase tracking-wide text-slate-500">Offline web portal</div>
+            <div className="break-all font-mono text-xs text-slate-300">{runtime.offlinePortalUrl || 'Starting local portal…'}</div>
+            <button className={actionClass + ' w-full'} disabled={!runtime.offlinePortalUrl} onClick={() => native?.openOfflinePortal()}>Open offline portal</button>
+          </div>
+        ) : null}
+        <p className="text-[10px] leading-relaxed text-amber-200/80">Only the private 100.64.0.0/10 mesh range is routed through this VPN. It does not create public Internet access or share mobile data. Use the portal or node IP addresses for services hosted by mesh devices.</p>
       </div>
       </div>
 

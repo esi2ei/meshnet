@@ -500,4 +500,75 @@ class MeshRouterReceiptTest {
         assertTrue(events.any { it.contains("unexpected device") })
     }
 
+
+    @Test
+    fun directedEphemeralFramesUseOnlyBestEffortRelayAndArriveAtTarget() {
+        val passphrase = "a sufficiently long group passphrase"
+        val sourceIdentity = MeshDeviceIdentity.generateEphemeral()
+        val relayIdentity = MeshDeviceIdentity.generateEphemeral()
+        val targetIdentity = MeshDeviceIdentity.generateEphemeral()
+        val sourceFrames = mutableListOf<ByteArray>()
+        val relayFrames = mutableListOf<ByteArray>()
+        val delivered = mutableListOf<String>()
+        val sourceSeen = mutableSetOf<String>()
+        val relaySeen = mutableSetOf<String>()
+        val targetSeen = mutableSetOf<String>()
+        val source = MeshRouter(
+            nodeId = sourceIdentity.nodeId, crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { true }, onMessage = {}, hasReceived = { it in sourceSeen },
+            markReceived = { id, _ -> !sourceSeen.add(id) }, acknowledge = { 0 },
+            sendEphemeralFrame = { bytes -> sourceFrames.add(bytes); true },
+            identity = sourceIdentity
+        )
+        val relay = MeshRouter(
+            nodeId = relayIdentity.nodeId, crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { error("Ephemeral traffic must not enter the durable outbox") },
+            onMessage = {}, hasReceived = { it in relaySeen },
+            markReceived = { id, _ -> !relaySeen.add(id) }, acknowledge = { 0 },
+            sendEphemeralRelay = { bytes, _ -> relayFrames.add(bytes); true },
+            identity = relayIdentity
+        )
+        val target = MeshRouter(
+            nodeId = targetIdentity.nodeId, crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { true }, onMessage = {}, hasReceived = { it in targetSeen },
+            markReceived = { id, _ -> !targetSeen.add(id) }, acknowledge = { 0 },
+            onEphemeralPayload = { origin, payload -> delivered.add("$origin:$payload") },
+            identity = targetIdentity
+        )
+
+        assertTrue(source.sendEphemeralTo(targetIdentity.nodeId, "~IP1A|100.64.1.2"))
+        val firstHop = sourceFrames.map { MeshFrame.decode(it) }.single()
+        assertEquals(targetIdentity.nodeId, firstHop.destination)
+        relay.receive(firstHop.encode(), "radio/source")
+        val secondHop = relayFrames.map { MeshFrame.decode(it) }.single()
+        assertEquals(firstHop.signature, secondHop.signature)
+        target.receive(secondHop.encode(), "radio/relay")
+        assertEquals(listOf("${sourceIdentity.nodeId}:~IP1A|100.64.1.2"), delivered)
+    }
+
+
+    @Test
+    fun directEphemeralPeerDeliveryDoesNotUseDurableOutboxSender() {
+        val identity = MeshDeviceIdentity.generateEphemeral()
+        val durableFrames = mutableListOf<ByteArray>()
+        val ephemeralFrames = mutableListOf<ByteArray>()
+        val router = MeshRouter(
+            nodeId = identity.nodeId,
+            crypto = MeshCrypto("a sufficiently long group passphrase".toCharArray()),
+            send = { bytes -> durableFrames.add(bytes); true },
+            onMessage = {},
+            hasReceived = { false },
+            markReceived = { _, _ -> false },
+            acknowledge = { 0 },
+            resolveNextHops = { listOf("BLE/peer") },
+            sendToPeer = { bytes, _ -> durableFrames.add(bytes); true },
+            sendEphemeralToPeer = { bytes, _ -> ephemeralFrames.add(bytes); true },
+            identity = identity
+        )
+        assertTrue(router.sendEphemeralTo("target_node_12345678", "~IP1P|packet_123456|0|1|AQID"))
+        assertEquals(1, ephemeralFrames.size)
+        assertTrue(durableFrames.isEmpty())
+    }
+
+
 }
