@@ -104,7 +104,7 @@ class MainActivity : Activity() {
         scroll.addView(log)
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(TextView(this).apply {
-            text = "Outbox and replay cache persist locally. BLE writes are fragmented to fit negotiated MTU. There is no end-to-end delivery acknowledgement. Shared group AES-GCM is a prototype, not Signal or forward-secret."
+            text = "Outbox and replay cache persist locally. Group receipts confirm reception by at least one member sharing the key, not a named recipient. Shared group AES-GCM is a prototype, not Signal or forward-secret."
             textSize = 11f
         })
         setContentView(root)
