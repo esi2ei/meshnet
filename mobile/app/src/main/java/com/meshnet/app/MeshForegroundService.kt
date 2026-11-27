@@ -19,6 +19,7 @@ class MeshForegroundService : Service() {
     private val binder = LocalBinder()
     private var transport: MeshBleTransport? = null
     private var wifiTransport: MeshWifiDirectTransport? = null
+    private var wifiAwareTransport: MeshWifiAwareTransport? = null
     private var router: MeshRouter? = null
     private var fileTransfer: MeshFileTransfer? = null
     private lateinit var outbox: MeshQueueStore
@@ -143,7 +144,8 @@ class MeshForegroundService : Service() {
                     // when the original message is seen again.
                     val bleAccepted = transport?.sendToPeers(frame) == true
                     val wifiAccepted = wifiTransport?.sendToPeers(frame) == true
-                    if (bleAccepted || wifiAccepted) outbox.retireAcknowledgement(frame)
+                    val awareAccepted = wifiAwareTransport?.sendToPeers(frame) == true
+                    if (bleAccepted || wifiAccepted || awareAccepted) outbox.retireAcknowledgement(frame)
                     true
                 }
             },
@@ -176,6 +178,17 @@ class MeshForegroundService : Service() {
             )
             runCatching { wifiTransport?.start() }
                 .onFailure { emit("Wi-Fi Direct unavailable; BLE remains active: ${it.message}") }
+            wifiAwareTransport = MeshWifiAwareTransport(
+                this,
+                passphrase,
+                { _, payload -> router?.receive(payload) },
+                { state ->
+                    emit(state)
+                    if (state.contains("data channel ready")) handleTransportState("Wi-Fi Aware channel ready")
+                }
+            )
+            runCatching { wifiAwareTransport?.start() }
+                .onFailure { emit("Wi-Fi Aware unavailable; other transports remain active: ${it.message}") }
             emit("BLE foreground service started · Node $nodeId")
         } catch (error: Exception) {
             emit(error.message ?: "Unable to start BLE")
@@ -218,7 +231,8 @@ class MeshForegroundService : Service() {
             // A full per-peer BLE queue pauses this pass. Queue-drained callbacks resume it.
             val bleAccepted = link.sendToPeers(frame)
             val wifiAccepted = wifiTransport?.sendToPeers(frame) == true
-            if (!bleAccepted && !wifiAccepted) return
+            val awareAccepted = wifiAwareTransport?.sendToPeers(frame) == true
+            if (!bleAccepted && !wifiAccepted && !awareAccepted) return
             outbox.noteReplay(frame)
             outbox.retireAcknowledgement(frame)
             replayIndex++
@@ -236,6 +250,8 @@ class MeshForegroundService : Service() {
         transport = null
         wifiTransport?.stop()
         wifiTransport = null
+        wifiAwareTransport?.stop()
+        wifiAwareTransport = null
         router = null
         fileTransfer = null
         replayFrames = emptyList()
