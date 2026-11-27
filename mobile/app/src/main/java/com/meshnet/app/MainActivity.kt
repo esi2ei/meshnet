@@ -84,6 +84,10 @@ class MainActivity : Activity() {
             text = "Discover Wi-Fi Direct peers"
             setOnClickListener { runWifiAction { meshService?.discoverWifiDirect() } }
         })
+        root.addView(Button(this).apply {
+            text = "Switch back to Wi-Fi Aware"
+            setOnClickListener { runWifiAction { meshService?.resumeWifiAware() } }
+        })
         wifiAddress = EditText(this).apply { hint = "Wi-Fi Direct device address (AA:BB:CC:DD:EE:FF)" }
         root.addView(wifiAddress)
         root.addView(Button(this).apply {

@@ -105,9 +105,28 @@ class MeshForegroundService : Service() {
 
     fun latestReceivedVoiceNote(): java.io.File? = fileTransfer?.latestVoiceNote()
 
-    fun discoverWifiDirect() { wifiTransport?.discover() ?: throw IllegalStateException("Wi-Fi Direct is not ready") }
-    fun createWifiDirectGroup() { wifiTransport?.createGroup() ?: throw IllegalStateException("Wi-Fi Direct is not ready") }
-    fun connectWifiDirect(address: String) { wifiTransport?.connect(address) ?: throw IllegalStateException("Wi-Fi Direct is not ready") }
+    fun discoverWifiDirect() {
+        wifiAwareTransport?.stop()
+        val wifi = wifiTransport ?: throw IllegalStateException("Wi-Fi Direct is not ready")
+        wifi.start()
+        wifi.discover()
+    }
+    fun createWifiDirectGroup() {
+        wifiAwareTransport?.stop()
+        val wifi = wifiTransport ?: throw IllegalStateException("Wi-Fi Direct is not ready")
+        wifi.start()
+        wifi.createGroup()
+    }
+    fun connectWifiDirect(address: String) {
+        wifiAwareTransport?.stop()
+        val wifi = wifiTransport ?: throw IllegalStateException("Wi-Fi Direct is not ready")
+        wifi.start()
+        wifi.connect(address)
+    }
+    fun resumeWifiAware() {
+        wifiTransport?.stop()
+        wifiAwareTransport?.start() ?: throw IllegalStateException("Wi-Fi Aware is not ready")
+    }
 
     private fun startMesh(passphrase: String) {
         // Encode the full 128-bit random UUID as compact base64url to keep route headers bounded.
@@ -176,8 +195,6 @@ class MeshForegroundService : Service() {
                     if (state.contains("data channel ready")) handleTransportState("Wi-Fi Direct channel ready")
                 }
             )
-            runCatching { wifiTransport?.start() }
-                .onFailure { emit("Wi-Fi Direct unavailable; BLE remains active: ${it.message}") }
             wifiAwareTransport = MeshWifiAwareTransport(
                 this,
                 passphrase,
