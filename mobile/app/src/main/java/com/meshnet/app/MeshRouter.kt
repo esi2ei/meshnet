@@ -4,7 +4,7 @@ import java.util.LinkedHashMap
 import java.util.LinkedHashSet
 import java.util.UUID
 
-class MeshRouter(
+internal class MeshRouter(
     private val nodeId: String,
     private val crypto: MeshCrypto,
     /** Returns true when the frame is durably accepted by the local outbox. */
