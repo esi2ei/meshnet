@@ -124,6 +124,13 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     }
 
     @Synchronized
+    fun containsFrame(frame: ByteArray): Boolean {
+        return writableDatabase.rawQuery(
+            "SELECT 1 FROM outbox WHERE frame_id = ?", arrayOf(digest(frame))
+        ).use { it.moveToFirst() }
+    }
+
+    @Synchronized
     fun noteReplay(frame: ByteArray) {
         writableDatabase.execSQL(
             "UPDATE outbox SET attempts = attempts + 1 WHERE frame_id = ?",
