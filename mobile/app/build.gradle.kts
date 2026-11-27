@@ -1,3 +1,4 @@
+import java.io.File
 import org.gradle.api.GradleException
 
 plugins {
@@ -25,7 +26,7 @@ val validateMeshnetReleaseSigning = tasks.register("validateMeshnetReleaseSignin
                 "Release signing is not configured. Set these environment variables outside the repository: ${missing.joinToString()}"
             )
         }
-        val keystorePath = java.io.File(releaseStoreFilePath!!)
+        val keystorePath = File(releaseStoreFilePath!!)
         if (!keystorePath.isAbsolute) {
             throw GradleException("MESHNET_RELEASE_STORE_FILE must be an absolute path outside the repository.")
         }
