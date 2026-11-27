@@ -6,6 +6,65 @@ import org.junit.Test
 
 class MeshRouterReceiptTest {
     @Test
+    fun relayReencryptsPayloadForUpdatedAuthenticatedRoute() {
+        val passphrase = "a sufficiently long group passphrase"
+        val senderQueue = mutableListOf<ByteArray>()
+        val relayQueue = mutableListOf<ByteArray>()
+        val destinationEvents = mutableListOf<String>()
+        val senderSeen = mutableSetOf<String>()
+        val relaySeen = mutableSetOf<String>()
+        val destinationSeen = mutableSetOf<String>()
+
+        val sender = MeshRouter(
+            nodeId = "sender_01",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { senderQueue.add(it); true },
+            onMessage = {},
+            hasReceived = { it in senderSeen },
+            markReceived = { id, _ -> !senderSeen.add(id) },
+            acknowledge = { 0 }
+        )
+        val relay = MeshRouter(
+            nodeId = "relay_001",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { relayQueue.add(it); true },
+            onMessage = {},
+            hasReceived = { it in relaySeen },
+            markReceived = { id, _ -> !relaySeen.add(id) },
+            acknowledge = { 0 }
+        )
+        val destination = MeshRouter(
+            nodeId = "dest_0001",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { true },
+            onMessage = { destinationEvents.add(it) },
+            hasReceived = { it in destinationSeen },
+            markReceived = { id, _ -> !destinationSeen.add(id) },
+            acknowledge = { 0 }
+        )
+
+        sender.sendMessage("route-bound hello")
+        val original = senderQueue.map { MeshFrame.decode(it) }
+            .first { it.kind == MeshFrame.KIND_MESSAGE }
+        relay.receive(original.encode())
+
+        val relayed = relayQueue.map { MeshFrame.decode(it) }
+            .first { it.kind == MeshFrame.KIND_MESSAGE }
+        assertEquals(original.id, relayed.id)
+        assertEquals(MeshFrame.MAX_TTL - 1, relayed.ttl)
+        assertEquals(listOf("sender_01", "relay_001"), relayed.hops)
+        assertEquals(
+            "route-bound hello",
+            MeshCrypto(passphrase.toCharArray()).decrypt(
+                relayed.nonce, relayed.ciphertext, MeshFrame.aad(relayed)
+            )
+        )
+
+        destination.receive(relayed.encode())
+        assertTrue(destinationEvents.any { it.contains("route-bound hello") })
+    }
+
+    @Test
     fun receiverReturnsAuthenticatedGroupReceiptAndSenderRetiresMessage() {
         val senderQueue = mutableListOf<ByteArray>()
         val receiverQueue = mutableListOf<ByteArray>()
