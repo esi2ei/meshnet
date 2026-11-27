@@ -392,10 +392,11 @@ class MainActivity : Activity() {
         fun getOfflineWalletAddress(): String = runCatching { offlineWalletStore.address() }.getOrElse { "" }
 
         @JavascriptInterface
-        fun sendOfflinePayment(recipientAddress: String, amountMinor: Long): Boolean =
+        fun sendOfflinePayment(recipientAddress: String, amountMinor: Double): Boolean =
             runOnMainBlocking {
                 try {
-                    val accepted = meshService?.sendOfflinePayment(recipientAddress.trim(), amountMinor)
+                    require(amountMinor.isFinite() && amountMinor % 1.0 == 0.0 && amountMinor in 1.0..9_000_000_000_000.0) { "Amount must be a positive whole number of local minor units" }
+                    val accepted = meshService?.sendOfflinePayment(recipientAddress.trim(), amountMinor.toLong())
                         ?: throw IllegalStateException("Start the local mesh before sending an offline wallet transfer")
                     append(if (accepted) "Offline wallet transfer queued" else "Offline wallet transfer was not fully queued")
                     accepted
