@@ -181,10 +181,14 @@ class MeshForegroundService : Service() {
         emit("Queued $queued durable frames for BLE transmission; messages retire on group receipt")
     }
 
+    @Synchronized
     private fun stopMesh() {
         transport?.stop()
         transport = null
         router = null
+        replayFrames = emptyList()
+        replayIndex = 0
+        replayActive = false
     }
 
     private fun emit(message: String) {
