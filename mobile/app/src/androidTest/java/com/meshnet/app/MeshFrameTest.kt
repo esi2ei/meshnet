@@ -66,7 +66,7 @@ class MeshFrameTest {
             ciphertext = "ciphertext"
         )
         val legacyBytes = frame.encode().toString(Charsets.UTF_8)
-            .replace("\\"v\\":2", "\\"v\\":1")
+            .replace(""" "v":2 """.trim(), """ "v":1 """.trim())
             .toByteArray(Charsets.UTF_8)
         assertThrows(IllegalArgumentException::class.java) {
             MeshFrame.decode(legacyBytes)
