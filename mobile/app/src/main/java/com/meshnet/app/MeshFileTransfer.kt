@@ -33,7 +33,7 @@ class MeshFileTransfer(
     }
 
     fun send(uri:Uri):Boolean {
-        val name=compactName(queryName(uri).replace(Regex("[^A-Za-z0-9._-]"),"_")).ifBlank{"mesh-file.bin"}
+        val name=compactName(queryName(uri).replace(Regex("[^A-Za-z0-9._-]"),"_")).let{if(it.isBlank() || it=="." || it=="..") "mesh-file.bin" else it}
         val bytes=context.contentResolver.openInputStream(uri)?.use { input ->
             val output=java.io.ByteArrayOutputStream(); val buffer=ByteArray(CHUNK_BYTES)
             while(true){ val n=input.read(buffer); if(n<0) break
@@ -76,7 +76,7 @@ class MeshFileTransfer(
         if(size !in 1..MAX_FILE_BYTES || count !in 1..MAX_CHUNKS || count!=(size+CHUNK_BYTES-1)/CHUNK_BYTES ||
             !hash.matches(Regex("[a-f0-9]{64}")) || (incoming.size>=MAX_ACTIVE && !incoming.containsKey(id)))return true
         val decoded=try{String(Base64.decode(f[5],Base64.URL_SAFE or Base64.NO_WRAP),Charsets.UTF_8)}catch(_:Exception){"mesh-file.bin"}
-        val name=compactName(decoded.replace(Regex("[^A-Za-z0-9._-]"),"_")).ifBlank{"mesh-file.bin"}
+        val name=compactName(decoded.replace(Regex("[^A-Za-z0-9._-]"),"_")).let{if(it.isBlank() || it=="." || it=="..") "mesh-file.bin" else it}
         val partial=File(root,"$id.part")
         val meta=File(root,"$id.meta")
         try {
