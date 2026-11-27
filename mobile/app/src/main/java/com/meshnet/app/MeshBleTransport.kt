@@ -37,7 +37,8 @@ class MeshBleTransport(
     context: Context,
     private val onPeer: (String, Boolean) -> Unit,
     private val onPayload: (String, ByteArray) -> Unit,
-    private val onState: (String) -> Unit
+    private val onState: (String) -> Unit,
+    private val onRssi: (String, Int) -> Unit = { _, _ -> }
 ) {
     private val appContext = context.applicationContext
     private val retryHandler = Handler(Looper.getMainLooper())
@@ -118,6 +119,7 @@ class MeshBleTransport(
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
             if (device.address == adapter?.address) return
+            onRssi(device.address, result.rssi)
             if (seen.add(device.address)) {
                 onState("Discovered BLE peer: ${device.address}")
                 connect(device)

@@ -20,7 +20,8 @@ class MeshForegroundService : Service() {
 
     private val binder = LocalBinder()
     private val peerRegistry = MeshPeerRegistry()
-    private val routeRegistry = MeshRouteRegistry()
+    private val linkQualityRegistry = MeshLinkQualityRegistry()
+    private val routeRegistry = MeshRouteRegistry(linkQualityRegistry::score)
     private var transport: MeshBleTransport? = null
     private var wifiTransport: MeshWifiDirectTransport? = null
     private var wifiAwareTransport: MeshWifiAwareTransport? = null
@@ -129,7 +130,11 @@ class MeshForegroundService : Service() {
                 "Wi-Fi Aware" -> "AWARE"
                 else -> null
             }
-            if (routeTransport != null) routeRegistry.removePeer("$routeTransport/$address")
+            if (routeTransport != null) {
+                val peer = "$routeTransport/$address"
+                routeRegistry.removePeer(peer)
+                linkQualityRegistry.remove(peer)
+            }
         }
         emit("$transportName peer ${if (connected) "connected" else "disconnected"}: $address")
     }
@@ -150,12 +155,14 @@ class MeshForegroundService : Service() {
         if (!outbox.containsFrame(frame) && !outbox.enqueue(frame)) return false
         val transportName = peer.substring(0, separator)
         val address = peer.substring(separator + 1)
+        val startedAt = android.os.SystemClock.elapsedRealtime()
         val accepted = when (transportName) {
             "BLE" -> transport?.sendToPeer(frame, address) == true
             "P2P" -> wifiTransport?.sendToPeer(frame, address) == true
             "AWARE" -> wifiAwareTransport?.sendToPeer(frame, address) == true
             else -> false
         }
+        linkQualityRegistry.record(peer, accepted, android.os.SystemClock.elapsedRealtime() - startedAt)
         if (accepted && runCatching { MeshFrame.decode(frame).kind == MeshFrame.KIND_ACK }.getOrDefault(false)) {
             outbox.retireAcknowledgement(frame)
         }

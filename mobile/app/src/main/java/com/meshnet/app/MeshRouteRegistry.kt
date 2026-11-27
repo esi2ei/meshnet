@@ -7,7 +7,9 @@ import org.json.JSONObject
  * Bounded history of authenticated packet paths and reverse next-hop candidates.
  * Group AEAD authenticates possession of the shared key, not an individual device identity.
  */
-internal class MeshRouteRegistry {
+internal class MeshRouteRegistry(
+    private val linkQualityScore: (String) -> Int = { MeshLinkQualityRegistry.NEUTRAL_SCORE }
+) {
     data class Route(val id: String, val nodes: List<String>, val observedAt: Long, val observations: Int)
     data class NextHop(val peer: String, val distance: Int, val observedAt: Long)
 
@@ -51,7 +53,9 @@ internal class MeshRouteRegistry {
     fun nextHopsFor(destination: String, now: Long = System.currentTimeMillis()): List<String> {
         prune(now)
         return nextHops[destination]?.values
-            ?.sortedWith(compareBy<NextHop> { it.distance }.thenByDescending { it.observedAt })
+            ?.sortedWith(compareBy<NextHop> { it.distance * 35 - linkQualityScore(it.peer).coerceIn(0, 100) }
+                .thenByDescending { linkQualityScore(it.peer) }
+                .thenByDescending { it.observedAt })
             ?.map { it.peer } ?: emptyList()
     }
 
