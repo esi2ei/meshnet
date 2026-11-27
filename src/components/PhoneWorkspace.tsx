@@ -29,14 +29,14 @@ export default function PhoneWorkspace({ activeNodeId }: PhoneWorkspaceProps) {
       <div className="rounded-xl border border-slate-800 bg-[#0A0B0D] p-4">
         <div className="flex items-center gap-2 text-cyan-300 font-semibold text-sm">
           <Bluetooth className="w-4 h-4" />
-          Real Android BLE prototype
+          Real Android prototype
         </div>
         <ol className="list-decimal list-inside space-y-2 text-xs text-slate-300 mt-3">
-          <li>Open the repository's <code>mobile/</code> directory on a machine with JDK 17 and Android SDK 35.</li>
-          <li>Build locally with <code>gradle assembleDebug</code>.</li>
-          <li>Install the APK on two or more BLE-capable Android phones.</li>
-          <li>Enter the same high-entropy group passphrase on each phone, grant Bluetooth and notification permissions, and start BLE mesh.</li>
-          <li>Send a short encrypted text message. Use a third phone as a relay for a multi-hop experiment.</li>
+          <li>Open the repository's <code>mobile/</code> directory on a machine with JDK 17 and Android SDK Platform 36.</li>
+          <li>Build locally with <code>gradle assembleDebug</code>; this browser panel does not run or emulate that build.</li>
+          <li>Install the same debug APK on at least two BLE-capable Android phones and enter the same high-entropy group passphrase.</li>
+          <li>Grant the requested permissions, start the mesh on both phones, and verify encrypted text delivery in both directions.</li>
+          <li>Use a third phone for a multi-hop BLE relay check. Test Wi-Fi Aware and Wi-Fi Direct separately on supported devices using <code>mobile/RELEASE_TEST_PLAN.md</code>.</li>
         </ol>
       </div>
 
@@ -46,7 +46,7 @@ export default function PhoneWorkspace({ activeNodeId }: PhoneWorkspaceProps) {
           Not production-ready
         </div>
         <p className="text-xs leading-relaxed text-slate-400 mt-2">
-          The Android prototype currently uses a shared AES-GCM group key and group-level receipts. It does not yet provide per-device identity, forward secrecy, secure key rotation, or production escrow. The browser screen is not a device emulator. See mobile/SECURITY_AND_ESCROW.md for the implementation plan and security gates.
+          The Android prototype currently uses a shared AES-GCM group key and group-level receipts. It does not provide authenticated per-device identity, forward secrecy, secure key rotation, or a production escrow service. Native transport, file and voice implementations still require builds, instrumentation and physical-device validation. The browser screen is not a device emulator. See mobile/SECURITY_AND_ESCROW.md for the security gates.
         </p>
       </div>
     </section>
