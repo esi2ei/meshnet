@@ -378,7 +378,9 @@ pub struct ArbitrateOrder<'info> {
     /// CHECK: Immutable buyer address stored in the order; receives rent refunds only.
     #[account(mut, address = order.buyer)]
     pub buyer: UncheckedAccount<'info>,
-    pub provider: Signer<'info>,
+    /// CHECK: The order's has_one constraint binds this account to the immutable provider key.
+    /// A provider signature is intentionally not required for an arbitrator's dispute release.
+    pub provider: UncheckedAccount<'info>,
     #[account(
         mut, close = buyer,
         seeds = [ORDER_SEED, order.buyer.as_ref(), order.order_id.as_ref()], bump = order.bump,
