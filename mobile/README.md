@@ -26,11 +26,15 @@ Google Play has required new apps and updates to target Android 16 (API 36) or h
 
     gradle assembleDebug
 
+On Windows PowerShell, the repository helper performs the same local build, checks JDK/Gradle/Android SDK prerequisites, verifies the APK signature when `apksigner` is installed, and copies the result to `mobile/dist/MeshNet-debug.apk`:
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\Build-DebugApk.ps1
+
 Instrumented protocol and SQLite tests are included under `app/src/androidTest`. Run them locally on a connected Android device or emulator with:
 
     gradle connectedDebugAndroidTest
 
-These commands are local developer instructions. They are documented only; no CI, build, or instrumentation test was run for the changes in this branch.
+These commands are local developer instructions and do not invoke GitHub Actions. The PowerShell helper accepts `-RunConnectedTests` to run the instrumentation suite after creating the debug APK. A successful debug APK build does not certify physical-device interoperability or production security.
 
 Install the debug APK on at least two BLE-capable Android phones. On each phone, enter the same high-entropy passphrase (at least 24 characters), grant Bluetooth and notification permissions, and start the mesh. A blank passphrase field reuses the locally saved credential. Use “Forget saved group credentials” to delete it from that device.
 
