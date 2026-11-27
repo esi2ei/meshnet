@@ -77,7 +77,7 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             "DELETE FROM outbox WHERE frame_id IN (SELECT frame_id FROM outbox ORDER BY created_at ASC LIMIT MAX(0, (SELECT COUNT(*) FROM outbox) - ?))",
             arrayOf(MAX_ENTRIES)
         )
-        return inserted != -1L || db.rawQuery(
+        return db.rawQuery(
             "SELECT 1 FROM outbox WHERE frame_id = ?", arrayOf(id)
         ).use { it.moveToFirst() }
     }
