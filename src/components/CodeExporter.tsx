@@ -5,8 +5,9 @@ import { Copy, FileCode2, Search } from 'lucide-react';
 // No remote repository, CDN, or hosted source endpoint is used at runtime.
 const frontendSources = import.meta.glob('../**/*.{ts,tsx,css}', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
 const nativeSources = import.meta.glob('../../mobile/app/src/{main,androidTest}/**/*.{kt,xml}', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
-const buildSources = import.meta.glob('../../mobile/*.{gradle,gradle.kts,properties}', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
-const sourceFiles = Object.entries({ ...frontendSources, ...nativeSources, ...buildSources })
+const buildSources = import.meta.glob('../../mobile/**/*.{gradle,gradle.kts,properties}', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
+const rootSources = import.meta.glob('../../*.{json,ts,md}', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
+const sourceFiles = Object.entries({ ...frontendSources, ...nativeSources, ...buildSources, ...rootSources })
   .map(([path, content]) => ({ path: path.replace(/^\.\.\//, ''), content }))
   .sort((a, b) => a.path.localeCompare(b.path));
 
