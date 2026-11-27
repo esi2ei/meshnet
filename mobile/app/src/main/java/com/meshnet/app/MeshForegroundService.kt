@@ -144,6 +144,15 @@ class MeshForegroundService : Service() {
         return queued
     }
 
+    private fun retryPendingOfflineWalletTransfers() {
+        val pending = runCatching { offlineWallet.pendingOutgoingVouchers() }.getOrDefault(emptyList())
+        pending.forEach { voucher ->
+            if (sendOfflineWalletEnvelope(OFFLINE_PAYMENT_PREFIX, voucher.id, voucher.payload)) {
+                emit("Retrying unconfirmed offline wallet transfer " + voucher.id.take(8))
+            }
+        }
+    }
+
     private fun sendOfflineWalletEnvelope(prefix: String, transferId: String, payload: String): Boolean {
         val activeRouter = router ?: return false
         val encoded = android.util.Base64.encodeToString(
@@ -451,6 +460,7 @@ class MeshForegroundService : Service() {
         when {
             state.contains("channel ready") -> {
                 if (!replayActive) beginOutboxReplay() else pumpOutboxReplay()
+                retryPendingOfflineWalletTransfers()
             }
             state.contains("write queue drained") || state.contains("write queue available") ->
                 pumpOutboxReplay()
