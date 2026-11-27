@@ -53,7 +53,7 @@ For a multi-hop BLE check, use three phones with each device within BLE range of
 
 ## GitHub Actions validation and APK artifact
 
-The repository workflow runs on pushes to `main` and `fix/meshnet-ci-vite-20261127`, pull requests to `main`, and manual dispatch. The Android job:
+The repository workflow is currently manual-only (`workflow_dispatch`). Pushes and pull requests do not start CI on this branch. Do not dispatch it until the owner explicitly requests validation. When intentionally run, the Android job:
 
 1. Builds the unsigned-by-owner, debug-signed APK with JDK 17, Gradle 8.11.1, and Android SDK Platform 36.
 2. Verifies the APK signature and prints its SHA-256 checksum.
