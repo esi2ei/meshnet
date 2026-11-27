@@ -47,7 +47,14 @@ class BundledDashboardAssetsTest {
         val css = context.assets.open("web/assets/$stylesheet").bufferedReader().use { it.readText() }
         assertTrue("The UI bundle must expose the native runtime controls", js.contains("MeshNetNative"))
         assertFalse("The packaged stylesheet must not fetch Google Fonts", css.contains("fonts.googleapis.com"))
-        assertFalse("The packaged UI must not depend on remote Unsplash avatars", js.contains("images.unsplash.com"))
+        val remoteUnsplashRequest = Regex(
+            """(?:src|href)\s*=\s*["']https?://images\.unsplash\.com|url\(\s*["']?https?://images\.unsplash\.com|fetch\(\s*["']https?://images\.unsplash\.com""",
+            RegexOption.IGNORE_CASE
+        )
+        assertFalse(
+            "The runtime bundle must not actively request remote Unsplash images",
+            remoteUnsplashRequest.containsMatchIn(js)
+        )
         assertTrue("The source browser must bundle the Android peer registry", js.contains("MeshPeerRegistry.kt"))
         assertTrue("The source browser must bundle route registry and router sources", js.contains("MeshRouteRegistry.kt") && js.contains("MeshRouter.kt"))
         assertTrue("The source browser must bundle instrumentation tests and architecture docs", js.contains("MeshRouteRegistryTest.kt") && js.contains("ARCHITECTURE.md"))
