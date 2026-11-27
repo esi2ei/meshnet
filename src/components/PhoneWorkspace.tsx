@@ -32,6 +32,7 @@ type NativeBridge = {
   resumeWifiAware: () => void;
   connectWallet: () => void;
   disconnectWallet: () => void;
+  sendSolanaDevnetTransfer: (recipientAddress: string, amountSol: string) => void;
   getOfflineWalletAddress: () => string;
   copyOfflineWalletAddress: () => boolean;
   sendOfflinePayment: (recipientAddress: string, amountMinor: number) => boolean;
@@ -71,6 +72,8 @@ export default function PhoneWorkspace() {
   const [wifiAddress, setWifiAddress] = useState('');
   const [offlineRecipient, setOfflineRecipient] = useState('');
   const [offlineAmount, setOfflineAmount] = useState('');
+  const [solanaRecipient, setSolanaRecipient] = useState('');
+  const [solanaAmount, setSolanaAmount] = useState('');
   const [lastEvent, setLastEvent] = useState('Waiting for native runtime');
   const native = typeof window !== 'undefined' ? window.MeshNetNative : undefined;
 
@@ -257,7 +260,24 @@ export default function PhoneWorkspace() {
             onClick={() => native?.disconnectWallet()}>Disconnect wallet</button>
         </div>
         {runtime.walletAddress && <p className="break-all text-[11px] text-emerald-300">Authorized address: {runtime.walletAddress}</p>}
-        <p className="text-[11px] leading-relaxed text-slate-500">Online integrations are off by default. Enabling this setting permits the explicitly requested wallet adapter flow only; it does not enable cloud messaging, analytics, telemetry, remote fonts, or automatic uploads. Wallet support remains Devnet authorization only, not payments.</p>
+        {runtime.onlineIntegrationsEnabled && runtime.walletAddress && (
+          <div className="space-y-2 border-t border-slate-800 pt-3">
+            <div className="text-xs font-semibold text-slate-300">Send SOL on Devnet (online)</div>
+            <label className="block text-xs text-slate-400" htmlFor="solana-devnet-recipient">Recipient Solana address</label>
+            <input id="solana-devnet-recipient" value={solanaRecipient} onChange={(event) => setSolanaRecipient(event.target.value.trim())}
+              placeholder="Devnet recipient address" className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-cyan-400" />
+            <label className="block text-xs text-slate-400" htmlFor="solana-devnet-amount">Amount in SOL (up to 9 decimals)</label>
+            <input id="solana-devnet-amount" inputMode="decimal" value={solanaAmount} onChange={(event) => setSolanaAmount(event.target.value.replace(/[^0-9.]/g, '').replace(/(\\..*)\\./g, '$1'))}
+              placeholder="0.01" className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-cyan-400" />
+            <button className={primaryClass}
+              disabled={!runtime.native || runtime.walletBusy || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(solanaRecipient) || !/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,9})?$/.test(solanaAmount) || Number(solanaAmount) <= 0}
+              onClick={() => { native?.sendSolanaDevnetTransfer(solanaRecipient.trim(), solanaAmount.trim()); setLastEvent("Devnet transfer opened · approve or reject in your wallet"); }}>
+              Send SOL using connected wallet
+            </button>
+            <p className="text-[11px] leading-relaxed text-amber-200/80">This action requires internet and a wallet approval. It sends native SOL on Devnet only; it is separate from the offline local-unit wallet and does not send mainnet funds.</p>
+          </div>
+        )}
+        <p className="text-[11px] leading-relaxed text-slate-500">Online integrations are off by default. Enabling this setting permits the explicitly requested wallet adapter and Devnet RPC flow only; it does not enable cloud messaging, analytics, telemetry, remote fonts, or automatic uploads.</p>
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
