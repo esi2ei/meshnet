@@ -68,7 +68,7 @@ class MeshRouter(
             }
             val target = frame.ackFor ?: return
             val removed = acknowledge(target)
-            relayIfNeeded(frame)
+            relayIfNeeded(frame, plaintext)
             markReceived(frame.id, frame.createdAt)
             remember(seen, frame.id)
             if (removed > 0) onMessage("Group receipt received for message $target")
@@ -78,7 +78,7 @@ class MeshRouter(
         if (frame.id in seen || hasReceived(frame.id)) {
             // Retry both paths: an earlier receipt or relay may have been queued while no peer was connected.
             if (frame.origin != nodeId) sendReceipt(frame.id)
-            relayIfNeeded(frame)
+            relayIfNeeded(frame, plaintext)
             return
         }
 
@@ -94,7 +94,7 @@ class MeshRouter(
             trim(displayed)
         }
         sendReceipt(frame.id)
-        relayIfNeeded(frame)
+        relayIfNeeded(frame, plaintext)
 
         if (markReceived(frame.id, frame.createdAt)) return
         remember(seen, frame.id)
