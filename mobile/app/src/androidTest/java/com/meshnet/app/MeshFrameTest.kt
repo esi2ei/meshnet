@@ -1,7 +1,7 @@
 package com.meshnet.app
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
+import org.junit.Assert.assertThrows\nimport org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MeshFrameTest {
@@ -108,6 +108,24 @@ class MeshFrameTest {
             "route-bound payload",
             crypto.decrypt(relayNonce, relayCiphertext, MeshFrame.aad(modifiedRoute))
         )
+    }
+
+    @Test
+    fun maximumRouteFrameFitsDefaultMtuChunkBudget() {
+        val hops = (0 until MeshFrame.MAX_TTL).map { "n" + it.toString().padStart(21, '0') }
+        val frame = MeshFrame(
+            id = "550e8400-e29b-41d4-a716-446655440000",
+            origin = hops.first(),
+            ttl = 1,
+            hops = hops,
+            nonce = "A".repeat(16),
+            ciphertext = "A".repeat(184),
+            createdAt = System.currentTimeMillis()
+        )
+
+        val encoded = frame.encode()
+        assertTrue(encoded.size <= MeshFrame.MAX_FRAME_BYTES)
+        assertEquals(hops, MeshFrame.decode(encoded).hops)
     }
 
     @Test
