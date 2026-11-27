@@ -131,6 +131,19 @@ class MeshForegroundService : Service() {
         return queued
     }
 
+    /** Requeue unchanged signed vouchers whose recipient acknowledgement has not arrived. */
+    @Synchronized
+    fun retryPendingOfflinePayments(): Int {
+        router ?: throw IllegalStateException("Start the offline mesh before retrying wallet transfers")
+        val pending = offlineWallet.pendingOutgoingVouchers()
+        var queued = 0
+        pending.forEach { voucher ->
+            if (sendOfflineWalletEnvelope(OFFLINE_PAYMENT_PREFIX, voucher.id, voucher.payload)) queued++
+        }
+        emit("Requeued $queued of ${pending.size} unconfirmed offline wallet transfers")
+        return queued
+    }
+
     private fun sendOfflineWalletEnvelope(prefix: String, transferId: String, payload: String): Boolean {
         val activeRouter = router ?: return false
         val encoded = android.util.Base64.encodeToString(
