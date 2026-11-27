@@ -20,6 +20,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.WebViewAssetLoader
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.CountDownLatch
@@ -126,11 +127,16 @@ class MainActivity : Activity() {
         messageInput = EditText(this)
         wifiAddress = EditText(this)
 
+        val assetLoader = WebViewAssetLoader.Builder()
+            .setDomain("appassets.androidplatform.net")
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
+
         val localWebView = WebView(this).apply {
             setBackgroundColor(android.graphics.Color.rgb(10, 11, 13))
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            settings.allowFileAccess = true
+            settings.allowFileAccess = false
             settings.allowContentAccess = false
             settings.allowFileAccessFromFileURLs = false
             settings.allowUniversalAccessFromFileURLs = false
@@ -141,20 +147,32 @@ class MainActivity : Activity() {
             overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
             addJavascriptInterface(MeshNetBridge(), "MeshNetNative")
             webViewClient = object : WebViewClient() {
-                private fun isBundledAsset(url: String): Boolean {
-                    val parsed = Uri.parse(url)
-                    return parsed.scheme == "file" &&
-                        parsed.path?.startsWith("/android_asset/web/") == true
-                }
+                private fun isBundledAsset(url: Uri): Boolean =
+                    url.scheme == "https" &&
+                        url.host == "appassets.androidplatform.net" &&
+                        url.path?.startsWith("/assets/web/") == true
+
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: WebResourceRequest
+                ): android.webkit.WebResourceResponse? =
+                    assetLoader.shouldInterceptRequest(request.url)
+
+                @Suppress("DEPRECATION")
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    url: String?
+                ): android.webkit.WebResourceResponse? =
+                    assetLoader.shouldInterceptRequest(Uri.parse(url ?: return null))
 
                 override fun shouldOverrideUrlLoading(
                     view: WebView?,
                     request: WebResourceRequest
-                ): Boolean = !isBundledAsset(request.url.toString())
+                ): Boolean = !isBundledAsset(request.url)
 
                 @Suppress("DEPRECATION")
                 override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
-                    url == null || !isBundledAsset(url)
+                    url == null || !isBundledAsset(Uri.parse(url))
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
@@ -188,7 +206,7 @@ class MainActivity : Activity() {
             insets
         }
         setContentView(localWebView)
-        localWebView.loadUrl("file:///android_asset/web/index.html")
+        localWebView.loadUrl("https://appassets.androidplatform.net/assets/web/index.html")
     }
 
     private fun runtimeStatusJson(): String {
