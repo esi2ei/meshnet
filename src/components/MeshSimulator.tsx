@@ -121,7 +121,7 @@ export default function MeshSimulator({ running, native, peers, routes, localNod
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h4 className="text-sm font-semibold text-white">Observed multi-hop routes</h4>
-                <p className="mt-1 text-xs text-slate-500">Paths reconstructed from authenticated frame hop histories</p>
+                <p className="mt-1 text-xs text-slate-500">Paths reconstructed from group-key-authenticated frame hop histories</p>
               </div>
               <span className="rounded-lg border border-slate-700 px-2 py-1 text-[10px] text-slate-400">{validRoutes.length} observed path{validRoutes.length === 1 ? '' : 's'}</span>
             </div>
