@@ -1,7 +1,10 @@
 name: MeshNet CI
 
 on:
-  # Intentionally manual-only while the owner completes local/device validation.
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  # Keep manual runs available for explicit validation outside pull requests.
   workflow_dispatch:
 
 permissions:
