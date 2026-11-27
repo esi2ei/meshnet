@@ -4,7 +4,7 @@ This document records an implementation decision, not a claim that the integrati
 
 ## 1. Cryptography: use vodozemac instead of libsignal
 
-**Selected candidate:** [matrix-org/vodozemac](https://github.com/matrix-org/vodozemac), Apache-2.0, Rust crate. The inspected release is 0.11.2 (Rust edition 2024; declared MSRV Rust 1.89). It implements Olm (Double Ratchet) and Megolm, and its maintainers publish a security audit by Least Authority. Pin the exact release and commit the dependency lockfile when integrating. The Android NDK/JNI build must use a compatible Rust toolchain; this repository's current Android setup does not yet provide that toolchain.
+**Selected candidate:** [matrix-org/vodozemac](https://github.com/matrix-org/vodozemac), Apache-2.0, Rust crate. The inspected release is 0.11.2 (Rust edition 2024; declared MSRV Rust 1.96). It implements Olm (Double Ratchet) and Megolm, and its maintainers publish a security audit by Least Authority. Pin the exact release and commit the dependency lockfile when integrating. The Android NDK/JNI build must use a compatible Rust toolchain; this repository's current Android setup does not yet provide that toolchain.
 
 Why this is a better licensing fit than libsignal for this repository:
 - Apache-2.0 permits commercial redistribution subject to its license, notice, and attribution conditions.
@@ -19,9 +19,9 @@ Required integration sequence:
 3. Persist encrypted/pickled account and session state using Android Keystore-wrapped storage keys; bind records to the local device identity and handle rollback/corruption explicitly.
 4. Define key rotation, device revocation, lost-device recovery, and protocol-version negotiation before switching message encryption.
 5. Add cross-device interoperability vectors, tamper/replay tests, state-restoration tests, dependency/license inventory, and an independent cryptographic review.
-6. Only then migrate messages. Keep protocol v3 group AES-GCM as a clearly marked legacy mode until all devices have upgraded; do not silently reinterpret old ciphertext as ratchet ciphertext.
+6. Only then migrate messages. Protocol v4 group AES-GCM remains the current legacy mode until all devices have upgraded; do not silently reinterpret old ciphertext as ratchet ciphertext.
 
-**Current state:** selected as the Apache-2.0 replacement candidate; not integrated into the Android runtime. The current app still uses a shared AES-GCM group key and does not provide per-device identity or forward secrecy.
+**Current state:** selected as the Apache-2.0 replacement candidate; not integrated into the Android runtime. The current app still uses a shared AES-GCM group key and does not provide per-device identity or forward secrecy. No Rust JNI/UniFFI module, native build, key bundle publication, or ratchet-session persistence has been implemented.
 
 ## 2. Escrow: non-custodial Solana PDA escrow; no custodial server wallet
 
@@ -48,18 +48,18 @@ Do not accept or display real deposits until all of these are available and revi
 5. Adversarial program tests for unauthorized release/refund, replay, wrong mint, wrong vault, arithmetic overflow, expiry boundaries, account substitution, and frozen-token behavior.
 6. External security review and explicit product/legal approval for fees, custody characterization, disputes, and supported jurisdictions.
 
-**Current state:** a first-pass Anchor escrow program source now exists under `solana/programs/meshnet-escrow` with order-specific PDA vaults, immutable terms, buyer+provider release, buyer refund after expiry, and configured-arbitrator dispute settlement. The arbitrator release path is independent of provider consent; the provider destination is still constrained to the order's immutable provider key. This source correction is not built, tested, deployed, audited, or integrated into the Android app. The declared program ID is still an example placeholder. No wallet is connected; no funds can be accepted or transferred by MeshNet. No private keys, RPC credentials, or deployment authority are available in this repository context, so deployment or real-money activation is intentionally not attempted.
+**Current state:** a first-pass Anchor escrow program source exists under `solana/programs/meshnet-escrow` with order-specific PDA vaults, immutable terms, buyer+provider release, buyer refund after expiry, and configured-arbitrator dispute settlement. Terminal order state is retained for both ordinary and arbitrated settlement; the buyer may explicitly close only a settled order to reclaim its rent. Vault balance and expiry arithmetic have explicit guards. This source is not built, tested, deployed, audited, or integrated into the Android app. The declared program ID remains a placeholder and `INITIAL_ADMIN` is a placeholder system-program address that cannot sign initialization. No funds can be accepted or transferred by MeshNet.
 
 ## 3. Other outstanding work
 
 | Area | Current state | Safe next step |
 |---|---|---|
-| Large files | Resumable 256 KiB bounded file-transfer prototype is implemented; unbounded streaming and transfer windows are not | Add streaming file I/O, bounded sliding windows, durable sender checkpoints, progress/cancel controls, and backpressure |
-| Voice | User-controlled 7-second AAC voice notes are transferred as encrypted files; live voice streaming is not implemented | Add encrypted low-latency streaming, jitter buffering, and explicit session controls |
+| File transfer | 10 MiB capped streaming sender, 16-chunk bounded windows, receiver ACKs after durable eight-chunk checkpoints, compact sparse resume metadata, process-restart recovery, and streaming SHA-256 verification are implemented in source | Add progress/cancel UI, quota accounting for completed files, throughput measurement, and large-file interop testing |
+| Voice | User-controlled AAC voice notes and opt-in live group voice over encrypted v4 EPHEMERAL AMR-NB packets, per-origin jitter buffers/decoders, 20 ms frames, and bounded mixing are implemented in source | Validate codec behavior, acoustic echo, loss concealment, microphone foreground-service policy, latency, and battery use on devices |
 | Wi-Fi Aware / Wi-Fi Direct | Optional Wi-Fi Aware discovery and PSK-negotiated TCP transport source is implemented alongside Wi-Fi Direct; device interoperability remains unverified | Validate Aware availability changes, multi-peer paths, coexistence with Wi-Fi Direct, and real-device interoperability |
-| Congestion/adaptive routing | Per-peer BLE queue backoff/retry and shortest-observed-route duplicate suppression are implemented; link-quality-aware next-hop selection is not | Add per-peer route metrics, expiry-aware scheduling, and loop-safe next-hop selection |
-| Solana escrow | Anchor program source exists; not compiled, tested, deployed, audited, or connected to a wallet | Generate a real program ID, complete adversarial tests, external audit, multisig/dispute design, and a verified wallet client |
-| iOS | Deferred by product direction | Keep postponed; do not start an iOS port |
+| Congestion/routing | Per-peer BLE queue backoff/retry, ingress-excluding relay dispatch, and hop-first/arrival-age duplicate-route scoring are implemented in source; no destination-aware next-hop or radio signal-quality selection exists | Add route advertisements, measured link metrics, expiry-aware scheduling, bounded route expiry, and loop-safe unicast forwarding |
+| Solana escrow | Anchor source includes terminal-state retention, buyer-only close-after-settlement, vault checks, and checked expiry arithmetic; not compiled, tested, deployed, or audited | Set real program/admin IDs after ownership confirmation, add adversarial/integration tests, reproducible build, external audit, deployment gates, and full transaction UX |
+| Wallet | Android uses MWA 2.0.7 scaffolding for user-approved Devnet authorization and deauthorization; public key and auth token are held in memory. No transaction is constructed, signed, or submitted; dApp identity URI/asset verification is not configured | Add identity verification and a transaction builder only after the escrow program is deployed, independently audited, and verified on the target cluster |\n| iOS | Deferred by product direction | Keep postponed; do not start an iOS port |
 | Physical validation | Not performed | Build and run instrumented tests on at least two real Android phones and a three-node relay topology |
 
 ## 4. Validation policy for this branch
