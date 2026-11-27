@@ -2,12 +2,15 @@ package com.meshnet.app
 
 import android.content.Context
 import android.media.AudioFormat
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.media.MediaRecorder
+import android.os.Build
 import android.os.SystemClock
 import android.util.Base64
 import java.nio.ByteBuffer
@@ -52,6 +55,13 @@ class MeshLiveVoiceCall(
     @Volatile private var outputSequence = 0L
     private var priorAudioMode = AudioManager.MODE_NORMAL
     private var priorSpeaker = false
+    private var focusRequest: AudioFocusRequest? = null
+    private var hasAudioFocus = false
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        if (active.get() && (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)) {
+            Thread({ end() }, "meshnet-voice-focus-cleanup").apply { isDaemon = true; start() }
+        }
+    }
 
     fun isActive(): Boolean = active.get()
     fun latestIncomingCallId(): String? = incomingId
@@ -186,6 +196,27 @@ class MeshLiveVoiceCall(
                 )
                 check(localPlayer.state == AudioTrack.STATE_INITIALIZED) { "Voice playback initialization failed" }
 
+                val focusResult = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                        .setAudioAttributes(
+                            AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                .build()
+                        )
+                        .setOnAudioFocusChangeListener(focusListener)
+                        .setAcceptsDelayedFocusGain(false)
+                        .build()
+                    focusRequest = request
+                    audioManager.requestAudioFocus(request)
+                } else {
+                    @Suppress("DEPRECATION")
+                    audioManager.requestAudioFocus(
+                        focusListener, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+                    )
+                }
+                check(focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) { "Audio focus is unavailable" }
+                hasAudioFocus = true
                 priorAudioMode = audioManager.mode
                 priorSpeaker = audioManager.isSpeakerphoneOn
                 audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
@@ -222,6 +253,7 @@ class MeshLiveVoiceCall(
                 callId = null
                 audioManager.mode = priorAudioMode
                 audioManager.isSpeakerphoneOn = priorSpeaker
+                abandonAudioFocus()
                 throw IllegalStateException("AMR-NB live audio is unavailable on this device: ${error.message}", error)
             }
         }
@@ -452,7 +484,19 @@ class MeshLiveVoiceCall(
             speakers.clear()
             audioManager.mode = priorAudioMode
             audioManager.isSpeakerphoneOn = priorSpeaker
+            abandonAudioFocus()
         }
+    }
+
+    private fun abandonAudioFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (hasAudioFocus) focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            focusRequest = null
+        } else if (hasAudioFocus) {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(focusListener)
+        }
+        hasAudioFocus = false
     }
 
     companion object {

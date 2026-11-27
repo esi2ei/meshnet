@@ -2,6 +2,7 @@ package com.meshnet.app
 
 import androidx.test.core.app.ApplicationProvider
 import android.content.Context
+import android.content.ContentValues
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -66,6 +67,45 @@ class MeshQueueStoreTest {
         assertEquals(1, store.pending().size)
         assertTrue(store.retireAcknowledgement(retry.encode()))
         assertTrue(store.pending().isEmpty())
+    }
+
+    @Test
+    fun protocolV5UpgradeClearsIncompatibleQueuedFramesAndReplayIds() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        store.close()
+        context.deleteDatabase("meshnet-outbox.db")
+        val legacy = context.openOrCreateDatabase("meshnet-outbox.db", Context.MODE_PRIVATE, null)
+        legacy.execSQL(
+            """CREATE TABLE outbox (
+                frame_id TEXT PRIMARY KEY NOT NULL,
+                frame BLOB NOT NULL,
+                message_id TEXT,
+                frame_kind TEXT NOT NULL DEFAULT 'MESSAGE',
+                created_at INTEGER NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0
+            )"""
+        )
+        legacy.execSQL("CREATE TABLE received_ids (frame_id TEXT PRIMARY KEY NOT NULL, created_at INTEGER NOT NULL)")
+        val oldFrame = frame("old_frame_01", MeshFrame.KIND_MESSAGE).encode()
+            .toString(Charsets.UTF_8).replace("\"v\":5", "\"v\":4").toByteArray(Charsets.UTF_8)
+        legacy.insertOrThrow("outbox", null, ContentValues().apply {
+            put("frame_id", "legacy-row")
+            put("frame", oldFrame)
+            put("message_id", "old_frame_01")
+            put("frame_kind", MeshFrame.KIND_MESSAGE)
+            put("created_at", System.currentTimeMillis())
+            put("attempts", 0)
+        })
+        legacy.insertOrThrow("received_ids", null, ContentValues().apply {
+            put("frame_id", "old_frame_01")
+            put("created_at", System.currentTimeMillis())
+        })
+        legacy.version = 6
+        legacy.close()
+
+        store = MeshQueueStore(context)
+        assertTrue(store.pending().isEmpty())
+        assertFalse(store.hasReceived("old_frame_01"))
     }
 
     private fun frame(id: String, kind: String, ackFor: String? = null) = MeshFrame(

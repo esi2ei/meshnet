@@ -220,6 +220,9 @@ class MainActivity : Activity() {
         synchronized(recentEvents) {
             recentEvents.takeLast(12).forEach { events.put(it) }
         }
+        val peers = meshService?.connectedPeersJson() ?: JSONArray()
+        val routes = meshService?.observedRoutesJson() ?: JSONArray()
+        val localNodeId = meshService?.localNodeIdValue()
         val outgoingTransfers = JSONArray()
         runCatching {
             offlineWalletStore.outgoingHistory().takeLast(8).forEach { transfer ->
@@ -257,6 +260,9 @@ class MainActivity : Activity() {
             .put("offlineWalletTransfers", outgoingTransfers)
             .put("offlineWalletReceipts", receivedReceipts)
             .put("recentEvents", events)
+            .put("connectedPeers", peers)
+            .put("observedRoutes", routes)
+            .put("localNodeId", localNodeId ?: JSONObject.NULL)
             .toString()
     }
 
@@ -309,6 +315,20 @@ class MainActivity : Activity() {
                 append("Mesh stop requested")
             }
         }
+
+        @JavascriptInterface
+        fun sendDirectMessage(destinationNodeId: String, message: String): Boolean =
+            runOnMainBlocking {
+                try {
+                    val accepted = meshService?.sendDirectMessage(destinationNodeId.trim(), message)
+                        ?: throw IllegalStateException("Start the mesh before sending a directed message")
+                    append(if (accepted) "Directed message accepted into encrypted outbox" else "Directed message was not accepted")
+                    accepted
+                } catch (error: Exception) {
+                    append(error.message ?: "Unable to queue directed message")
+                    false
+                }
+            } ?: false
 
         @JavascriptInterface
         fun sendMessage(message: String): Boolean =

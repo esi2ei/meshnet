@@ -42,7 +42,8 @@ class MeshWifiAwareTransport(
     context: Context,
     groupPassphrase: String,
     private val onPayload: (String, ByteArray) -> Unit,
-    private val onState: (String) -> Unit
+    private val onState: (String) -> Unit,
+    private val onPeerConnection: (String, Boolean) -> Unit = { _, _ -> }
 ) {
     private val app = context.applicationContext
     private val manager = app.getSystemService(Context.WIFI_AWARE_SERVICE) as? WifiAwareManager
@@ -264,6 +265,7 @@ class MeshWifiAwareTransport(
                     val socket = listener.accept()
                     socket.tcpNoDelay = true
                     sockets.add(socket)
+                    onPeerConnection(socket.inetAddress.hostAddress ?: "unknown", true)
                     onState("Wi-Fi Aware data channel ready")
                     startReader(socket)
                 }
@@ -291,6 +293,7 @@ class MeshWifiAwareTransport(
                 socket.connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MS)
                 socket.tcpNoDelay = true
                 sockets.add(socket)
+                onPeerConnection(socket.inetAddress.hostAddress ?: "unknown", true)
                 onState("Wi-Fi Aware data channel ready")
                 startReader(socket)
             } catch (error: Exception) {
@@ -318,16 +321,17 @@ class MeshWifiAwareTransport(
             } finally {
                 sockets.remove(socket)
                 runCatching { socket.close() }
+                onPeerConnection(socket.inetAddress.hostAddress ?: "unknown", false)
                 onState("Wi-Fi Aware peer disconnected")
             }
         }, "meshnet-wifi-aware-reader").apply { isDaemon = true; start() }
     }
 
     @Synchronized
-    fun sendToPeers(frame: ByteArray, excludePeer: String? = null): Boolean {
+    fun sendToPeers(frame: ByteArray, excludePeer: String? = null, onlyPeer: String? = null): Boolean {
         if (frame.isEmpty() || frame.size > MeshFrame.MAX_FRAME_BYTES) return false
         var sent = false
-        sockets.toList().filter { it.inetAddress.hostAddress != excludePeer }.forEach { socket ->
+        sockets.toList().filter { it.inetAddress.hostAddress != excludePeer && (onlyPeer == null || it.inetAddress.hostAddress == onlyPeer) }.forEach { socket ->
             try {
                 synchronized(socket) {
                     val output = DataOutputStream(socket.getOutputStream())
@@ -339,10 +343,13 @@ class MeshWifiAwareTransport(
             } catch (_: Exception) {
                 sockets.remove(socket)
                 runCatching { socket.close() }
+                onPeerConnection(socket.inetAddress.hostAddress ?: "unknown", false)
             }
         }
         return sent
     }
+
+    fun sendToPeer(frame: ByteArray, address: String): Boolean = sendToPeers(frame, onlyPeer = address)
 
     fun stop() {
         if (!running.getAndSet(false)) return

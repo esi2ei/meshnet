@@ -8,7 +8,7 @@ Before calling MeshNet production-ready, resolve or explicitly remove these prod
 
 - **Cryptographic identity:** the current app still uses one shared AES-GCM group passphrase. It has no authenticated per-device identity, forward secrecy, signed prekeys, secure group key rotation, or device revocation. `vodozemac` is selected but not integrated.
 - **Delivery semantics:** a group receipt confirms receipt by at least one group-key holder, not a named recipient, all group members, or offline devices.
-- **Routing:** relay is broadcast/flooding with TTL and duplicate-route scoring. It is not destination-aware unicast and does not select routes from measured radio metrics.
+- **Routing:** directed text frames now carry an authenticated destination and use reverse next-hop candidates learned from group-key-authenticated packet paths. Up to three alternatives are ranked by hop count and freshness; failed/disconnected peers are removed, and unknown/stale routes fall back to TTL-bounded flooding. This is not a complete route-discovery control plane, does not measure radio/link quality, and does not provide cryptographic device identity.
 - **Payments:** the offline wallet signs and verifies provisional `MESH-LOCAL-UNIT` transfer receipts over the encrypted mesh. It is not a real-money wallet: there is no issuance, global balance ledger, double-spend prevention, or final settlement. Solana MWA supports Devnet authorization and a native SOL SystemProgram transfer builder that submits through the connected wallet's sign-and-send flow; no mainnet transfer, escrow transaction, token transfer, or authoritative app-side balance ledger exists. Devnet RPC confirmation read-back must be checked independently.
 - **Escrow:** the Anchor source has not been built, tested, deployed, or independently audited. The program ID and initialization admin are now mandatory build inputs, but that does not constitute deployment or audit approval. Do not accept real funds.
 - **Store identity and disclosure:** supply the actual product website/dApp identity URI, privacy policy, app listing, support contact, data-safety answers, and permission rationale for the distribution channel.
@@ -37,7 +37,7 @@ Run the local instrumentation suite on a connected Android phone or emulator:
 
     gradle connectedDebugAndroidTest
 
-The tests under `app/src/androidTest` cover protocol/frame validation, queue persistence, receipt handling, encrypted credential storage, file-transfer resume/integrity/cancellation/quota/export behavior, and wallet authorization storage. Review any failures and fix them before proceeding. Do not substitute a successful build for device interoperability checks.
+The tests under `app/src/androidTest` cover protocol v5 destination/AAD validation, reverse-route ranking/expiry/disconnect invalidation, directed next-hop forwarding, queue migration/persistence, receipt handling, encrypted credential storage, file-transfer resume/integrity/cancellation/quota/export behavior, and wallet authorization storage. Review any failures and fix them before proceeding. Do not substitute a successful build for device interoperability checks.
 
 ## 4. Two-phone BLE and messaging
 
@@ -54,7 +54,9 @@ Remember: these checks do not establish authenticated per-device identities or a
 
 ## 5. Multi-hop and alternate transports
 
-- **Three-phone BLE relay:** arrange phone A ↔ B ↔ C with A and C out of direct range. Send in both directions, then move phones and verify TTL/hop behavior and duplicate suppression. Repeat with a peer disconnecting during fragmentation.
+- **Three-phone BLE relay:** arrange phone A ↔ B ↔ C with A and C out of direct range. Send broadcast and directed messages in both directions. Verify B learns reverse routes, C receives the directed message, and the receipt returns by the learned route. Move phones and verify TTL/hop behavior and duplicate suppression.
+- **Alternative routes and measured quality:** create two different paths to the same destination; record BLE RSSI and targeted-write success/failure/latency on each first hop. Verify the route score changes as samples change, stale metrics decay toward neutral after five minutes, and a disconnected peer is removed immediately. Confirm the router still respects hop distance, tries the next candidate after a failed write, and uses bounded flooding when no usable candidate remains. Record device models and measured RSSI/write latency. These local metrics are not end-to-end RTT or throughput.
+- **Protocol upgrade:** upgrade a device with a v4 database to v5. Confirm the migration clears incompatible queued ciphertext and replay IDs, and confirm every group participant is updated before exchanging frames.
 - **Wi-Fi Direct:** create a group on one phone, discover it on the second, connect using the discovered device address, transfer frames both ways, stop/recreate the group, and repeat after app restart.
 - **Wi-Fi Aware:** use at least two devices confirmed to support Aware. Test discovery, PSK negotiation, TCP connection, simultaneous send/receive, peer loss, re-discovery, and switching to/from Wi-Fi Direct. Repeat with Aware unavailable and confirm BLE remains usable.
 - **Radio coexistence:** run BLE while Wi-Fi Aware is active, then switch transports. Record device models, OS builds, RSSI/link state where available, and observed throughput/latency.
@@ -76,7 +78,7 @@ Test with files of 1 byte, a few hundred bytes, exactly/around a chunk boundary,
 
 - Record/play a voice note (up to seven seconds), transfer it, stop the mesh service, and play the received note from the private inbox.
 - Start a live group call explicitly. Join from another phone only after the invitation appears. Verify microphone permission is requested only after explicit start/join; reject an invitation without activating the microphone.
-- Test two or more concurrent speakers, mute/stop, invitation expiry, remote end, lock-screen/background behavior, phone calls/audio focus, Bluetooth headset routing, echo, packet loss, and battery use.
+- Test two or more concurrent speakers, mute/stop, invitation expiry, remote end, lock-screen/background behavior, phone calls/audio-focus loss and reacquisition, Bluetooth headset routing, echo, packet loss, and battery use. Confirm focus loss ends the local call, sends the end signal when possible, and restores the previous audio mode and speaker route.
 - Confirm microphone foreground-service promotion is permitted only from the visible user-initiated flow on the supported Android versions. Check that stop/revoke paths restore audio mode and release resources.
 - Record the exact device model, OEM build, AMR-NB codec availability, measured latency, and observed failures.
 

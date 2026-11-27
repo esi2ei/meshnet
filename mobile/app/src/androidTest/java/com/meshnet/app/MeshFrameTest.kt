@@ -41,6 +41,38 @@ class MeshFrameTest {
     }
 
     @Test
+    fun directedFrameRoundTripsAndAuthenticatesDestination() {
+        val frame = MeshFrame(
+            id = "directed_01",
+            origin = "node_01",
+            ttl = MeshFrame.MAX_TTL,
+            hops = listOf("node_01"),
+            nonce = "nonce",
+            ciphertext = "ciphertext",
+            destination = "node_02"
+        )
+        val decoded = MeshFrame.decode(frame.encode())
+        assertEquals("node_02", decoded.destination)
+        assertEquals(MeshFrame.PROTOCOL_VERSION, org.json.JSONObject(frame.encode().toString(Charsets.UTF_8)).getInt("v"))
+    }
+
+    @Test
+    fun rejectsInvalidDestinationNodeId() {
+        val frame = MeshFrame(
+            id = "directed_02",
+            origin = "node_01",
+            ttl = MeshFrame.MAX_TTL,
+            hops = listOf("node_01"),
+            nonce = "nonce",
+            ciphertext = "ciphertext",
+            destination = "invalid node"
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            MeshFrame.decode(frame.encode())
+        }
+    }
+
+    @Test
     fun rejectsReceiptWithoutTarget() {
         val frame = MeshFrame(
             id = "receipt_01",
@@ -67,9 +99,10 @@ class MeshFrameTest {
             ciphertext = "ciphertext"
         )
         val encoded = frame.encode().toString(Charsets.UTF_8)
-        val legacyBytes = encoded.replace("\"v\":4", "\"v\":1").toByteArray(Charsets.UTF_8)
-        val protocolV2Bytes = encoded.replace("\"v\":4", "\"v\":2").toByteArray(Charsets.UTF_8)
-        val protocolV3Bytes = encoded.replace("\"v\":4", "\"v\":3").toByteArray(Charsets.UTF_8)
+        val legacyBytes = encoded.replace("\"v\":5", "\"v\":1").toByteArray(Charsets.UTF_8)
+        val protocolV2Bytes = encoded.replace("\"v\":5", "\"v\":2").toByteArray(Charsets.UTF_8)
+        val protocolV3Bytes = encoded.replace("\"v\":5", "\"v\":3").toByteArray(Charsets.UTF_8)
+        val protocolV4Bytes = encoded.replace("\"v\":5", "\"v\":4").toByteArray(Charsets.UTF_8)
         assertThrows(IllegalArgumentException::class.java) {
             MeshFrame.decode(legacyBytes)
         }
@@ -78,6 +111,9 @@ class MeshFrameTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             MeshFrame.decode(protocolV3Bytes)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            MeshFrame.decode(protocolV4Bytes)
         }
     }
 
@@ -122,7 +158,8 @@ class MeshFrameTest {
             hops = hops,
             nonce = "A".repeat(16),
             ciphertext = "A".repeat(184),
-            createdAt = System.currentTimeMillis()
+            createdAt = System.currentTimeMillis(),
+            destination = "destination_node_000000000"
         )
 
         val encoded = frame.encode()
@@ -145,6 +182,29 @@ class MeshFrameTest {
         val decoded = MeshFrame.decode(frame.encode())
         assertEquals(MeshFrame.KIND_EPHEMERAL, decoded.kind)
         assertEquals(null, decoded.ackFor)
+    }
+
+    @Test
+    fun destinationNodeIdIsAuthenticatedByFrameAad() {
+        val crypto = MeshCrypto("a sufficiently long group passphrase".toCharArray())
+        val frame = MeshFrame(
+            id = "directed_auth_01",
+            origin = "node_01",
+            ttl = MeshFrame.MAX_TTL,
+            hops = listOf("node_01"),
+            nonce = "",
+            ciphertext = "",
+            destination = "node_02"
+        )
+        val (nonce, ciphertext) = crypto.encrypt("private payload", MeshFrame.aad(frame))
+        val changedDestination = frame.copy(
+            nonce = nonce,
+            ciphertext = ciphertext,
+            destination = "node_03"
+        )
+        assertThrows(Exception::class.java) {
+            crypto.decrypt(changedDestination.nonce, changedDestination.ciphertext, MeshFrame.aad(changedDestination))
+        }
     }
 
     @Test

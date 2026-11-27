@@ -37,13 +37,16 @@ class MeshBleTransport(
     context: Context,
     private val onPeer: (String, Boolean) -> Unit,
     private val onPayload: (String, ByteArray) -> Unit,
-    private val onState: (String) -> Unit
+    private val onState: (String) -> Unit,
+    private val onRssi: (String, Int) -> Unit = { _, _ -> }
 ) {
     private val appContext = context.applicationContext
     private val retryHandler = Handler(Looper.getMainLooper())
     private val manager = appContext.getSystemService(BluetoothManager::class.java)
     private val adapter: BluetoothAdapter? get() = manager?.adapter
     private var server: BluetoothGattServer? = null
+    // Pending GATT links are not usable peers until service discovery confirms the MeshNet channel.
+    private val pendingClients = ConcurrentHashMap<String, BluetoothGatt>()
     private val clients = ConcurrentHashMap<String, BluetoothGatt>()
     private val seen = ConcurrentHashMap.newKeySet<String>()
     private val negotiatedMtu = ConcurrentHashMap<String, Int>()
@@ -116,6 +119,7 @@ class MeshBleTransport(
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
             if (device.address == adapter?.address) return
+            onRssi(device.address, result.rssi)
             if (seen.add(device.address)) {
                 onState("Discovered BLE peer: ${device.address}")
                 connect(device)
@@ -136,7 +140,6 @@ class MeshBleTransport(
             if (status != BluetoothGatt.GATT_SUCCESS || newState == BluetoothProfile.STATE_DISCONNECTED) {
                 closeClient(address, gatt)
             } else if (newState == BluetoothProfile.STATE_CONNECTED) {
-                onPeer(address, true)
                 if (!gatt.requestMtu(MAX_MTU)) gatt.discoverServices()
             }
         }
@@ -159,7 +162,14 @@ class MeshBleTransport(
                 closeClient(address, gatt)
                 return
             }
-            clients[address] = gatt
+            synchronized(gatt) {
+                if (!running || !pendingClients.remove(address, gatt)) {
+                    closeClient(address, gatt)
+                    return
+                }
+                clients[address] = gatt
+                onPeer(address, true)
+            }
             onState("Mesh GATT channel ready: $address (MTU ${negotiatedMtu[address] ?: DEFAULT_MTU})")
         }
 
@@ -239,23 +249,30 @@ class MeshBleTransport(
     }
 
     private fun closeClient(address: String, gatt: BluetoothGatt) {
-        val clientRemoved = clients.remove(address, gatt)
-        val wasSeen = seen.remove(address)
-        val wasKnown = clientRemoved || wasSeen
-        negotiatedMtu.remove(address)
-        writeQueues.remove(address)
-        writing.remove(address)
-        if (wasKnown) onPeer(address, false)
-        runCatching { gatt.disconnect() }
-        runCatching { gatt.close() }
+        synchronized(gatt) {
+            val activeRemoved = clients.remove(address, gatt)
+            pendingClients.remove(address, gatt)
+            seen.remove(address)
+            negotiatedMtu.remove(address)
+            writeQueues.remove(address)
+            writing.remove(address)
+            peerHealth.remove(address)
+            assemblies.keys.removeAll { it.startsWith("$address|") }
+            if (activeRemoved) onPeer(address, false)
+            runCatching { gatt.disconnect() }
+            runCatching { gatt.close() }
+        }
     }
 
     private fun connect(device: BluetoothDevice) {
-        if (clients.containsKey(device.address)) return
+        if (clients.containsKey(device.address) || pendingClients.containsKey(device.address)) return
         try {
             val gatt = device.connectGatt(appContext, false, clientCallback(device.address), BluetoothDevice.TRANSPORT_LE)
-            if (gatt != null) clients[device.address] = gatt
-            else {
+            if (gatt != null) {
+                pendingClients[device.address] = gatt
+                // A fast failure callback can run before connectGatt returns its handle.
+                if (!seen.contains(device.address)) closeClient(device.address, gatt)
+            } else {
                 seen.remove(device.address)
                 onState("Unable to create GATT connection: ${device.address}")
             }
@@ -265,13 +282,13 @@ class MeshBleTransport(
         }
     }
 
-    fun sendToPeers(payload: ByteArray, excludePeer: String? = null): Boolean {
+    fun sendToPeers(payload: ByteArray, excludePeer: String? = null, onlyPeer: String? = null): Boolean {
         if (payload.isEmpty() || payload.size > MeshFrame.MAX_FRAME_BYTES) {
             onState("Rejected oversized MeshNet frame")
             return false
         }
         var queuedAny = false
-        clients.entries.toList().filter { it.key != excludePeer }.forEach { (address, gatt) ->
+        clients.entries.toList().filter { it.key != excludePeer && (onlyPeer == null || it.key == onlyPeer) }.forEach { (address, gatt) ->
             val health = peerHealth.computeIfAbsent(address) { PeerHealth() }
             val now = System.currentTimeMillis()
             if (now < synchronized(health) { health.backoffUntil }) {
@@ -315,6 +332,8 @@ class MeshBleTransport(
         if (!queuedAny) onState("No BLE peer accepted the frame for transmission")
         return queuedAny
     }
+
+    fun sendToPeer(payload: ByteArray, address: String): Boolean = sendToPeers(payload, onlyPeer = address)
 
     private fun writeNext(address: String, gatt: BluetoothGatt) {
         val queue = writeQueues[address] ?: run { writing.remove(address); return }
@@ -440,11 +459,12 @@ class MeshBleTransport(
         retryHandler.removeCallbacksAndMessages(null)
         runCatching { adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
         runCatching { adapter?.bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback) }
-        clients.values.forEach { gatt ->
+        (clients.values + pendingClients.values).distinct().forEach { gatt ->
             runCatching { gatt.disconnect() }
             runCatching { gatt.close() }
         }
         clients.clear()
+        pendingClients.clear()
         negotiatedMtu.clear()
         peerHealth.clear()
         writeQueues.clear()

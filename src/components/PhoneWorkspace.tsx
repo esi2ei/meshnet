@@ -4,6 +4,7 @@ import { Activity, Bluetooth, FileUp, FileDown, Mic, MicOff, Network, Power, Rad
 type NativeRuntimeStatus = {
   native: boolean;
   running: boolean;
+  localNodeId: string | null;
   onlineIntegrationsEnabled: boolean;
   walletBusy: boolean;
   walletAddress: string | null;
@@ -19,6 +20,7 @@ type NativeBridge = {
   startMesh: (passphrase: string) => void;
   stopMesh: () => void;
   sendMessage: (message: string) => boolean;
+  sendDirectMessage: (destinationNodeId: string, message: string) => boolean;
   selectFile: () => void;
   cancelFileTransfer: () => boolean;
   saveReceivedFile: () => void;
@@ -53,6 +55,7 @@ declare global {
 const initialStatus: NativeRuntimeStatus = {
   native: false,
   running: false,
+  localNodeId: null,
   onlineIntegrationsEnabled: false,
   walletBusy: false,
   walletAddress: null,
@@ -70,6 +73,8 @@ export default function PhoneWorkspace() {
   const [runtime, setRuntime] = useState(initialStatus);
   const [passphrase, setPassphrase] = useState('');
   const [message, setMessage] = useState('');
+  const [directDestination, setDirectDestination] = useState('');
+  const [directMessage, setDirectMessage] = useState('');
   const [wifiAddress, setWifiAddress] = useState('');
   const [offlineRecipient, setOfflineRecipient] = useState('');
   const [offlineAmount, setOfflineAmount] = useState('');
@@ -179,6 +184,26 @@ export default function PhoneWorkspace() {
             setLastEvent(accepted ? 'Message accepted into the encrypted outbox' : 'Message was not accepted; check mesh state and message size');
             if (accepted) setMessage('');
           }}>Queue encrypted message</button>
+        </div>
+      </div>
+
+      <div className="space-y-2 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
+        <div className="text-sm font-semibold text-white">Destination-aware routing</div>
+        <p className="text-[11px] leading-relaxed text-slate-400">Your node ID: <span className="break-all font-mono text-cyan-200">{runtime.localNodeId || "Available when the mesh is running"}</span></p>
+        <input value={directDestination} onChange={(event) => setDirectDestination(event.target.value.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32))}
+          placeholder="Destination node ID" maxLength={32}
+          className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm font-mono text-white outline-none focus:border-cyan-400" />
+        <textarea value={directMessage} onChange={(event) => setDirectMessage(event.target.value)} rows={2} maxLength={120}
+          placeholder="Directed message (up to 120 UTF-8 bytes)"
+          className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm text-white outline-none focus:border-cyan-400" />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[11px] text-slate-500">{new TextEncoder().encode(directMessage).length}/120 bytes · unknown routes flood to discover a path</span>
+          <button className={primaryClass} disabled={!runtime.native || !runtime.running || !/^[A-Za-z0-9_-]{1,32}$/.test(directDestination) || directDestination === runtime.localNodeId || !directMessage.trim() || new TextEncoder().encode(directMessage).length > 120}
+            onClick={() => {
+              const accepted = native?.sendDirectMessage(directDestination, directMessage.trim()) === true;
+              setLastEvent(accepted ? "Directed message accepted into encrypted outbox" : "Directed message was not accepted");
+              if (accepted) setDirectMessage("");
+            }}>Send to node</button>
         </div>
       </div>
 

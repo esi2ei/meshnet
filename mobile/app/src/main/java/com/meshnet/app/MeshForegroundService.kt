@@ -19,6 +19,9 @@ class MeshForegroundService : Service() {
     }
 
     private val binder = LocalBinder()
+    private val peerRegistry = MeshPeerRegistry()
+    private val linkQualityRegistry = MeshLinkQualityRegistry()
+    private val routeRegistry = MeshRouteRegistry(linkQualityRegistry::score)
     private var transport: MeshBleTransport? = null
     private var wifiTransport: MeshWifiDirectTransport? = null
     private var wifiAwareTransport: MeshWifiAwareTransport? = null
@@ -114,10 +117,71 @@ class MeshForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
     fun setListener(callback: ((String) -> Unit)?) { listener = callback }
     fun isRunning(): Boolean = router != null
+    fun connectedPeersJson(): org.json.JSONArray = if (router != null) peerRegistry.toJson() else org.json.JSONArray()
+    fun observedRoutesJson(): org.json.JSONArray = if (router != null) routeRegistry.toJson() else org.json.JSONArray()
+    fun localNodeIdValue(): String? = if (router != null) nodeId else null
+
+    private fun recordPeerConnection(transportName: String, address: String, connected: Boolean) {
+        peerRegistry.setConnected(transportName, address, connected)
+        if (!connected) {
+            val routeTransport = when (transportName) {
+                "BLE/GATT" -> "BLE"
+                "Wi-Fi Direct" -> "P2P"
+                "Wi-Fi Aware" -> "AWARE"
+                else -> null
+            }
+            if (routeTransport != null) {
+                val peer = "$routeTransport/$address"
+                routeRegistry.removePeer(peer)
+                linkQualityRegistry.remove(peer)
+            }
+        }
+        emit("$transportName peer ${if (connected) "connected" else "disconnected"}: $address")
+    }
 
     fun sendMessage(message: String): Boolean {
         val activeRouter = router ?: throw IllegalStateException("Mesh service is not ready")
         return activeRouter.sendMessage(message)
+    }
+
+    fun sendDirectMessage(destinationNodeId: String, message: String): Boolean {
+        val activeRouter = router ?: throw IllegalStateException("Mesh service is not ready")
+        return activeRouter.sendMessageTo(destinationNodeId, message)
+    }
+
+    private fun sendMeshFrameToPeer(frame: ByteArray, peer: String): Boolean {
+        val separator = peer.indexOf('/')
+        if (separator <= 0 || separator == peer.lastIndex) return false
+        if (!outbox.containsFrame(frame) && !outbox.enqueue(frame)) return false
+        val transportName = peer.substring(0, separator)
+        val address = peer.substring(separator + 1)
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        val accepted = when (transportName) {
+            "BLE" -> transport?.sendToPeer(frame, address) == true
+            "P2P" -> wifiTransport?.sendToPeer(frame, address) == true
+            "AWARE" -> wifiAwareTransport?.sendToPeer(frame, address) == true
+            else -> false
+        }
+        linkQualityRegistry.record(peer, accepted, android.os.SystemClock.elapsedRealtime() - startedAt)
+        if (accepted && runCatching { MeshFrame.decode(frame).kind == MeshFrame.KIND_ACK }.getOrDefault(false)) {
+            outbox.retireAcknowledgement(frame)
+        }
+        return accepted
+    }
+
+    private fun sendMeshFrameToOthers(frame: ByteArray, ingress: String?, durable: Boolean = true): Boolean {
+        if (durable && !outbox.containsFrame(frame) && !outbox.enqueue(frame)) return false
+        val separator = ingress?.indexOf('/') ?: -1
+        val ingressTransport = if (separator > 0) ingress!!.substring(0, separator) else null
+        val ingressAddress = if (separator > 0) ingress!!.substring(separator + 1) else ingress
+        val bleSent = transport?.sendToPeers(frame, if (ingressTransport == "BLE") ingressAddress else null) == true
+        val p2pSent = wifiTransport?.sendToPeers(frame, if (ingressTransport == "P2P") ingressAddress else null) == true
+        val awareSent = wifiAwareTransport?.sendToPeers(frame, if (ingressTransport == "AWARE") ingressAddress else null) == true
+        val accepted = bleSent || p2pSent || awareSent
+        if (durable && accepted && runCatching { MeshFrame.decode(frame).kind == MeshFrame.KIND_ACK }.getOrDefault(false)) {
+            outbox.retireAcknowledgement(frame)
+        }
+        return accepted
     }
 
     fun offlineWalletAddress(): String = offlineWallet.address()
@@ -366,7 +430,7 @@ class MeshForegroundService : Service() {
                     false
                 } else {
                     // A receipt has no ACK-of-ACK. Once a connected peer accepts it into
-                    // its ordered BLE write queue, retain only the ability to regenerate it
+                    // an available local transport write queue, retain only the ability to regenerate it
                     // when the original message is seen again.
                     val bleAccepted = transport?.sendToPeers(frame) == true
                     val wifiAccepted = wifiTransport?.sendToPeers(frame) == true
@@ -393,21 +457,17 @@ class MeshForegroundService : Service() {
             },
             onEphemeralPayload = { origin, plaintext -> liveVoiceCall?.accept(origin, plaintext) },
             sendRelay = { frame, ingress ->
-                if (!outbox.enqueue(frame)) {
-                    emit("Relay frame could not be stored in the durable outbox")
-                    false
-                } else {
-                    transport?.sendToPeers(frame, ingress)
-                    wifiTransport?.sendToPeers(frame, ingress)
-                    wifiAwareTransport?.sendToPeers(frame, ingress)
-                    true
-                }
+                sendMeshFrameToOthers(frame, ingress)
+                val queued = outbox.containsFrame(frame)
+                if (queued) emit("Relay frame remains durable until a transport can accept it")
+                else emit("Relay frame could not be stored in the durable outbox")
+                queued
             },
-            sendEphemeralRelay = { frame, ingress ->
-                val bleSent = transport?.sendToPeers(frame, ingress) == true
-                val p2pSent = wifiTransport?.sendToPeers(frame, ingress) == true
-                val awareSent = wifiAwareTransport?.sendToPeers(frame, ingress) == true
-                bleSent || p2pSent || awareSent
+            sendEphemeralRelay = { frame, ingress -> sendMeshFrameToOthers(frame, ingress, durable = false) },
+            resolveNextHops = routeRegistry::nextHopsFor,
+            sendToPeer = ::sendMeshFrameToPeer,
+            onRouteObserved = { path, ingress ->
+                if (routeRegistry.observe(path, ingressPeer = ingress)) emit("Observed mesh route: ${path.joinToString(" → ")}")
             }
         )
         processCompletedPendingOfflinePayments()
@@ -422,14 +482,13 @@ class MeshForegroundService : Service() {
         )
         transport = MeshBleTransport(
             this,
-            { address, connected ->
-                emit("${if (connected) "Connected" else "Disconnected"}: $address")
-            },
-            { peer, payload -> router?.receive(payload, peer) },
+            { address, connected -> recordPeerConnection("BLE/GATT", address, connected) },
+            { peer, payload -> router?.receive(payload, "BLE/$peer") },
             { state ->
                 emit(state)
                 handleTransportState(state)
-            }
+            },
+            { address, rssi -> linkQualityRegistry.recordRssi("BLE/$address", rssi) }
         )
         try {
             runCatching { transport?.start() }.onFailure { error ->
@@ -439,20 +498,22 @@ class MeshForegroundService : Service() {
             }
             wifiTransport = MeshWifiDirectTransport(
                 this,
-                { peer, payload -> router?.receive(payload, peer) },
+                { peer, payload -> router?.receive(payload, "P2P/$peer") },
                 { state ->
                     emit(state)
                     if (state.contains("data channel ready")) handleTransportState("Wi-Fi Direct channel ready")
-                }
+                },
+                { address, connected -> recordPeerConnection("Wi-Fi Direct", address, connected) }
             )
             wifiAwareTransport = MeshWifiAwareTransport(
                 this,
                 passphrase,
-                { peer, payload -> router?.receive(payload, peer) },
+                { peer, payload -> router?.receive(payload, "AWARE/$peer") },
                 { state ->
                     emit(state)
                     if (state.contains("data channel ready")) handleTransportState("Wi-Fi Aware channel ready")
-                }
+                },
+                { address, connected -> recordPeerConnection("Wi-Fi Aware", address, connected) }
             )
             runCatching { wifiAwareTransport?.start() }
                 .onFailure { emit("Wi-Fi Aware unavailable; other transports remain active: ${it.message}") }
@@ -525,7 +586,7 @@ class MeshForegroundService : Service() {
         replayFrames = emptyList()
         replayIndex = 0
         replayActive = false
-        emit("Queued $queued durable frames for BLE transmission; messages retire on group receipt")
+        emit("Queued $queued durable frames across available local transports; messages retire on group receipt")
     }
 
     @Synchronized
@@ -535,13 +596,17 @@ class MeshForegroundService : Service() {
         fileTransfer?.cancelOutgoing()
         fileTransfer?.close()
         fileTransfer = null
+        // Detach the router before closing sockets so late reader callbacks cannot
+        // repopulate route observations while transports are shutting down.
+        router = null
         transport?.stop()
         transport = null
         wifiTransport?.stop()
         wifiTransport = null
         wifiAwareTransport?.stop()
         wifiAwareTransport = null
-        router = null
+        peerRegistry.clear()
+        routeRegistry.clear()
         replayFrames = emptyList()
         replayIndex = 0
         replayActive = false

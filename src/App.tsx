@@ -1,208 +1,108 @@
-import React, { useState } from 'react';
-import MeshSimulator from './components/MeshSimulator';
+import React, { useEffect, useState } from 'react';
+import { Activity, Bluetooth, Code2, ShieldCheck, Smartphone, Wifi } from 'lucide-react';
+import MeshSimulator, { type LivePeer } from './components/MeshSimulator';
 import PhoneWorkspace from './components/PhoneWorkspace';
 import SystemInfo from './components/SystemInfo';
 import CodeExporter from './components/CodeExporter';
-import { MeshNode, MeshMessage, BlockchainLog } from './types';
-import { Smartphone, HardDrive, AlertCircle } from 'lucide-react';
+
+type ObservedRoute = { id: string; nodes: string[]; observedAt: number; observations: number };
+
+type RuntimeSnapshot = {
+  native: boolean;
+  running: boolean;
+  connectedPeers: LivePeer[];
+  observedRoutes: ObservedRoute[];
+  localNodeId: string | null;
+  recentEvents: string[];
+};
+
+const emptyRuntime: RuntimeSnapshot = {
+  native: false,
+  running: false,
+  connectedPeers: [],
+  observedRoutes: [],
+  localNodeId: null,
+  recentEvents: [],
+};
 
 export default function App() {
-  const [nodes, setNodes] = useState<MeshNode[]>([
-    {
-      id: 'NODE-1',
-      username: 'Charlie',
-      avatar: '',
-      x: 120,
-      y: 180,
-      isSharingInternet: false,
-      pricePerMB: 0.12,
-      balanceUSDC: 15.00,
-      hasInternet: false,
-      batteryPercentage: 88,
-      isOnline: true,
-      publicKey: 'pub_key_charlie_z89Ed32',
-      preKeyId: 2130,
-      ephemeralKey: 'eph_charlie_k99d'
-    },
-    {
-      id: 'NODE-2',
-      username: 'Delta',
-      avatar: '',
-      x: 250,
-      y: 110,
-      isSharingInternet: true, // Delta shares high-speed cell cellular!
-      pricePerMB: 0.15,
-      balanceUSDC: 2.50,
-      hasInternet: true, // Directly online
-      batteryPercentage: 94,
-      isOnline: true,
-      publicKey: 'pub_key_delta_a34Bc89',
-      preKeyId: 9005,
-      ephemeralKey: 'eph_delta_m221'
-    },
-    {
-      id: 'NODE-3',
-      username: 'Echo',
-      avatar: '',
-      x: 200,
-      y: 280,
-      isSharingInternet: false,
-      pricePerMB: 0.10,
-      balanceUSDC: 4.00,
-      hasInternet: false,
-      batteryPercentage: 62,
-      isOnline: true,
-      publicKey: 'pub_key_echo_c77De90',
-      preKeyId: 5431,
-      ephemeralKey: 'eph_echo_v88b'
-    }
-  ]);
+  const [runtime, setRuntime] = useState(emptyRuntime);
 
-  const [messages, setMessages] = useState<MeshMessage[]>([]);
-  const [activeNodeId, setActiveNodeId] = useState<string>('NODE-1');
+  useEffect(() => {
+    let active = true;
+    const readNativeStatus = () => {
+      try {
+        const bridge = (window as unknown as { MeshNetNative?: { getRuntimeStatus: () => string } }).MeshNetNative;
+        if (!bridge) {
+          if (active) setRuntime(emptyRuntime);
+          return;
+        }
+        const value = JSON.parse(bridge.getRuntimeStatus()) as Partial<RuntimeSnapshot>;
+        if (active) setRuntime({
+          native: value.native === true,
+          running: value.running === true,
+          connectedPeers: Array.isArray(value.connectedPeers) ? value.connectedPeers : [],
+          observedRoutes: Array.isArray(value.observedRoutes) ? value.observedRoutes : [],
+          localNodeId: typeof value.localNodeId === 'string' ? value.localNodeId : null,
+          recentEvents: Array.isArray(value.recentEvents) ? value.recentEvents : [],
+        });
+      } catch {
+        if (active) setRuntime(current => ({ ...current, recentEvents: [...current.recentEvents, 'Unable to read native runtime status'].slice(-30) }));
+      }
+    };
+    readNativeStatus();
+    const interval = window.setInterval(readNativeStatus, 1500);
+    const onVisible = () => readNativeStatus();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
 
-  // Multi-hop routing states that bridge simulator coordination with phone framing inputs
-  const [isSimulatingHop, setIsSimulatingHop] = useState(false);
-  const [simulatedPath, setSimulatedPath] = useState<string[]>([]);
-  const [currentHopNodeId, setCurrentHopNodeId] = useState<string | null>(null);
-
-  const [blockchainLogs, setBlockchainLogs] = useState<BlockchainLog[]>([]);
-
-  const handleAddBlockchainLog = (newLog: BlockchainLog) => {
-    setBlockchainLogs(prev => [...prev, newLog]);
-  };
-
-  const handleClearLogs = () => {
-    setBlockchainLogs([]);
-  };
-
-    return (
-    <div className="min-h-screen bg-[#0A0B0D] text-slate-200 flex flex-col font-sans transition-all duration-300">
-      
-      {/* Top Main Navigation HUD */}
-      <div className="p-3 pb-0 sm:p-6 sm:pb-0">
-        <header className="flex justify-between items-center bg-[#15171C] border border-slate-800 rounded-2xl px-4 py-4 shadow-xl sm:px-6">
-          <div className="flex items-center gap-4">
-            <div className="w-8 h-8 bg-cyan-500 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-            </div>
+  return (
+    <div className="min-h-screen bg-[#0A0B0D] text-slate-200">
+      <header className="border-b border-slate-800 bg-[#111318]">
+        <div className="mx-auto flex max-w-[1700px] items-center justify-between gap-4 px-4 py-4 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-500/30 bg-cyan-500/10"><Activity className="h-5 w-5 text-cyan-300" /></div>
             <div>
-              <div className="text-xl font-display font-bold tracking-wide text-white flex items-center gap-2">
-                MESH<span className="text-cyan-400">NET</span>
-                <span className="px-2 py-0.5 bg-green-500/10 text-green-400 text-[10px] font-mono rounded border border-green-500/35 uppercase font-bold tracking-wider">
-                  OFFLINE-FIRST
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-1 font-medium font-display">
-                Local-first mesh · Optional online integrations
-              </p>
+              <div className="flex flex-wrap items-center gap-2 text-lg font-bold tracking-wide text-white">MESH<span className="text-cyan-400">NET</span><span className="rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-cyan-200">Offline-first</span></div>
+              <p className="mt-0.5 text-xs text-slate-400">Live peer-to-peer device console</p>
             </div>
           </div>
-          <div className="flex items-center gap-6">
-            <div className="hidden md:flex flex-col items-end">
-              <span className="text-[10px] text-slate-500 uppercase font-mono tracking-widest leading-none">Optional online integrations</span>
-              <span className="text-xs font-mono text-cyan-400 mt-1">Disabled by default</span>
-            </div>
-            <div className="w-10 h-10 rounded-full border-2 border-slate-705 bg-slate-800 flex items-center justify-center">
-              <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
-            </div>
-          </div>
-        </header>
-      </div>
-
-      {/* Primary Simulator Split Pane Board */}
-      <main className="flex-grow p-3 grid grid-cols-1 xl:grid-cols-12 gap-4 sm:p-6 sm:gap-6 max-w-[1700px] mx-auto w-full overflow-hidden">
-        
-        {/* LEFT COLUMN: Visual Network Mesh Map & Protocol Logger logs (8 of 12 widths) */}
-        <div className="xl:col-span-8 flex flex-col gap-4 sm:gap-6 min-h-0">
-          
-          {/* Node Topological Map Component */}
-          <div className="relative bg-[#15171C] border border-slate-800 rounded-3xl overflow-hidden p-6 shadow-xl">
-            <div className="mb-4">
-              <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                <Smartphone className="w-4 h-4 text-cyan-400" />
-                Simulated topology · demo only
-              </h2>
-              <p className="text-xs text-slate-500 mt-1 font-sans italic">
-                Illustrative topology only — this browser view is not connected to phone radios. This local demo map is not connected to Bluetooth or nearby phones.
-              </p>
-            </div>
-
-            <MeshSimulator
-              nodes={nodes}
-              onNodesUpdate={setNodes}
-              messages={messages}
-              onMessagesUpdate={setMessages}
-              activeNodeId={activeNodeId}
-              setActiveNodeId={setActiveNodeId}
-              isSimulatingHop={isSimulatingHop}
-              setIsSimulatingHop={setIsSimulatingHop}
-              simulatedPath={simulatedPath}
-              setSimulatedPath={setSimulatedPath}
-              currentHopNodeId={currentHopNodeId}
-              setCurrentHopNodeId={setCurrentHopNodeId}
-            />
-
-            {/* Instruction Callout for Simulation Mechanics */}
-            <div className="mt-4 flex gap-3 p-4 bg-[#0A0B0D] border border-slate-800 rounded-2xl text-xs text-slate-400 leading-relaxed">
-              <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-semibold text-slate-205">How to test Store-and-Forward routing:</span> Demo only: separate the sample nodes to explore simulated store-and-forward routing. No real BLE packets are transmitted by this browser screen.
-              </div>
-            </div>
-          </div>
-
-          {/* Decentralized Smart Contract Ledger Console Logs and Signal Protocol explaining panel */}
-          <div className="flex-grow h-[350px] min-h-0">
-            <SystemInfo
-              logs={blockchainLogs}
-              onClearLogs={handleClearLogs}
-            />
-          </div>
-
+          <div className="hidden items-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-500/5 px-3 py-1.5 text-xs text-emerald-200 sm:flex"><ShieldCheck className="h-3.5 w-3.5" /> Local-first mode</div>
         </div>
+      </header>
 
-        {/* Native Android controls are live only inside the packaged APK. */}
-        <div className="xl:col-span-4 flex justify-center w-full">
-          <div className="flex flex-col items-center w-full max-w-[340px]">
-            
-            {/* Device status and native actions */}
-            <div className="mb-3 text-center">
-              <span className="text-[10px] font-bold uppercase text-slate-500 font-mono tracking-widest">
-                Native Runtime
-              </span>
-              <h2 className="text-xs font-semibold text-slate-300 mt-1 font-display uppercase tracking-wide">
-                Native controls for this device
-              </h2>
+      <main className="mx-auto grid w-full max-w-[1700px] gap-5 px-4 py-5 sm:px-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(340px,0.85fr)]">
+        <div className="flex min-w-0 flex-col gap-5">
+          <section className="rounded-2xl border border-slate-800 bg-[#11151B] p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Native device telemetry</p>
+            <h1 className="mt-2 text-xl font-semibold text-white sm:text-2xl">Observe the real mesh, not a sample network.</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">The topology and event stream below are populated by Android transport callbacks. Only connected peers are drawn; discovered devices, fictional users and simulated links are not counted.</p>
+            <div className="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-300">
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2"><Bluetooth className="h-3.5 w-3.5 text-cyan-300" /> BLE / GATT</span>
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2"><Wifi className="h-3.5 w-3.5 text-cyan-300" /> Local Wi-Fi transports</span>
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2"><Smartphone className="h-3.5 w-3.5 text-cyan-300" /> Android runtime</span>
             </div>
-
-            {/* Real native runtime panel, bridged to Android in the APK. */}
-            <PhoneWorkspace />
-          </div>
+          </section>
+          <MeshSimulator native={runtime.native} running={runtime.running} peers={runtime.connectedPeers} routes={runtime.observedRoutes} localNodeId={runtime.localNodeId} />
+          <SystemInfo native={runtime.native} events={runtime.recentEvents} />
+          <section className="rounded-2xl border border-slate-800 bg-[#11151B] p-4 sm:p-5">
+            <div className="mb-3 flex items-center gap-2"><Code2 className="h-4 w-4 text-cyan-300" /><h2 className="text-sm font-semibold text-white">Application source code</h2></div>
+            <CodeExporter />
+          </section>
         </div>
-
+        <aside className="min-w-0">
+          <div className="mb-3 text-center">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Native runtime</span>
+            <h2 className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-300">Device controls and services</h2>
+          </div>
+          <PhoneWorkspace />
+        </aside>
       </main>
-
-      {/* FULL-WIDTH EXPANSION: Code Exporter view offering complete structural packages */}
-      <div className="px-3 pb-8 pt-3 sm:px-6 sm:pb-12 sm:pt-4 max-w-[1700px] mx-auto w-full">
-        <div className="bg-[#15171C] border border-slate-800 rounded-3xl overflow-hidden p-6 shadow-xl">
-          <div className="mb-4">
-            <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-300 flex items-center gap-2">
-              <HardDrive className="w-4 h-4 text-cyan-400" />
-              Experimental Mobile Source Snippets (Not a Deployable App)
-            </h2>
-            <p className="text-xs text-slate-500 mt-1 font-sans">
-              These snippets are design references only. The native Android BLE prototype lives in mobile/; iOS, payment and production security are not implemented.
-            </p>
-          </div>
-          
-          {/* Main Embeddable Code Exporter */}
-          <CodeExporter />
-        </div>
-      </div>
-
     </div>
   );
 }

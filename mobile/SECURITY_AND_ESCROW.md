@@ -50,7 +50,11 @@ Do not accept or display real deposits until all of these are available and revi
 
 **Current state:** a first-pass Anchor escrow program source exists under `solana/programs/meshnet-escrow` with order-specific PDA vaults, immutable terms, buyer+provider release, buyer refund after expiry, and configured-arbitrator dispute settlement. Terminal order state is retained for both ordinary and arbitrated settlement; the buyer may explicitly close only a settled order to reclaim its rent. Vault balance and expiry arithmetic have explicit guards. Config initialization now hard-allows only Circle's canonical Devnet USDC mint under the default `devnet` Cargo profile; a mainnet build must explicitly disable defaults and enable the `mainnet` feature, which pins Circle's canonical mainnet USDC mint. Mixed cluster build features are rejected. The Rust build now requires `MESHNET_ESCROW_PROGRAM_ID` and `MESHNET_ESCROW_INITIAL_ADMIN` to be supplied as real public keys; no placeholder program/admin defaults remain. These are build-time identity inputs, not proof of key ownership or deployment. This source is not built, tested, deployed, audited, or integrated into the Android app. MeshNet cannot accept or transfer mainnet/USDC escrow funds; only separate Devnet test-SOL transfers are currently supported.
 
-## 3. Other outstanding work
+## 3. Link-quality implementation status
+
+The Android router now consumes a bounded per-peer estimator. BLE scan callbacks feed RSSI samples; directed transport writes feed local acceptance/failure and elapsed-call latency samples. An exponentially smoothed delivery ratio, latency estimate, and optional RSSI are combined into a 0–100 score. Scores decay toward neutral after five minutes without a fresh sample, and disconnected peers are removed. The route registry combines hop distance with the measured score when ordering next-hop candidates. This does not yet measure end-to-end RTT, packet delivery at the remote application, sustained throughput, Wi-Fi RSSI for every OEM, or interference/channel occupancy. Device-specific calibration and multi-phone validation remain required.
+
+## 4. Other outstanding work
 
 | Area | Current state | Safe next step |
 |---|---|---|

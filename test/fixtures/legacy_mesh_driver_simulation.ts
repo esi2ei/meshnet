@@ -1,4 +1,13 @@
 /**
+ * LEGACY SIMULATION FIXTURE — NOT PART OF THE ANDROID RUNTIME OR REAL CRYPTOGRAPHY.
+ *
+ * This file models virtual devices and placeholder payload transforms for historical
+ * UI experimentation only. It is intentionally isolated under test/fixtures and is
+ * not wired into the application, native transports, or the validation workflow.
+ * Use the Android instrumentation suite for protocol and persistence behavior.
+ */
+
+/**
  * LEGACY SIMULATOR TEST ONLY — NOT A DEVICE, CRYPTOGRAPHY, OR HARDWARE TEST.
  * This in-memory mock intentionally does not prove BLE transport, Signal Protocol,
  * real encryption, persistent queues, or physical multi-hop behavior. The native
