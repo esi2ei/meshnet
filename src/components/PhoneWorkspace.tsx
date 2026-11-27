@@ -123,7 +123,7 @@ export default function PhoneWorkspace() {
 
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
-          <div className="flex items-center gap-2 text-xs text-slate-400"><Bluetooth className="h-4 w-4 text-cyan-400" /> BLE mesh</div>
+          <div className="flex items-center gap-2 text-xs text-slate-400"><Bluetooth className="h-4 w-4 text-cyan-400" /> Local mesh session</div>
           <div className={`mt-2 text-sm font-semibold ${runtime.running ? 'text-emerald-300' : 'text-slate-300'}`}>{runtime.running ? 'Running' : 'Stopped'}</div>
         </div>
         <div className="rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
@@ -215,10 +215,10 @@ export default function PhoneWorkspace() {
         <input id="offline-wallet-amount" inputMode="numeric" value={offlineAmount} onChange={(event) => setOfflineAmount(event.target.value.replace(/[^0-9]/g, ''))}
           placeholder="e.g. 1250" className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-cyan-400" />
         <button className={primaryClass} disabled={!runtime.native || !runtime.running || !/^[0-9a-f]{64}$/i.test(offlineRecipient) || !/^[1-9][0-9]{0,12}$/.test(offlineAmount)}
-          onClick={() => { const sent = native?.sendOfflinePayment(offlineRecipient.trim().toLowerCase(), Number(offlineAmount)) === true; setLastEvent(sent ? "Signed offline wallet transfer queued over the local mesh" : "Offline wallet transfer was not queued"); if (sent) setOfflineAmount(""); }}>
+          onClick={() => { const sent = native?.sendOfflinePayment(offlineRecipient.trim().toLowerCase(), Number(offlineAmount)) === true; setLastEvent(sent ? "Signed offline transfer queued · waiting for recipient acknowledgement" : "Offline wallet transfer was not queued"); if (sent) setOfflineAmount(""); }}>
           Send signed transfer over local mesh
         </button>
-        <p className="text-[11px] leading-relaxed text-amber-200/80">Offline transfers use device-held signing keys and encrypted local-radio delivery. They are provisional local-unit receipts, not real currency or blockchain settlement. Without an online consensus/ledger, offline software cannot prevent double-spending or guarantee final balances. Do not use this prototype for money or valuable assets.</p>
+        <p className="text-[11px] leading-relaxed text-amber-200/80">The recipient verifies and saves the voucher, then returns a signed acknowledgement that the sender verifies. These are provisional local-unit receipts, not real currency or blockchain settlement. Offline software still cannot guarantee a global balance or prevent double-spending across disconnected devices. Do not use this prototype for money or valuable assets.</p>
       </div>
 
       <div className="space-y-3 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
