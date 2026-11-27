@@ -452,6 +452,20 @@ class MainActivity : Activity() {
             } ?: false
 
         @JavascriptInterface
+        fun retryPendingOfflinePayments(): Int =
+            runOnMainBlocking {
+                try {
+                    val queued = meshService?.retryPendingOfflinePayments()
+                        ?: throw IllegalStateException("Start the local mesh before retrying wallet transfers")
+                    append("Requeued $queued unconfirmed offline wallet transfers")
+                    queued
+                } catch (error: Exception) {
+                    append(error.message ?: "Unable to retry offline wallet transfers")
+                    0
+                }
+            } ?: 0
+
+        @JavascriptInterface
         fun connectWallet() {
             runOnUiThread {
                 if (!appPreferences.getBoolean(KEY_ONLINE_INTEGRATIONS, false)) {
