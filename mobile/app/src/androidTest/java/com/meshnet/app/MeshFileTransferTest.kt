@@ -44,7 +44,9 @@ class MeshFileTransferTest {
         val (manifest, chunks) = protocolMessages(source, "transfer_0001")
         assertTrue(receiver.accept(manifest))
         chunks.reversed().forEach { receiver.accept(it) }
-        val saved = receivedDir.listFiles()?.firstOrNull { it.extension !in setOf("part", "meta", "done", "tmp") }
+
+        val saved = receivedDir.listFiles()
+            ?.firstOrNull { it.extension !in setOf("part", "meta", "done", "tmp") }
         assertTrue(saved != null)
         assertArrayEquals(source.readBytes(), saved!!.readBytes())
         assertTrue(events.any { it.contains("received and verified") })
@@ -63,27 +65,32 @@ class MeshFileTransferTest {
 
     @Test fun preflightsOutboxAndDoesNotQueuePartialFile() {
         val frames = mutableListOf<String>()
-        val sender = track(MeshFileTransfer(context, { frames.add(it); true }, {}, canQueueBatch = { false }))
+        val sender = track(
+            MeshFileTransfer(context, { frames.add(it); true }, {}, canQueueBatch = { false })
+        )
         assertFalse(sender.send(Uri.fromFile(source)))
         assertTrue(frames.isEmpty())
     }
 
     @Test fun resumesFromDurableReceiverCheckpointAfterRecreation() {
         val (manifest, chunks) = protocolMessages(source, "resume_00001")
-        val firstReceiver = track(MeshFileTransfer(context, { true }, {})))
+        val firstReceiver = track(MeshFileTransfer(context, { true }, {}))
         firstReceiver.accept(manifest)
         val half = chunks.size / 2
         chunks.take(half).forEach { firstReceiver.accept(it) }
         firstReceiver.close()
 
         val acks = mutableListOf<String>()
-        val restartedReceiver = track(MeshFileTransfer(context, { message -> acks.add(message); true }, {})))
+        val restartedReceiver = track(
+            MeshFileTransfer(context, { message -> acks.add(message); true }, {})
+        )
         restartedReceiver.accept(manifest)
         val savedNext = acks.first { it.startsWith("~F2A|") }.substringAfterLast('|').toInt()
         assertEquals(half, savedNext)
         chunks.drop(half).forEach { restartedReceiver.accept(it) }
 
-        val saved = receivedDir.listFiles()?.firstOrNull { it.extension !in setOf("part", "meta", "done", "tmp") }
+        val saved = receivedDir.listFiles()
+            ?.firstOrNull { it.extension !in setOf("part", "meta", "done", "tmp") }
         assertTrue(saved != null)
         assertArrayEquals(source.readBytes(), saved!!.readBytes())
     }
@@ -91,8 +98,16 @@ class MeshFileTransferTest {
     @Test fun sendsThroughBoundedWindowsAndCompletesAfterReceiverAcknowledges() {
         val sent = mutableListOf<String>()
         lateinit var sender: MeshFileTransfer
-        val receiver = track(MeshFileTransfer(context, { message -> sender.accept(message); true }, {})))
-        sender = track(MeshFileTransfer(context, { message -> sent.add(message); receiver.accept(message); true }, {})))
+        val receiver = track(
+            MeshFileTransfer(context, { message -> sender.accept(message); true }, {})
+        )
+        sender = track(
+            MeshFileTransfer(context, { message ->
+                sent.add(message)
+                receiver.accept(message)
+                true
+            }, {})
+        )
         assertTrue(sender.send(Uri.fromFile(source)))
         assertTrue(sent.first().startsWith("~F2M|"))
         assertTrue(sent.any { it.startsWith("~F2C|") })
@@ -101,7 +116,9 @@ class MeshFileTransferTest {
     @Test fun acceptsFileAt10MiBBoundaryUsingStreamingSource() {
         source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES))
         val events = mutableListOf<String>()
-        val sender = track(MeshFileTransfer(context, { true }, { events.add(it) }, canQueueBatch = { false })))
+        val sender = track(
+            MeshFileTransfer(context, { true }, { events.add(it) }, canQueueBatch = { false })
+        )
         assertFalse(sender.send(Uri.fromFile(source)))
         assertTrue(events.any { it.contains("outbox has no room") })
         assertEquals(10 * 1024 * 1024, MeshFileTransfer.MAX_FILE_BYTES)
@@ -109,9 +126,13 @@ class MeshFileTransferTest {
 
     @Test fun rejectsFilesLargerThan10MiBTransferLimit() {
         source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES + 1))
-        val sender = track(MeshFileTransfer(context, { true }, {})))
+        val sender = track(MeshFileTransfer(context, { true }, {}))
         var rejected = false
-        try { sender.send(Uri.fromFile(source)) } catch (_: IllegalArgumentException) { rejected = true }
+        try {
+            sender.send(Uri.fromFile(source))
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
         assertTrue(rejected)
     }
 
@@ -127,7 +148,7 @@ class MeshFileTransferTest {
             Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
         )
         val manifest = "~F2M|$id|${bytes.size}|$count|$digest|$safeName"
-        val messages = (0 until count).map { index ->
+        val chunks = (0 until count).map { index ->
             val start = index * 48
             val data = bytes.copyOfRange(start, minOf(start + 48, bytes.size))
             val encoded = Base64.encodeToString(
@@ -135,6 +156,6 @@ class MeshFileTransferTest {
             )
             "~F2C|$id|$index|$count|$encoded"
         }
-        return manifest to messages
+        return manifest to chunks
     }
 }
