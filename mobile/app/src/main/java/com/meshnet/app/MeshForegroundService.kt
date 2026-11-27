@@ -147,14 +147,14 @@ class MeshForegroundService : Service() {
             "AWARE" -> wifiAwareTransport?.sendToPeer(frame, address) == true
             else -> false
         }
-        if (accepted && runCatching { MeshFrame.decode(frame).kind == MeshFrame.KIND_ACK }.getOrDefault(false)) {
+        if (durable && accepted && runCatching { MeshFrame.decode(frame).kind == MeshFrame.KIND_ACK }.getOrDefault(false)) {
             outbox.retireAcknowledgement(frame)
         }
         return accepted
     }
 
-    private fun sendMeshFrameToOthers(frame: ByteArray, ingress: String?): Boolean {
-        if (!outbox.containsFrame(frame) && !outbox.enqueue(frame)) return false
+    private fun sendMeshFrameToOthers(frame: ByteArray, ingress: String?, durable: Boolean = true): Boolean {
+        if (durable && !outbox.containsFrame(frame) && !outbox.enqueue(frame)) return false
         val separator = ingress?.indexOf('/') ?: -1
         val ingressTransport = if (separator > 0) ingress!!.substring(0, separator) else null
         val ingressAddress = if (separator > 0) ingress!!.substring(separator + 1) else ingress
@@ -448,7 +448,7 @@ class MeshForegroundService : Service() {
                     sendMeshFrameToOthers(frame, ingress)
                 }
             },
-            sendEphemeralRelay = { frame, ingress -> sendMeshFrameToOthers(frame, ingress) },
+            sendEphemeralRelay = { frame, ingress -> sendMeshFrameToOthers(frame, ingress, durable = false) },
             resolveNextHops = routeRegistry::nextHopsFor,
             sendToPeer = ::sendMeshFrameToPeer,
             onRouteObserved = { path, ingress ->
