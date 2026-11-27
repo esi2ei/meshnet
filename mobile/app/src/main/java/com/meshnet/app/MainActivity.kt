@@ -99,6 +99,16 @@ class MainActivity : Activity() {
                 }
             }
         })
+        root.addView(Button(this).apply {
+            text = "Send small file (max 16 KiB)"
+            setOnClickListener {
+                val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                }
+                startActivityForResult(picker, REQUEST_FILE)
+            }
+        })
         val scroll = ScrollView(this)
         log = TextView(this).apply { textSize = 13f }
         scroll.addView(log)
@@ -108,6 +118,21 @@ class MainActivity : Activity() {
             textSize = 11f
         })
         setContentView(root)
+    }
+
+    @Deprecated("Uses the platform document picker for broad Android compatibility")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_FILE && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            try {
+                val accepted = meshService?.sendFile(uri)
+                    ?: throw IllegalStateException("Mesh service is not connected")
+                if (!accepted) toast("File transfer could not be queued; check outbox capacity")
+            } catch (error: Exception) {
+                toast(error.message ?: "Unable to send file")
+            }
+        }
     }
 
     private fun requestAndStart() {
@@ -177,5 +202,8 @@ class MainActivity : Activity() {
         super.onStop()
     }
 
-    companion object { private const val REQUEST_PERMISSIONS = 4102 }
+    companion object {
+        private const val REQUEST_PERMISSIONS = 4102
+        private const val REQUEST_FILE = 4103
+    }
 }
