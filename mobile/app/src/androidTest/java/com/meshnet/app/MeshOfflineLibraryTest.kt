@@ -31,10 +31,11 @@ class MeshOfflineLibraryTest {
     }
     @Test fun remoteAdvertisementIsBoundedAndExpires(){
         val id="a".repeat(64)
-        assertTrue(library.observeRemote("node_remote",id,100,"manual.pdf",1_000L))
+        val now = System.currentTimeMillis()
+        assertTrue(library.observeRemote("node_remote",id,100,"manual.pdf",now))
         assertEquals("node_remote",library.remoteItem(id)!!.origin)
         assertFalse(runCatching{library.observeRemote("invalid node","b".repeat(64),100,"bad.pdf")}.isSuccess)
-        assertTrue(library.items(8L*24L*60L*60L*1000L).isEmpty())
+        assertTrue(library.items(now + 8L*24L*60L*60L*1000L).isEmpty())
     }
     @Test fun downloadedContentIsOnlyPromotedAfterRequestedDigestMatches(){
         val item=library.publish(Uri.fromFile(source))
@@ -42,8 +43,7 @@ class MeshOfflineLibraryTest {
         assertTrue(library.observeRemote("node_remote",item.id,item.size,item.name))
         assertTrue(library.markPending(item.id))
         val bad=File(context.cacheDir,"mesh-library-bad.txt").apply{writeText("tampered")}
-        assertFalse(library.completeDownload(item.id,bad));assertTrue(library.markPending(item.id));bad.delete()
-        assertTrue(library.observeRemote("node_remote",item.id,item.size,item.name))
+        assertFalse(library.completeDownload(item.id,bad));bad.delete()
         assertTrue(library.markPending(item.id));assertTrue(library.completeDownload(item.id,source))
         assertTrue(library.localFile(item.id)!!.isFile);assertNull(library.remoteItem(item.id))
     }

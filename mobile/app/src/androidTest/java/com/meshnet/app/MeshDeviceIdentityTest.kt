@@ -50,7 +50,7 @@ class MeshDeviceIdentityTest {
         )
         val plaintext = "A".repeat(120)
         val signed = identity.sign(identity.prepare(frame, plaintext))
-        assertTrue(signed.encode().size <= MeshFrame.MAX_FRAME_BYTES)
+        assertTrue("Signed maximum-route frame size was ${signed.encode().size} bytes", signed.encode().size <= MeshFrame.MAX_FRAME_BYTES)
         assertTrue(MeshDeviceIdentity.verify(MeshFrame.decode(signed.encode()), plaintext))
     }
 

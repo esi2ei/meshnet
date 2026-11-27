@@ -492,7 +492,7 @@ class MeshBleTransport(
 
         /**
          * Keep backoff pressure on the total queue while always allowing one whole frame.
-         * At the default ATT MTU a maximum-size frame requires 90 chunks; clamping the
+         * At the default ATT MTU a maximum-size frame requires 96 chunks; clamping the
          * admission limit below the frame size after repeated failures permanently starves it.
          */
         internal fun adaptiveQueueLimit(failures: Int, frameChunkCount: Int): Int {

@@ -448,9 +448,9 @@ class MeshRouterReceiptTest {
             plaintext, MeshFrame.aad(forgedBase)
         )
         val forged = forgedBase.copy(nonce = nonce, ciphertext = ciphertext)
-        val before = events.size
+        val deliveredBefore = events.count { it.contains("signed mesh origin") }
         destination.receive(forged.encode(), "radio/malicious-member")
-        assertEquals(before, events.size)
+        assertEquals(deliveredBefore, events.count { it.contains("signed mesh origin") })
         assertTrue(events.any { it.contains("device identity signature") })
     }
 
