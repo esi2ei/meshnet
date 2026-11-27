@@ -343,6 +343,7 @@ class MeshWifiAwareTransport(
             } catch (_: Exception) {
                 sockets.remove(socket)
                 runCatching { socket.close() }
+                onPeerConnection(socket.inetAddress.hostAddress ?: "unknown", false)
             }
         }
         return sent
