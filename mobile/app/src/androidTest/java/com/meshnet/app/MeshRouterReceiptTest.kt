@@ -106,6 +106,39 @@ class MeshRouterReceiptTest {
     }
 
     @Test
+    fun unauthenticatedFrameCannotCreateRouteObservation() {
+        val outgoing = mutableListOf<ByteArray>()
+        val senderSeen = mutableSetOf<String>()
+        val receiverSeen = mutableSetOf<String>()
+        val observedRoutes = mutableListOf<List<String>>()
+        val sender = MeshRouter(
+            nodeId = "sender_01",
+            crypto = MeshCrypto("sender group passphrase is long enough".toCharArray()),
+            send = { outgoing.add(it); true },
+            onMessage = {},
+            hasReceived = { it in senderSeen },
+            markReceived = { id, _ -> !senderSeen.add(id) },
+            acknowledge = { 0 }
+        )
+        val receiver = MeshRouter(
+            nodeId = "receiver1",
+            crypto = MeshCrypto("different receiver group passphrase".toCharArray()),
+            send = { true },
+            onMessage = {},
+            hasReceived = { it in receiverSeen },
+            markReceived = { id, _ -> !receiverSeen.add(id) },
+            acknowledge = { 0 },
+            onRouteObserved = { observedRoutes.add(it) }
+        )
+
+        assertTrue(sender.sendMessage("not for this group"))
+        val frame = outgoing.map { MeshFrame.decode(it) }.first { it.kind == MeshFrame.KIND_MESSAGE }
+        receiver.receive(frame.encode(), "untrusted-peer")
+
+        assertTrue(observedRoutes.isEmpty())
+    }
+
+    @Test
     fun relayRebroadcastsOnlyWhenANewerPathIsShorter() {
         val passphrase = "a sufficiently long group passphrase"
         val senderFrames = mutableListOf<ByteArray>()
