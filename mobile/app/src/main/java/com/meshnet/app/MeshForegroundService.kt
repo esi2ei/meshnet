@@ -122,6 +122,15 @@ class MeshForegroundService : Service() {
 
     private fun recordPeerConnection(transportName: String, address: String, connected: Boolean) {
         peerRegistry.setConnected(transportName, address, connected)
+        if (!connected) {
+            val routeTransport = when (transportName) {
+                "BLE/GATT" -> "BLE"
+                "Wi-Fi Direct" -> "P2P"
+                "Wi-Fi Aware" -> "AWARE"
+                else -> null
+            }
+            if (routeTransport != null) routeRegistry.removePeer("$routeTransport/$address")
+        }
         emit("$transportName peer ${if (connected) "connected" else "disconnected"}: $address")
     }
 
