@@ -137,6 +137,23 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
         )
     }
 
+
+    /**
+     * Directed messages can only be retired by a receipt signed by their intended destination.
+     * Broadcast messages accept a receipt from any authenticated group member.
+     */
+    @Synchronized
+    fun receiptMatches(messageId: String, receiptOrigin: String): Boolean {
+        if (messageId.isBlank() || receiptOrigin.isBlank()) return false
+        val encoded = writableDatabase.rawQuery(
+            "SELECT frame FROM outbox WHERE message_id = ? AND frame_kind = ? LIMIT 1",
+            arrayOf(messageId, MeshFrame.KIND_MESSAGE)
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getBlob(0) else null } ?: return true
+        val frame = runCatching { MeshFrame.decode(encoded) }.getOrNull() ?: return false
+        val destination = frame.destination
+        return destination == null || destination == receiptOrigin
+    }
+
     /**
      * ACKs have no ACK-of-ACK protocol. Retire an ACK after at least one connected peer's
      * BLE queue accepts it; a later duplicate message can regenerate the same logical receipt.

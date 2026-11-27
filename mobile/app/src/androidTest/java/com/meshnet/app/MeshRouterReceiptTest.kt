@@ -454,4 +454,50 @@ class MeshRouterReceiptTest {
         assertTrue(events.any { it.contains("device identity signature") })
     }
 
+
+    @Test
+    fun directedMessageCannotBeRetiredByAnotherGroupMembersSignedReceipt() {
+        val passphrase = "a sufficiently long group passphrase"
+        val senderIdentity = MeshDeviceIdentity.generateEphemeral()
+        val destinationIdentity = MeshDeviceIdentity.generateEphemeral()
+        val attackerIdentity = MeshDeviceIdentity.generateEphemeral()
+        val outgoing = mutableListOf<ByteArray>()
+        val acknowledged = mutableListOf<String>()
+        val events = mutableListOf<String>()
+        val seen = mutableSetOf<String>()
+        val sender = MeshRouter(
+            nodeId = senderIdentity.nodeId,
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { outgoing.add(it); true },
+            onMessage = { events.add(it) },
+            hasReceived = { it in seen },
+            markReceived = { id, _ -> !seen.add(id) },
+            acknowledge = { id -> acknowledged.add(id); 1 },
+            validateAcknowledgement = { _, origin -> origin == destinationIdentity.nodeId },
+            identity = senderIdentity
+        )
+        assertTrue(sender.sendMessageTo(destinationIdentity.nodeId, "directed private message"))
+        val message = outgoing.map { MeshFrame.decode(it) }.single { it.kind == MeshFrame.KIND_MESSAGE }
+
+        val ack = MeshFrame(
+            origin = attackerIdentity.nodeId,
+            ttl = MeshFrame.MAX_TTL,
+            hops = listOf(attackerIdentity.nodeId),
+            nonce = "",
+            ciphertext = "",
+            id = "forged_ack_001",
+            kind = MeshFrame.KIND_ACK,
+            ackFor = message.id,
+            destination = senderIdentity.nodeId
+        )
+        val crypto = MeshCrypto(passphrase.toCharArray())
+        val prepared = attackerIdentity.prepare(ack, "")
+        val (nonce, ciphertext) = crypto.encrypt("", MeshFrame.aad(prepared))
+        val forgedReceipt = attackerIdentity.sign(prepared.copy(nonce = nonce, ciphertext = ciphertext))
+        sender.receive(forgedReceipt.encode())
+
+        assertTrue(acknowledged.isEmpty())
+        assertTrue(events.any { it.contains("unexpected device") })
+    }
+
 }

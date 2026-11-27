@@ -25,6 +25,7 @@ class MeshRouter(
     private val resolveNextHops: (String) -> List<String> = { emptyList() },
     private val sendToPeer: (ByteArray, String) -> Boolean = { _, _ -> false },
     private val onRouteObserved: (List<String>, String?) -> Unit = { _, _ -> },
+    private val validateAcknowledgement: (String, String) -> Boolean = { _, _ -> true },
     private val identity: MeshDeviceIdentity? = null
 ) {
     private val seen = LinkedHashSet<String>()
@@ -145,6 +146,10 @@ class MeshRouter(
                 return
             }
             val target = frame.ackFor ?: return
+            if (!validateAcknowledgement(target, frame.origin)) {
+                onMessage("Rejected receipt for directed message $target from unexpected device ${frame.origin}")
+                return
+            }
             val removed = acknowledge(target)
             if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
             markReceived(frame.id, frame.createdAt)
