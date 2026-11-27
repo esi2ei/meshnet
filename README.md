@@ -6,7 +6,7 @@ MeshNet is an offline-first peer-to-peer messaging and connectivity prototype. T
 
 - **One dashboard UI:** `src/` contains the React/Vite application. Android builds it and bundles the resulting static files into `mobile/app/src/main/assets` at build time (generated under Gradle's build directory); the APK does not need a hosted website.
 - **Native Android runtime:** `mobile/` provides BLE/GATT, optional Wi-Fi Aware, user-controlled Wi-Fi Direct, AES-GCM group-encrypted messages, bounded resumable file transfer, voice notes, opt-in live group voice, TTL relay, persistent SQLite queues, and Android Keystore-protected local credentials. Each BLE-capable node opens a GATT server while also scanning and connecting as a GATT client, so the same phone can send and receive. BLE advertiser and scanner startup are tracked independently; if BLE cannot provide both roles, the service attempts Wi-Fi Direct discovery while Wi-Fi Aware is also attempted when supported. Each device can therefore originate and receive over whichever mutually supported local radio is available.
-- **Honest simulation boundary:** the draggable topology map is an educational simulator, not a radio scan or a representation of nearby phones. The device-runtime panel is the part connected to real Android services.
+- **Honest runtime boundary:** the dashboard presents native Android controls and status only. It no longer renders fabricated peer nodes, simulated RF links, or sample blockchain events. A browser preview cannot control phone radios; the packaged APK connects the dashboard to Android services through a local-only bridge.
 
 ## Offline-first behavior
 
