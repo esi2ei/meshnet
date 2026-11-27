@@ -4,7 +4,7 @@ This document records an implementation decision, not a claim that the integrati
 
 ## 1. Cryptography: use vodozemac instead of libsignal
 
-**Selected candidate:** [matrix-org/vodozemac](https://github.com/matrix-org/vodozemac), Apache-2.0, Rust crate. The inspected release is 0.11.2 (Rust edition 2024; minimum Rust 1.96). It implements Olm (Double Ratchet) and Megolm, and its maintainers publish a security audit by Least Authority. Pin the exact release and commit the dependency lockfile when integrating. The Android NDK/JNI build must use a compatible Rust toolchain; this repository's current Android setup does not yet provide that toolchain.
+**Selected candidate:** [matrix-org/vodozemac](https://github.com/matrix-org/vodozemac), Apache-2.0, Rust crate. The inspected release is 0.11.2 (Rust edition 2024; declared MSRV Rust 1.89). It implements Olm (Double Ratchet) and Megolm, and its maintainers publish a security audit by Least Authority. Pin the exact release and commit the dependency lockfile when integrating. The Android NDK/JNI build must use a compatible Rust toolchain; this repository's current Android setup does not yet provide that toolchain.
 
 Why this is a better licensing fit than libsignal for this repository:
 - Apache-2.0 permits commercial redistribution subject to its license, notice, and attribution conditions.
