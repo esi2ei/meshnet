@@ -8,7 +8,7 @@ plugins {
 }
 
 // Build the React dashboard from the repository root and package it as local APK assets.
-// Runtime code loads only file:///android_asset/web/index.html; no hosted website is required.
+// Runtime code serves the bundled assets through AndroidX WebViewAssetLoader; no hosted website is required.
 val repositoryRoot = rootProject.projectDir.parentFile
 val bundledWebAssets = layout.buildDirectory.dir("generated/meshnet-web-assets")
 val npmExecutable = if (System.getProperty("os.name").lowercase().contains("windows")) "npm.cmd" else "npm"
