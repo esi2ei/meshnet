@@ -204,6 +204,7 @@ class MeshWifiAwareTransport(
             connectivity.requestNetwork(request, callback)
             onState("Wi-Fi Aware data path requested for discovered peer")
         } catch (error: Exception) {
+            serverStarting.set(false)
             serverRequests.remove(peer)
             onState("Wi-Fi Aware publisher connection failed: ${error.message}")
         }
@@ -220,17 +221,31 @@ class MeshWifiAwareTransport(
                 .addTransportType(NetworkCapabilities.TRANSPORT_WIFI_AWARE)
                 .setNetworkSpecifier(specifier)
                 .build()
+            val connectionStarted = AtomicBoolean(false)
             val callback = object : ConnectivityManager.NetworkCallback() {
                 override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                    val info = caps.transportInfo as? WifiAwareNetworkInfo ?: run { connectionStarted.set(false); return }
-                    val address = info.peerIpv6Addr ?: run { connectionStarted.set(false); return }
+                    if (!connectionStarted.compareAndSet(false, true)) return
+                    val info = caps.transportInfo as? WifiAwareNetworkInfo
+                        ?: run { connectionStarted.set(false); return }
+                    val address = info.peerIpv6Addr
+                        ?: run { connectionStarted.set(false); return }
                     val port = info.port
-                    if (port !in 1..65535) return
-                    connect(network, address, port)
+                    if (port !in 1..65535) {
+                        connectionStarted.set(false)
+                        return
+                    }
+                    connect(network, address, port, connectionStarted)
                 }
 
                 override fun onLost(network: Network) {
+                    clientRequests.remove(peer)
+                    connectionStarted.set(false)
                     onState("Wi-Fi Aware subscriber data path lost")
+                }
+
+                override fun onUnavailable() {
+                    clientRequests.remove(peer)
+                    onState("Wi-Fi Aware subscriber data path unavailable")
                 }
             }
             callbacks.add(callback)
@@ -260,10 +275,18 @@ class MeshWifiAwareTransport(
         }, "meshnet-wifi-aware-accept").apply { isDaemon = true; start() }
     }
 
-    private fun connect(network: Network, address: java.net.Inet6Address, port: Int) {
+    private fun connect(
+        network: Network,
+        address: java.net.Inet6Address,
+        port: Int,
+        connectionStarted: AtomicBoolean
+    ) {
         Thread({
             try {
-                if (!running.get()) return@Thread
+                if (!running.get()) {
+                    connectionStarted.set(false)
+                    return@Thread
+                }
                 val socket = network.socketFactory.createSocket()
                 socket.connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MS)
                 socket.tcpNoDelay = true
@@ -271,6 +294,7 @@ class MeshWifiAwareTransport(
                 onState("Wi-Fi Aware data channel ready")
                 startReader(socket)
             } catch (error: Exception) {
+                connectionStarted.set(false)
                 if (running.get()) onState("Wi-Fi Aware socket connection failed: ${error.message}")
             }
         }, "meshnet-wifi-aware-connect").apply { isDaemon = true; start() }
