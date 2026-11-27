@@ -31,8 +31,12 @@ object SolanaDevnetTransfer {
             require(digit >= 0) { "Invalid Base58 character" }
             number = number.multiply(radix).add(BigInteger.valueOf(digit.toLong()))
         }
-        val encoded = number.toByteArray().let {
-            if (it.size > 1 && it[0] == 0.toByte()) it.copyOfRange(1, it.size) else it
+        val encoded = if (number.signum() == 0) {
+            ByteArray(0)
+        } else {
+            number.toByteArray().let {
+                if (it.size > 1 && it[0] == 0.toByte()) it.copyOfRange(1, it.size) else it
+            }
         }
         val leadingZeroes = value.takeWhile { it == '1' }.length
         return ByteArray(leadingZeroes + encoded.size).also {
