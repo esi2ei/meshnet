@@ -83,7 +83,7 @@ Test with files of 1 byte, a few hundred bytes, exactly/around a chunk boundary,
 ## 8. Wallet and escrow safety
 
 - Create two independent offline wallet identities and verify that each recipient address is stable across process recreation.
-- With internet disabled, send a signed local-unit transfer between two phones; verify chunk reassembly, recipient binding, signature verification, duplicate rejection, and receipt persistence. Repeat with reordered/lost chunks and after restarting both apps.
+- With internet disabled, send a signed local-unit transfer between two phones; verify chunk reassembly, recipient binding, signature verification, duplicate rejection, and durable receipt persistence. Verify the recipient signs an acknowledgement only after the receipt is committed, and the sender verifies the recipient key/signature and exact voucher ID, recipient, and amount before marking the outgoing record `RECEIVED`. Repeat with reordered/lost chunks and after restarting both apps; a missing acknowledgement must remain unconfirmed, never settled.
 - Modify the amount, sender public key, recipient, and signature in a captured voucher; every altered voucher must be rejected. Verify non-recipient group members do not import the voucher.
 - Confirm the UI never displays local-unit receipts as fiat, cryptocurrency, spendable balance, or blockchain settlement. Do not use real money or valuable assets; offline double-spend prevention is not solved.
 - Test MWA authorize, process recreation, restore, deauthorize, and local credential cleanup with a compatible Devnet wallet.
