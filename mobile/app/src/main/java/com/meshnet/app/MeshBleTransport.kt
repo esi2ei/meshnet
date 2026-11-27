@@ -215,11 +215,12 @@ class MeshBleTransport(
         if (gatt != null) clients[device.address] = gatt
     }
 
-    fun sendToPeers(payload: ByteArray) {
+    fun sendToPeers(payload: ByteArray): Boolean {
         if (clients.isEmpty()) {
             onState("No connected BLE peers; message was not transmitted")
-            return
+            return false
         }
+        var accepted = false
         clients.entries.toList().forEach { (address, gatt) ->
             val remote = gatt.getService(SERVICE_UUID)?.getCharacteristic(CHARACTERISTIC_UUID)
             if (remote == null) {
@@ -230,9 +231,11 @@ class MeshBleTransport(
             run {
                 remote.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
                 remote.value = payload
-                if (!gatt.writeCharacteristic(remote)) onState("Write could not be queued: $address")
+                if (gatt.writeCharacteristic(remote)) accepted = true
+                else onState("Write could not be queued: $address")
             }
         }
+        return accepted
     }
 
     fun stop() {
