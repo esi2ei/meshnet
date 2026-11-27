@@ -25,15 +25,17 @@ The packaged dashboard is offline-first: relative asset URLs, local system fonts
 
 ## Build locally (no CI)
 
-Requirements: Node.js/npm 22+, JDK 17, Android SDK Platform 36, Android Gradle Plugin 8.9.1, Kotlin Gradle Plugin 2.2.21, and Gradle 8.11.1 or a compatible newer Gradle installation. First install web dependencies from the repository root; the Android Gradle preBuild task then runs the Vite production build and bundles its output:
+Requirements: Node.js/npm 22+, JDK 17, Android SDK Platform 36, Android Gradle Plugin 8.9.1, Kotlin Gradle Plugin 2.2.21, and Gradle 8.11.1 or a compatible newer Gradle installation. From the repository root, install the web dependencies, then build Android. The Android Gradle preBuild task runs the Vite production build and bundles its output:
 
 Google Play has required new apps and updates to target Android 16 (API 36) or higher since August 31, 2026. This branch is configured for API 36; confirm API-level behavior and device compatibility in your manual test pass.
 
-    gradle assembleDebug
+    npm install
+    cd mobile
+    gradle :app:assembleDebug
 
-On Windows PowerShell, the repository helper performs the same local build, checks JDK/Gradle/Android SDK prerequisites, verifies the APK signature when `apksigner` is installed, and copies the result to `mobile/dist/MeshNet-debug.apk`:
+On Windows PowerShell, run the helper from the repository root. It checks Node.js 22+, npm, JDK/Gradle/Android SDK prerequisites, installs dashboard dependencies without writing a lockfile, verifies the APK signature when `apksigner` is installed, and copies the result to `mobile/dist/MeshNet-debug.apk`:
 
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Build-DebugApk.ps1
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\mobile\Build-DebugApk.ps1
 
 Instrumented protocol and SQLite tests are included under `app/src/androidTest`. Run them locally on a connected Android device or emulator with:
 
@@ -84,7 +86,7 @@ Create and back up the keystore securely outside the repository. Use `keytool -g
 - Voice notes are locally recorded AAC/M4A clips capped at seven seconds and transferred as encrypted files; the app can play the latest received M4A note. Live voice is a separate best-effort group feature: it uses a shared group key, broadcasts audio to group members, has no individual recipient authorization, no retransmission/ACK, and may lose audio under congestion or radio loss. Incoming invitations expire after five minutes, stale speaker decoders are released after inactivity, and up to eight active speaker streams are mixed.
 - hotspot metering, destination-aware adaptive multi-hop next-hop selection based on measured radio/link metrics, files above the 10 MiB product cap, production-grade group/per-device cryptography, wallet transaction construction/signing/submission, escrow UI/transaction integration, and iOS are not implemented. Wi-Fi Direct, Wi-Fi Aware, live voice, wallet authorization, and file transfer are source-level prototypes and have not been validated on physical devices. The Anchor escrow program is not compiled, tested, deployed, or audited.
 - Android may stop a foreground service under exceptional resource or policy conditions. BLE peripheral advertising and concurrent GATT connections vary by chipset and vendor.
-- The added Android instrumentation tests have **not** been executed. No Android build or physical-device test has been performed for these commits. Do not use this prototype for sensitive or financial traffic before independent security review and device testing.
+- GitHub Actions builds and signature-verifies the debug APK, then runs the Android instrumentation suite on an API 36 emulator. Consult the latest workflow run for the authoritative result. Emulator tests do not validate physical Bluetooth/Wi-Fi radios, OEM behavior, battery use, or live audio quality. Do not use this prototype for sensitive or financial traffic before independent security review and physical-device testing.
 
 
 
