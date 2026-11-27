@@ -47,6 +47,14 @@ class MeshBleTransport(
     private val writeQueues = ConcurrentHashMap<String, ArrayDeque<ByteArray>>()
     private val writing = ConcurrentHashMap.newKeySet<String>()
     private val assemblies = ConcurrentHashMap<String, Assembly>()
+    private data class PeerHealth(
+        var successes: Int = 0,
+        var failures: Int = 0,
+        var smoothedWriteMs: Double = 0.0,
+        var lastWriteStartedAt: Long = 0L,
+        var backoffUntil: Long = 0L
+    )
+    private val peerHealth = ConcurrentHashMap<String, PeerHealth>()
     @Volatile private var running = false
 
     private data class Assembly(
@@ -240,6 +248,12 @@ class MeshBleTransport(
         }
         var queuedAny = false
         clients.entries.toList().forEach { (address, gatt) ->
+            val health = peerHealth.computeIfAbsent(address) { PeerHealth() }
+            val now = System.currentTimeMillis()
+            if (now < synchronized(health) { health.backoffUntil }) {
+                onState("BLE peer temporarily backed off after write failures: $address")
+                return@forEach
+            }
             val mtu = (negotiatedMtu[address] ?: DEFAULT_MTU).coerceIn(DEFAULT_MTU, MAX_MTU)
             val dataSize = mtu - ATT_OVERHEAD - HEADER_BYTES
             val count = (payload.size + dataSize - 1) / dataSize
@@ -251,7 +265,9 @@ class MeshBleTransport(
             val queue = writeQueues.computeIfAbsent(address) { ArrayDeque() }
             var queuedForPeer = false
             synchronized(queue) {
-                if (queue.size + count > MAX_QUEUED_CHUNKS) {
+                val failureCount = synchronized(health) { health.failures }
+                val adaptiveLimit = (MAX_QUEUED_CHUNKS shr failureCount.coerceIn(0, 3)).coerceAtLeast(32)
+                if (queue.size + count > adaptiveLimit) {
                     onState("BLE write queue is full for peer $address")
                     return@synchronized
                 }
@@ -288,6 +304,9 @@ class MeshBleTransport(
             completeWrite(address, BluetoothGatt.GATT_FAILURE)
             return
         }
+        peerHealth.computeIfAbsent(address) { PeerHealth() }.let { health ->
+            synchronized(health) { health.lastWriteStartedAt = System.currentTimeMillis() }
+        }
         @Suppress("DEPRECATION")
         run {
             remote.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
@@ -301,8 +320,27 @@ class MeshBleTransport(
         if (status != BluetoothGatt.GATT_SUCCESS) {
             queue?.let { synchronized(it) { it.clear() } }
             writing.remove(address)
-            onState("BLE write queue available: $address (previous chunk failed with status $status)")
+            val health = peerHealth.computeIfAbsent(address) { PeerHealth() }
+            val delay = synchronized(health) {
+                health.failures = (health.failures + 1).coerceAtMost(5)
+                health.backoffUntil = System.currentTimeMillis() + (250L shl health.failures.coerceAtMost(4))
+                health.backoffUntil - System.currentTimeMillis()
+            }
+            onState("BLE peer write failed: $address status=$status; adaptive backoff ${delay}ms")
+            onState("BLE write queue available: $address")
             return
+        }
+        peerHealth.computeIfAbsent(address) { PeerHealth() }.let { health ->
+            synchronized(health) {
+                val elapsed = (System.currentTimeMillis() - health.lastWriteStartedAt).coerceAtLeast(0L).toDouble()
+                health.smoothedWriteMs = if (health.smoothedWriteMs == 0.0) elapsed else health.smoothedWriteMs * 0.8 + elapsed * 0.2
+                health.successes++
+                if (health.successes >= 8) {
+                    health.failures = 0
+                    health.backoffUntil = 0L
+                    health.successes = 0
+                }
+            }
         }
         val hasNext = queue?.let {
             synchronized(it) {
@@ -381,6 +419,7 @@ class MeshBleTransport(
         }
         clients.clear()
         negotiatedMtu.clear()
+        peerHealth.clear()
         writeQueues.clear()
         writing.clear()
         assemblies.clear()
