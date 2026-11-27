@@ -80,7 +80,15 @@ Test with files of 1 byte, a few hundred bytes, exactly/around a chunk boundary,
 - Confirm microphone foreground-service promotion is permitted only from the visible user-initiated flow on the supported Android versions. Check that stop/revoke paths restore audio mode and release resources.
 - Record the exact device model, OEM build, AMR-NB codec availability, measured latency, and observed failures.
 
-## 8. Wallet and escrow safety
+## 8. Solana Devnet wallet transfer
+
+- Enable optional online integrations and connect a compatible MWA wallet explicitly on Devnet.
+- Send a small test amount to a controlled Devnet recipient. Confirm the wallet displays the exact fee payer, recipient, and lamport amount before approval.
+- Verify the returned signature against Devnet RPC, confirm the transaction reaches `confirmed` or `finalized`, and independently inspect the recipient balance/transaction.
+- Reject malformed Base58 recipients, zero/negative amounts, more than nine decimal places, stale authorization, wallet-account changes, and RPC failures. Never switch this flow to mainnet implicitly.
+- This is a native SOL Devnet transfer, not the offline local-unit wallet or the undeployed escrow program.
+
+## 9. Wallet and escrow safety
 
 - Create two independent offline wallet identities and verify that each recipient address is stable across process recreation.
 - With internet disabled, send a signed local-unit transfer between two phones; verify chunk reassembly, recipient binding, signature verification, duplicate rejection, and durable receipt persistence. Interrupt the receiver process after only part of the voucher chunks arrive, restart it, deliver the remaining chunks, and verify reassembly completes from persisted chunks. Also interrupt after the final chunk but before receipt processing; on restart, the complete envelope must be processed and acknowledged. Verify the recipient signs an acknowledgement only after the receipt is committed, and the sender verifies the recipient key/signature and exact voucher ID, recipient, and amount before marking the outgoing record `RECEIVED`. Repeat with reordered/lost chunks and after restarting both apps; a missing acknowledgement must remain unconfirmed, never settled.
