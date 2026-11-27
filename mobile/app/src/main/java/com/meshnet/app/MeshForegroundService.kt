@@ -44,6 +44,7 @@ class MeshForegroundService : Service() {
     private val pendingOfflinePayments = linkedMapOf<String, PendingOfflineWalletEnvelope>()
     private var listener: ((String) -> Unit)? = null
     private var nodeId: String = "unknown"
+    private var deviceIdentity: MeshDeviceIdentity? = null
     private var replayFrames: List<ByteArray> = emptyList()
     private var replayIndex = 0
     private var replayActive = false
@@ -479,13 +480,15 @@ class MeshForegroundService : Service() {
     }
 
     private fun startMesh(passphrase: String) {
-        // Encode the full 128-bit random UUID as compact base64url to keep route headers bounded.
-        val nodeUuid = java.util.UUID.randomUUID()
-        val nodeBytes = java.nio.ByteBuffer.allocate(16)
-            .putLong(nodeUuid.mostSignificantBits)
-            .putLong(nodeUuid.leastSignificantBits)
-            .array()
-        nodeId = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(nodeBytes)
+        val identity = try {
+            deviceIdentity ?: MeshDeviceIdentity.loadOrCreate(this).also { deviceIdentity = it }
+        } catch (error: Exception) {
+            emit("Device identity could not be unlocked or created: ${error.message}")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
+        nodeId = identity.nodeId
         val crypto = try {
             MeshCrypto(passphrase.toCharArray())
         } catch (error: Exception) {
@@ -523,6 +526,7 @@ class MeshForegroundService : Service() {
             hasReceived = outbox::hasReceived,
             markReceived = outbox::markReceived,
             acknowledge = outbox::acknowledge,
+            identity = identity,
             onFramePayload = ::handleOfflineLibraryPayload,
             onPayload = { plaintext ->
                 if (plaintext.startsWith("$OFFLINE_PAYMENT_PREFIX|") || plaintext.startsWith("$OFFLINE_ACK_PREFIX|")) {

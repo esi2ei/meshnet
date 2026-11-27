@@ -24,7 +24,8 @@ class MeshRouter(
     private val sendEphemeralRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> sendEphemeralFrame(bytes) },
     private val resolveNextHops: (String) -> List<String> = { emptyList() },
     private val sendToPeer: (ByteArray, String) -> Boolean = { _, _ -> false },
-    private val onRouteObserved: (List<String>, String?) -> Unit = { _, _ -> }
+    private val onRouteObserved: (List<String>, String?) -> Unit = { _, _ -> },
+    private val identity: MeshDeviceIdentity? = null
 ) {
     private val seen = LinkedHashSet<String>()
     private val displayed = LinkedHashSet<String>()
@@ -44,8 +45,8 @@ class MeshRouter(
             nonce = "", ciphertext = "", createdAt = createdAt,
             id = id, kind = MeshFrame.KIND_EPHEMERAL
         )
-        val (nonce, ciphertext) = crypto.encrypt(text, MeshFrame.aad(frame))
-        val accepted = sendEphemeralFrame(frame.copy(nonce = nonce, ciphertext = ciphertext).encode())
+        val encoded = encryptOriginFrame(frame, text).encode()
+        val accepted = sendEphemeralFrame(encoded)
         return accepted
     }
 
@@ -72,8 +73,7 @@ class MeshRouter(
             origin = nodeId, ttl = MeshFrame.MAX_TTL, hops = listOf(nodeId),
             nonce = "", ciphertext = "", createdAt = createdAt, id = id, destination = destination
         )
-        val (nonce, ciphertext) = crypto.encrypt(text, MeshFrame.aad(frame))
-        val encryptedFrame = frame.copy(nonce = nonce, ciphertext = ciphertext)
+        val encryptedFrame = encryptOriginFrame(frame, text)
         remember(seen, id)
         val encoded = encryptedFrame.encode()
         val accepted = if (destination == null) send(encoded) else {
@@ -104,6 +104,10 @@ class MeshRouter(
             crypto.decrypt(frame.nonce, frame.ciphertext, MeshFrame.aad(frame))
         } catch (_: Exception) {
             onMessage("Rejected frame: authentication failed")
+            return
+        }
+        if (identity != null && !MeshDeviceIdentity.verify(frame, plaintext)) {
+            onMessage("Rejected frame: device identity signature is missing or invalid")
             return
         }
 
@@ -185,8 +189,7 @@ class MeshRouter(
             nonce = "", ciphertext = "", createdAt = createdAt,
             id = ackId, kind = MeshFrame.KIND_ACK, ackFor = messageId, destination = destination
         )
-        val (nonce, ciphertext) = crypto.encrypt("", MeshFrame.aad(frame))
-        val encoded = frame.copy(nonce = nonce, ciphertext = ciphertext).encode()
+        val encoded = encryptOriginFrame(frame, "").encode()
         val candidates = resolveNextHops(destination)
         val routed = candidates.any { peer -> sendToPeer(encoded, peer) }
         val queued = if (routed) true else if (candidates.isEmpty()) send(encoded) else sendRelay(encoded, null)
@@ -196,6 +199,13 @@ class MeshRouter(
         } else {
             onMessage("Receipt for $messageId could not be queued; it will retry when the frame is received again")
         }
+    }
+
+    private fun encryptOriginFrame(frame: MeshFrame, plaintext: String): MeshFrame {
+        val prepared = identity?.prepare(frame, plaintext) ?: frame
+        val (nonce, ciphertext) = crypto.encrypt(plaintext, MeshFrame.aad(prepared))
+        val encrypted = prepared.copy(nonce = nonce, ciphertext = ciphertext)
+        return identity?.sign(encrypted) ?: encrypted
     }
 
     /** Fewer hops always wins; equal-hop alternatives use peer historical arrival age. */
