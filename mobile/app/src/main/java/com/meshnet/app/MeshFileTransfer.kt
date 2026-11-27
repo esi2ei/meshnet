@@ -97,7 +97,7 @@ class MeshFileTransfer(
             val state=Incoming(name,size,count,hash,partial,meta,bits,storedBytes)
             incoming[id]=state
             persistMetadata(state)
-            onEvent(if(bits.isEmpty) "Incoming file: $name ($size bytes)" else "Resuming file: $name (${bits.cardinality()}/$count chunks already stored)")
+            onEvent(if(bits.cardinality()==0) "Incoming file: $name ($size bytes)" else "Resuming file: $name (${bits.cardinality()}/$count chunks already stored)")
         } catch(_:Exception) {
             partial.delete();meta.delete();onEvent("Unable to create private transfer file")
         }
