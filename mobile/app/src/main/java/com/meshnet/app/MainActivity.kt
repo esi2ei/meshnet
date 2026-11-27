@@ -14,6 +14,16 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.Looper
+import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicReference
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.widget.Button
@@ -36,6 +46,11 @@ class MainActivity : Activity() {
     private lateinit var messageInput: EditText
     private lateinit var wifiAddress: EditText
     private var meshService: MeshForegroundService? = null
+    private var webView: WebView? = null
+    private val recentEvents = ArrayList<String>()
+    private val appPreferences by lazy {
+        getSharedPreferences("meshnet_app_settings", MODE_PRIVATE)
+    }
     private var bound = false
     private var recorder: MediaRecorder? = null
     private var recordingFile: File? = null
@@ -62,11 +77,13 @@ class MainActivity : Activity() {
             meshService?.setListener(::append)
             status.text = if (meshService?.isRunning() == true) "BLE mesh running" else "Service connected · mesh stopped"
             append("Connected to MeshNet foreground service")
+            publishRuntimeStatus()
         }
         override fun onServiceDisconnected(name: ComponentName?) {
             meshService?.setListener(null)
             meshService = null
             append("MeshNet service disconnected")
+            publishRuntimeStatus()
         }
     }
 
@@ -99,179 +116,248 @@ class MainActivity : Activity() {
     }
 
     private fun render() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(28, 36, 28, 24)
-        }
-        root.addView(TextView(this).apply { text = "MeshNet · Native Android"; textSize = 24f })
-        status = TextView(this).apply { text = "Stopped" }
-        root.addView(status)
-        walletStatus = TextView(this).apply { text = "Solana wallet: not connected · Devnet only" }
-        root.addView(walletStatus)
-        root.addView(Button(this).apply {
-            text = "Connect Solana wallet (Devnet)"
-            setOnClickListener { connectSolanaWalletDevnet() }
-        })
-        root.addView(Button(this).apply {
-            text = "Disconnect Solana wallet"
-            setOnClickListener { disconnectSolanaWallet() }
-        })
-        keyInput = EditText(this).apply {
-            hint = "Group passphrase (24+ chars); blank reuses saved key"
-            inputType = 0x00000081
-        }
-        root.addView(keyInput)
-        root.addView(Button(this).apply {
-            text = "Start / resume BLE mesh"
-            setOnClickListener { requestAndStart() }
-        })
-        root.addView(Button(this).apply {
-            text = "Create Wi-Fi Direct group"
-            setOnClickListener { runWifiAction { meshService?.createWifiDirectGroup() } }
-        })
-        root.addView(Button(this).apply {
-            text = "Discover Wi-Fi Direct peers"
-            setOnClickListener { runWifiAction { meshService?.discoverWifiDirect() } }
-        })
-        root.addView(Button(this).apply {
-            text = "Switch back to Wi-Fi Aware"
-            setOnClickListener { runWifiAction { meshService?.resumeWifiAware() } }
-        })
-        wifiAddress = EditText(this).apply { hint = "Wi-Fi Direct device address (AA:BB:CC:DD:EE:FF)" }
-        root.addView(wifiAddress)
-        root.addView(Button(this).apply {
-            text = "Connect to Wi-Fi Direct peer"
-            setOnClickListener {
-                val address = wifiAddress.text.toString().trim()
-                runWifiAction { meshService?.connectWifiDirect(address) }
+        // Keep the existing native actions behind a narrow, local-only JavaScript bridge.
+        // The dashboard itself is compiled into APK assets and never loaded from a remote host.
+        status = TextView(this)
+        log = TextView(this)
+        walletStatus = TextView(this)
+        transferStatus = TextView(this)
+        keyInput = EditText(this).apply { inputType = 0x00000081 }
+        messageInput = EditText(this)
+        wifiAddress = EditText(this)
+
+        val localWebView = WebView(this).apply {
+            setBackgroundColor(android.graphics.Color.rgb(10, 11, 13))
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.allowFileAccess = true
+            settings.allowContentAccess = false
+            settings.allowFileAccessFromFileURLs = false
+            settings.allowUniversalAccessFromFileURLs = false
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            settings.javaScriptCanOpenWindowsAutomatically = false
+            settings.setSupportMultipleWindows(false)
+            isVerticalScrollBarEnabled = true
+            overScrollMode = ViewGroup.OVER_SCROLL_IF_CONTENT_SCROLLS
+            addJavascriptInterface(MeshNetBridge(), "MeshNetNative")
+            webViewClient = object : WebViewClient() {
+                private fun isBundledAsset(url: String): Boolean {
+                    val parsed = Uri.parse(url)
+                    return parsed.scheme == "file" &&
+                        parsed.path?.startsWith("/android_asset/web/") == true
+                }
+
+                override fun shouldOverrideUrlLoading(
+                    view: WebView?,
+                    request: WebResourceRequest
+                ): Boolean = !isBundledAsset(request.url.toString())
+
+                @Suppress("DEPRECATION")
+                override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
+                    url == null || !isBundledAsset(url)
+
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    publishRuntimeStatus()
+                }
+
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    error: android.webkit.WebResourceError?
+                ) {
+                    super.onReceivedError(view, request, error)
+                    if (request?.isForMainFrame == true) {
+                        append("Local dashboard load failed: ${error?.description ?: "unknown WebView error"}")
+                    }
+                }
             }
-        })
-        root.addView(Button(this).apply {
-            text = "Stop BLE / Wi-Fi mesh"
-            setOnClickListener {
+        }
+        webView = localWebView
+        localWebView.setOnApplyWindowInsetsListener { view, insets ->
+            val safeInsets = if (Build.VERSION.SDK_INT >= 30) {
+                insets.getInsets(
+                    WindowInsets.Type.systemBars() or
+                        WindowInsets.Type.displayCutout() or
+                        WindowInsets.Type.ime()
+                )
+            } else {
+                android.graphics.Insets.of(
+                    0, insets.systemWindowInsetTop, 0, insets.systemWindowInsetBottom
+                )
+            }
+            view.setPadding(safeInsets.left, safeInsets.top, safeInsets.right, safeInsets.bottom)
+            insets
+        }
+        setContentView(localWebView)
+        localWebView.loadUrl("file:///android_asset/web/index.html")
+    }
+
+    private fun runtimeStatusJson(): String {
+        val events = JSONArray()
+        synchronized(recentEvents) {
+            recentEvents.takeLast(12).forEach { events.put(it) }
+        }
+        return JSONObject()
+            .put("native", true)
+            .put("platform", "android")
+            .put("running", meshService?.isRunning() == true)
+            .put("onlineIntegrationsEnabled", appPreferences.getBoolean(KEY_ONLINE_INTEGRATIONS, false))
+            .put("walletBusy", walletBusy)
+            .put("walletAddress", walletAddress ?: JSONObject.NULL)
+            .put("recentEvents", events)
+            .toString()
+    }
+
+    private fun publishRuntimeStatus(message: String? = null) {
+        val view = webView ?: return
+        val event = JSONObject()
+            .put("message", message ?: JSONObject.NULL)
+            .put("status", JSONObject(runtimeStatusJson()))
+        val script = "window.MeshNetUI&&window.MeshNetUI.onNativeEvent($event)"
+        view.post { runCatching { view.evaluateJavascript(script, null) } }
+    }
+
+    private fun <T> runOnMainBlocking(block: () -> T): T? {
+        if (Looper.myLooper() == Looper.getMainLooper()) return runCatching(block).getOrNull()
+        val result = AtomicReference<Result<T>?>(null)
+        val latch = CountDownLatch(1)
+        runOnUiThread {
+            result.set(runCatching(block))
+            latch.countDown()
+        }
+        if (!latch.await(5, TimeUnit.SECONDS)) return null
+        return result.get()?.getOrNull()
+    }
+
+    inner class MeshNetBridge {
+        @JavascriptInterface
+        fun getRuntimeStatus(): String = runtimeStatusJson()
+
+        @JavascriptInterface
+        fun startMesh(passphrase: String?) {
+            runOnUiThread {
+                keyInput.setText(passphrase.orEmpty())
+                requestAndStart()
+            }
+        }
+
+        @JavascriptInterface
+        fun stopMesh() {
+            runOnUiThread {
                 startService(Intent(this@MainActivity, MeshForegroundService::class.java).apply {
                     action = MeshForegroundService.ACTION_STOP
                 })
-                status.text = "Stopping"
+                append("Mesh stop requested")
             }
-        })
-        root.addView(Button(this).apply {
-            text = "Forget saved group credentials"
-            setOnClickListener {
-                startService(Intent(this@MainActivity, MeshForegroundService::class.java).apply {
-                    action = MeshForegroundService.ACTION_FORGET_CREDENTIALS
-                })
-                status.text = "Deleting saved credentials"
-            }
-        })
-        messageInput = EditText(this).apply { hint = "Message (max 120 UTF-8 bytes)" }
-        root.addView(messageInput)
-        root.addView(Button(this).apply {
-            text = "Queue encrypted message"
-            setOnClickListener {
+        }
+
+        @JavascriptInterface
+        fun sendMessage(message: String): Boolean =
+            runOnMainBlocking {
                 try {
-                    val accepted = meshService?.sendMessage(messageInput.text.toString())
-                        ?: throw IllegalStateException("Mesh service is not connected")
-                    if (accepted) messageInput.text.clear()
-                    else toast("Message was not accepted into the durable outbox")
+                    val accepted = meshService?.sendMessage(message)
+                        ?: throw IllegalStateException("Start the mesh before sending a message")
+                    append(if (accepted) "Message accepted into encrypted outbox" else "Message was not accepted")
+                    accepted
                 } catch (error: Exception) {
-                    toast(error.message ?: "Unable to queue message")
+                    append(error.message ?: "Unable to queue message")
+                    false
                 }
-            }
-        })
-        voiceButton = Button(this).apply {
-            text = "Record voice note (up to 7 seconds)"
-            setOnClickListener {
-                if (isRecording) stopVoiceRecording() else requestVoiceRecording()
-            }
-        }
-        root.addView(voiceButton)
-        root.addView(Button(this).apply {
-            text = "Play latest received voice note"
-            setOnClickListener { playLatestVoiceNote() }
-        })
-        liveVoiceButton = Button(this).apply {
-            text = "Start live group voice"
-            setOnClickListener {
-                if (meshService?.isLiveVoiceActive() == true) {
-                    runCatching { meshService?.endLiveVoiceCall() }
-                        .onFailure { toast(it.message ?: "Unable to end live call") }
-                    liveVoiceButton?.text = "Start live group voice"
-                } else {
-                    joinVoiceAfterPermission = false
-                    requestLiveVoice()
-                }
-            }
-        }
-        root.addView(liveVoiceButton)
-        joinVoiceButton = Button(this).apply {
-            text = "Join incoming live voice"
-            setOnClickListener {
-                joinVoiceAfterPermission = true
-                requestLiveVoice()
-            }
-        }
-        root.addView(joinVoiceButton)
-        root.addView(Button(this).apply {
-            text = "Send file (max 10 MiB)"
-            setOnClickListener {
+            } ?: false
+
+        @JavascriptInterface
+        fun selectFile() {
+            runOnUiThread {
                 val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "*/*"
                 }
                 startActivityForResult(picker, REQUEST_FILE)
             }
-        })
-        root.addView(Button(this).apply {
-            text = "Cancel outgoing file transfer"
-            setOnClickListener {
-                if (meshService?.cancelFileTransfers() != true) {
-                    toast("No outgoing file transfer is active")
+        }
+
+        @JavascriptInterface
+        fun cancelFileTransfer(): Boolean =
+            runOnMainBlocking { meshService?.cancelFileTransfers() == true } ?: false
+
+        @JavascriptInterface
+        fun saveReceivedFile() {
+            runOnUiThread { chooseReceivedFileForExport() }
+        }
+
+        @JavascriptInterface
+        fun toggleVoiceNote() {
+            runOnUiThread {
+                if (isRecording) stopVoiceRecording() else requestVoiceRecording()
+            }
+        }
+
+        @JavascriptInterface
+        fun playVoiceNote() {
+            runOnUiThread { playLatestVoiceNote() }
+        }
+
+        @JavascriptInterface
+        fun startLiveVoice(join: Boolean) {
+            runOnUiThread {
+                joinVoiceAfterPermission = join
+                requestLiveVoice()
+            }
+        }
+
+        @JavascriptInterface
+        fun endLiveVoice() {
+            runOnUiThread {
+                runCatching { meshService?.endLiveVoiceCall() }
+                    .onFailure { toast(it.message ?: "Unable to end live voice") }
+                append("Live voice end requested")
+            }
+        }
+
+        @JavascriptInterface
+        fun createWifiDirectGroup() {
+            runOnUiThread { runWifiAction { meshService?.createWifiDirectGroup() } }
+        }
+
+        @JavascriptInterface
+        fun discoverWifiDirect() {
+            runOnUiThread { runWifiAction { meshService?.discoverWifiDirect() } }
+        }
+
+        @JavascriptInterface
+        fun connectWifiDirect(address: String) {
+            runOnUiThread { runWifiAction { meshService?.connectWifiDirect(address.trim()) } }
+        }
+
+        @JavascriptInterface
+        fun resumeWifiAware() {
+            runOnUiThread { runWifiAction { meshService?.resumeWifiAware() } }
+        }
+
+        @JavascriptInterface
+        fun setOnlineIntegrationsEnabled(enabled: Boolean) {
+            runOnUiThread {
+                appPreferences.edit().putBoolean(KEY_ONLINE_INTEGRATIONS, enabled).apply()
+                append(if (enabled) "Optional online integrations enabled by user" else "Optional online integrations disabled")
+            }
+        }
+
+        @JavascriptInterface
+        fun connectWallet() {
+            runOnUiThread {
+                if (!appPreferences.getBoolean(KEY_ONLINE_INTEGRATIONS, false)) {
+                    toast("Enable optional online integrations first")
+                } else {
+                    connectSolanaWalletDevnet()
                 }
             }
-        })
-        root.addView(Button(this).apply {
-            text = "Save received file"
-            setOnClickListener { chooseReceivedFileForExport() }
-        })
-        transferStatus = TextView(this).apply {
-            text = "File transfers: idle"
-            textSize = 12f
         }
-        root.addView(transferStatus)
-        val scroll = ScrollView(this)
-        log = TextView(this).apply { textSize = 13f }
-        scroll.addView(log)
-        root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.addView(TextView(this).apply {
-            text = "Outbox and replay cache persist locally. Group receipts confirm reception by at least one member sharing the key, not a named recipient. Shared group AES-GCM is a prototype, not Signal or forward-secret."
-            textSize = 11f
-        })
-        root.setOnApplyWindowInsetsListener { view, insets ->
-            val left: Int
-            val top: Int
-            val right: Int
-            val bottom: Int
-            if (Build.VERSION.SDK_INT >= 30) {
-                val safeInsets = insets.getInsets(
-                    WindowInsets.Type.systemBars() or
-                        WindowInsets.Type.displayCutout() or
-                        WindowInsets.Type.ime()
-                )
-                left = safeInsets.left
-                top = safeInsets.top
-                right = safeInsets.right
-                bottom = safeInsets.bottom
-            } else {
-                left = 0
-                top = insets.systemWindowInsetTop
-                right = 0
-                bottom = insets.systemWindowInsetBottom
-            }
-            view.setPadding(28 + left, 36 + top, 28 + right, 24 + bottom)
-            insets
+
+        @JavascriptInterface
+        fun disconnectWallet() {
+            runOnUiThread { disconnectSolanaWallet() }
         }
-        setContentView(root)
     }
 
     @Deprecated("Uses the platform document picker for broad Android compatibility")
@@ -734,7 +820,11 @@ class MainActivity : Activity() {
                 line.startsWith("File transfer completed:") ||
                 line.contains("File transfer") && (line.contains("cancelled") || line.contains("paused"))
             ) transferStatus.text = line
-            liveVoiceButton?.text = if (meshService?.isLiveVoiceActive() == true) "End live group voice" else "Start live group voice"
+            synchronized(recentEvents) {
+                recentEvents.add(line)
+                while (recentEvents.size > 30) recentEvents.removeAt(0)
+            }
+            publishRuntimeStatus(line)
         }
     }
 
@@ -744,6 +834,15 @@ class MainActivity : Activity() {
         walletScenario?.let { scenario -> runCatching { scenario.close() } }
         walletScenario = null
         runCatching { receivedFileAccess.close() }
+        webView?.apply {
+            stopLoading()
+            removeJavascriptInterface("MeshNetNative")
+            loadUrl("about:blank")
+            clearHistory()
+            removeAllViews()
+            destroy()
+        }
+        webView = null
         super.onDestroy()
     }
 
@@ -768,6 +867,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        private const val KEY_ONLINE_INTEGRATIONS = "online_integrations_enabled"
         private const val REQUEST_PERMISSIONS = 4102
         private const val REQUEST_FILE = 4103
         private const val REQUEST_AUDIO = 4104
