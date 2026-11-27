@@ -117,9 +117,11 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     fun retireAcknowledgement(frame: ByteArray): Boolean {
         val decoded = try { MeshFrame.decode(frame) } catch (_: Exception) { return false }
         if (decoded.kind != MeshFrame.KIND_ACK) return false
+        // All receivers derive the same logical ACK ID; a retry may have a different nonce
+        // or route, so retire every queued representation of that logical receipt.
         return writableDatabase.delete(
-            "outbox", "frame_id = ? AND frame_kind = ?",
-            arrayOf(digest(frame), MeshFrame.KIND_ACK)
+            "outbox", "message_id = ? AND frame_kind = ?",
+            arrayOf(decoded.id, MeshFrame.KIND_ACK)
         ) > 0
     }
 
