@@ -177,7 +177,7 @@ class MainActivity : Activity() {
 
     private fun beginVoiceRecording() {
         val file = File(cacheDir, "mesh-voice-${System.currentTimeMillis()}.m4a")
-        val media = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
+        val media = createMediaRecorder()
         try {
             media.setAudioSource(MediaRecorder.AudioSource.MIC)
             media.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
@@ -202,6 +202,10 @@ class MainActivity : Activity() {
             toast(error.message ?: "Unable to start voice recording")
         }
     }
+
+    @Suppress("DEPRECATION")
+    private fun createMediaRecorder(): MediaRecorder =
+        if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else MediaRecorder()
 
     private fun stopVoiceRecording() {
         val media = recorder ?: return
