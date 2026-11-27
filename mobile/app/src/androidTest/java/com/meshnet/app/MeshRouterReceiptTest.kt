@@ -265,4 +265,66 @@ class MeshRouterReceiptTest {
         assertTrue(eventsA.any { it.contains("from B to A") })
     }
 
+    @Test
+    fun directedMessagesLearnReverseRoutesAndUsePeerSpecificTransport() {
+        val passphrase = "a sufficiently long group passphrase"
+        val sourceFrames = mutableListOf<ByteArray>()
+        val relayFloods = mutableListOf<ByteArray>()
+        val targeted = mutableListOf<Pair<String, ByteArray>>()
+        val sourceSeen = mutableSetOf<String>()
+        val relaySeen = mutableSetOf<String>()
+        val learned = MeshRouteRegistry()
+
+        val source = MeshRouter(
+            nodeId = "source_01",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { sourceFrames.add(it); true },
+            onMessage = {},
+            hasReceived = { it in sourceSeen },
+            markReceived = { id, _ -> !sourceSeen.add(id) },
+            acknowledge = { 0 }
+        )
+        val relay = MeshRouter(
+            nodeId = "relay_001",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { relayFloods.add(it); true },
+            onMessage = {},
+            hasReceived = { it in relaySeen },
+            markReceived = { id, _ -> !relaySeen.add(id) },
+            acknowledge = { 0 },
+            resolveNextHops = { learned.nextHopsFor(it) },
+            sendToPeer = { bytes, peer -> targeted.add(peer to bytes); true },
+            onRouteObserved = { path, ingress -> learned.observe(path, ingressPeer = ingress) }
+        )
+        val targetSeen = mutableSetOf<String>()
+        val targetFrames = mutableListOf<ByteArray>()
+        val target = MeshRouter(
+            nodeId = "target_01",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { targetFrames.add(it); true },
+            onMessage = {},
+            hasReceived = { it in targetSeen },
+            markReceived = { id, _ -> !targetSeen.add(id) },
+            acknowledge = { 0 }
+        )
+
+        assertTrue(source.sendMessageTo("target_01", "direct payload"))
+        val initial = sourceFrames.map { MeshFrame.decode(it) }.single { it.destination == "target_01" }
+        relay.receive(initial.encode(), "BLE/peer-source")
+        assertEquals(1, relayFloods.count { MeshFrame.decode(it).destination == "target_01" })
+        assertEquals(listOf("BLE/peer-source"), learned.nextHopsFor("source_01"))
+
+        assertTrue(target.sendMessage("route advertisement"))
+        val advertisement = targetFrames.map { MeshFrame.decode(it) }.first { it.kind == MeshFrame.KIND_MESSAGE }
+        relay.receive(advertisement.encode(), "P2P/peer-target")
+        assertEquals(listOf("P2P/peer-target"), learned.nextHopsFor("target_01"))
+
+        targeted.clear()
+        assertTrue(relay.sendMessageTo("target_01", "reply over selected route"))
+        assertEquals(1, targeted.size)
+        assertEquals("P2P/peer-target", targeted.single().first)
+        val outgoing = MeshFrame.decode(targeted.single().second)
+        assertEquals("target_01", outgoing.destination)
+    }
+
 }
