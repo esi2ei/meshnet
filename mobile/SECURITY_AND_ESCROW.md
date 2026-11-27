@@ -62,6 +62,7 @@ Do not accept or display real deposits until all of these are available and revi
 | Wallet | Android uses MWA 2.0.7 for user-approved Devnet authorization/deauthorization; public key and auth token are stored encrypted with a non-exportable Android Keystore key and restored after process recreation. No transaction is constructed, signed, or submitted; dApp identity URI/asset verification is not configured | Add identity verification and a transaction builder only after the escrow program is deployed, independently audited, and verified on the target cluster 
 | iOS | Deferred by product direction | Keep postponed; do not start an iOS port |
 | Physical validation | Not performed | Build and run instrumented tests on at least two real Android phones and a three-node relay topology |
+| Android release packaging | API 36 target, AGP 8.9.1 / Kotlin 2.2.21 toolchain, edge-to-edge system-bar/cutout/IME insets, external-keystore release signing gate, and secret-free repository ignore rules are in source | Owner must create/back up the keystore outside the repository, configure release env vars, build/sign locally, verify the AAB certificate, and complete store disclosures |
 
 
 

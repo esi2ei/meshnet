@@ -38,6 +38,10 @@ For Wi-Fi Direct, start the mesh on both devices. On one device choose **Create 
 
 For a multi-hop BLE check, use three phones with each device within BLE range of at least one neighbor, then move the origin and destination out of direct range while keeping the relay in range. Verify the receiver log shows the message and hop count.
 
+## Release validation
+
+See [RELEASE_TEST_PLAN.md](RELEASE_TEST_PLAN.md) for the manual build, instrumentation, multi-phone BLE/Wi-Fi, file, voice, wallet, and release-signing checklist. Passing tests alone does not close the separately documented cryptography, routing, payment, or escrow production blockers.
+
 ## Release signing gate
 
 Debug builds do not require signing secrets. Release packaging and signing tasks (`assembleRelease`, `bundleRelease`, and their package/sign tasks) depend on a fail-closed validation step. Supply these values through the local shell environment or a secrets manager; do not store them in Gradle files, committed properties files, or source control:
