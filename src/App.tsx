@@ -103,21 +103,21 @@ export default function App() {
               <div className="text-xl font-display font-bold tracking-wide text-white flex items-center gap-2">
                 MESH<span className="text-cyan-400">NET</span>
                 <span className="px-2 py-0.5 bg-green-500/10 text-green-400 text-[10px] font-mono rounded border border-green-500/35 uppercase font-bold tracking-wider">
-                  BROWSER SIMULATION · 3 SAMPLE NODES
+                  BROWSER SIMULATION
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1 font-medium font-display">
-                Encrypted Offline Communication &amp; Metered Stablecoin Tether Simulator
+                Offline Mesh Concept · Browser Simulation Only
               </p>
             </div>
           </div>
           <div className="flex items-center gap-6">
             <div className="hidden md:flex flex-col items-end">
-              <span className="text-[10px] text-slate-500 uppercase font-mono tracking-widest leading-none">Wallet Address</span>
-              <span className="text-xs font-mono text-cyan-400 mt-1">0x7a...E921</span>
+              <span className="text-[10px] text-slate-500 uppercase font-mono tracking-widest leading-none">Demo Wallet (Not Connected)</span>
+              <span className="text-xs font-mono text-cyan-400 mt-1">No wallet connected</span>
             </div>
             <div className="w-10 h-10 rounded-full border-2 border-slate-705 bg-slate-800 flex items-center justify-center">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
             </div>
           </div>
         </header>
