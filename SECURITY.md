@@ -13,6 +13,6 @@ Do not include group passphrases, wallet authorization tokens, private keys, key
 ## Current high-risk limitations
 
 - Shared group AES-GCM is a prototype and does not provide authenticated per-device identity, forward secrecy, secure group-key rotation, or named-recipient delivery receipts.
-- The WebView bridge is intended to be exposed only to the locally bundled APK assets. Do not weaken its URL allowlist, file-origin restrictions, or Content Security Policy.
+- The WebView bridge is exposed only to the bundled dashboard served by AndroidX WebViewAssetLoader at the virtual appassets origin. External navigation, file access, mixed content, and WebView-origin network connections are disabled. Do not weaken its host/path allowlist or Content Security Policy.
 - Wallet authorization is limited to an explicitly enabled, user-initiated Solana Devnet flow. No real payment or escrow transaction flow is implemented.
 - Debug APKs and emulator tests are not production security certification. Physical-device testing and independent review remain required.
