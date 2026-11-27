@@ -36,6 +36,7 @@ class MeshFileTransferTest {
         val receiver = MeshFileTransfer(context, { true }, { events.add(it) })
 
         assertTrue(sender.send(Uri.fromFile(source)))
+        assertTrue(frames.all { it.toByteArray(Charsets.UTF_8).size <= 120 })
         val manifest = frames.first { it.startsWith("~F1M|") }
         val chunks = frames.filter { it.startsWith("~F1C|") }.reversed()
         chunks.forEach { assertTrue(receiver.accept(it)) }
