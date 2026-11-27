@@ -36,6 +36,7 @@ type NativeBridge = {
   getOfflineWalletAddress: () => string;
   copyOfflineWalletAddress: () => boolean;
   sendOfflinePayment: (recipientAddress: string, amountMinor: number) => boolean;
+  retryPendingOfflinePayments: () => number;
   forgetGroupCredentials: () => void;
   setOnlineIntegrationsEnabled: (enabled: boolean) => void;
 };
@@ -225,6 +226,12 @@ export default function PhoneWorkspace() {
           onClick={() => { const sent = native?.sendOfflinePayment(offlineRecipient.trim().toLowerCase(), Number(offlineAmount)) === true; setLastEvent(sent ? "Signed offline transfer queued · waiting for recipient acknowledgement" : "Offline wallet transfer was not queued"); if (sent) setOfflineAmount(""); }}>
           Send signed transfer over local mesh
         </button>
+        {runtime.offlineWalletTransfers.some((transfer) => transfer.status !== 'RECEIVED') && (
+          <button className={actionClass} disabled={!runtime.native || !runtime.running}
+            onClick={() => { const queued = native?.retryPendingOfflinePayments() ?? 0; setLastEvent(`Requeued ${queued} unconfirmed offline wallet transfers`); refresh(); }}>
+            Retry unconfirmed transfers
+          </button>
+        )}
         <p className="text-[11px] leading-relaxed text-amber-200/80">The recipient verifies and saves the voucher, then returns a signed acknowledgement that the sender verifies. These are provisional local-unit receipts, not real currency or blockchain settlement. Offline software still cannot guarantee a global balance or prevent double-spending across disconnected devices. Do not use this prototype for money or valuable assets.</p>
         {(runtime.offlineWalletTransfers.length > 0 || runtime.offlineWalletReceipts.length > 0) && (
           <div className="space-y-2 border-t border-slate-800 pt-3">
