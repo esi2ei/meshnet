@@ -125,7 +125,7 @@ export default function App() {
             <div className="mb-4">
               <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400 flex items-center gap-2">
                 <Smartphone className="w-4 h-4 text-cyan-400" />
-                Local Mesh Topology Space
+                Simulated Mesh Topology
               </h2>
               <p className="text-xs text-slate-500 mt-1 font-sans italic">
                 Illustrative topology only — this browser view is not connected to phone radios. Drag nodes to explore simulated RF links.
