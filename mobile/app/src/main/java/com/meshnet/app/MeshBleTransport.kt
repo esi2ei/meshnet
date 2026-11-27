@@ -152,7 +152,7 @@ class MeshBleTransport(
                 gatt.disconnect()
                 return
             }
-            if (remote.properties and BluetoothGattCharacteristic.PROPERTY_WRITE == 0) {
+            if ((remote.properties and BluetoothGattCharacteristic.PROPERTY_WRITE) == 0) {
                 onState("Peer does not expose a writable MeshNet channel: $address")
                 gatt.disconnect()
                 return
