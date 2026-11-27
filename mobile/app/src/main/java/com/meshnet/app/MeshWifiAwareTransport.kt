@@ -17,6 +17,7 @@ import android.net.wifi.aware.WifiAwareManager
 import android.net.wifi.aware.WifiAwareNetworkInfo
 import android.net.wifi.aware.WifiAwareNetworkSpecifier
 import android.net.wifi.aware.WifiAwareSession
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import java.io.DataInputStream
@@ -65,6 +66,11 @@ class MeshWifiAwareTransport(
 
     fun start() {
         if (!running.compareAndSet(false, true)) return
+        if (Build.VERSION.SDK_INT < 29) {
+            running.set(false)
+            onState("Wi-Fi Aware high-speed data paths require Android 10 or later; BLE/Wi-Fi Direct remain available")
+            return
+        }
         if (!app.packageManager.hasSystemFeature("android.hardware.wifi.aware")) {
             running.set(false)
             onState("Wi-Fi Aware is not supported on this device; BLE/Wi-Fi Direct remain available")
@@ -185,7 +191,13 @@ class MeshWifiAwareTransport(
                 }
 
                 override fun onLost(network: Network) {
+                    serverRequests.remove(peer)
                     onState("Wi-Fi Aware peer data path lost")
+                }
+
+                override fun onUnavailable() {
+                    serverRequests.remove(peer)
+                    onState("Wi-Fi Aware publisher data path unavailable")
                 }
             }
             callbacks.add(callback)
