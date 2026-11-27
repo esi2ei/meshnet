@@ -41,4 +41,4 @@ The debug APK is written to `mobile/app/build/outputs/apk/debug/app-debug.apk`. 
 - The Solana escrow program is not built, tested, deployed, audited or integrated with Android transactions. Do not use this prototype to accept or transfer real funds.
 - Review [SECURITY.md](SECURITY.md) before reporting security issues, and see [mobile/SECURITY_AND_ESCROW.md](mobile/SECURITY_AND_ESCROW.md) for technical boundaries.
 
-GitHub Actions typechecks and builds the web app, packages the dashboard into the Android debug APK, verifies the APK signature, and runs instrumentation tests on an API 36 emulator. Workflow artifacts are available from the Actions run page.
+The GitHub Actions workflow is retained for a future owner-requested validation, but is manual-only (`workflow_dispatch`). It is intentionally not triggered by pushes or pull requests while this branch is being completed. No CI run is implied by source changes or commits.
