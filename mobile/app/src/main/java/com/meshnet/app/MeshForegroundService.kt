@@ -19,6 +19,7 @@ class MeshForegroundService : Service() {
     }
 
     private val binder = LocalBinder()
+    private val peerRegistry = MeshPeerRegistry()
     private var transport: MeshBleTransport? = null
     private var wifiTransport: MeshWifiDirectTransport? = null
     private var wifiAwareTransport: MeshWifiAwareTransport? = null
@@ -114,6 +115,12 @@ class MeshForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
     fun setListener(callback: ((String) -> Unit)?) { listener = callback }
     fun isRunning(): Boolean = router != null
+    fun connectedPeersJson(): org.json.JSONArray = if (router != null) peerRegistry.toJson() else org.json.JSONArray()
+
+    private fun recordPeerConnection(transportName: String, address: String, connected: Boolean) {
+        peerRegistry.setConnected(transportName, address, connected)
+        emit("$transportName peer ${if (connected) "connected" else "disconnected"}: $address")
+    }
 
     fun sendMessage(message: String): Boolean {
         val activeRouter = router ?: throw IllegalStateException("Mesh service is not ready")
@@ -422,9 +429,7 @@ class MeshForegroundService : Service() {
         )
         transport = MeshBleTransport(
             this,
-            { address, connected ->
-                emit("${if (connected) "Connected" else "Disconnected"}: $address")
-            },
+            { address, connected -> recordPeerConnection("BLE/GATT", address, connected) },
             { peer, payload -> router?.receive(payload, peer) },
             { state ->
                 emit(state)
@@ -443,7 +448,8 @@ class MeshForegroundService : Service() {
                 { state ->
                     emit(state)
                     if (state.contains("data channel ready")) handleTransportState("Wi-Fi Direct channel ready")
-                }
+                },
+                { address, connected -> recordPeerConnection("Wi-Fi Direct", address, connected) }
             )
             wifiAwareTransport = MeshWifiAwareTransport(
                 this,
@@ -452,7 +458,8 @@ class MeshForegroundService : Service() {
                 { state ->
                     emit(state)
                     if (state.contains("data channel ready")) handleTransportState("Wi-Fi Aware channel ready")
-                }
+                },
+                { address, connected -> recordPeerConnection("Wi-Fi Aware", address, connected) }
             )
             runCatching { wifiAwareTransport?.start() }
                 .onFailure { emit("Wi-Fi Aware unavailable; other transports remain active: ${it.message}") }
@@ -541,6 +548,7 @@ class MeshForegroundService : Service() {
         wifiTransport = null
         wifiAwareTransport?.stop()
         wifiAwareTransport = null
+        peerRegistry.clear()
         router = null
         replayFrames = emptyList()
         replayIndex = 0
