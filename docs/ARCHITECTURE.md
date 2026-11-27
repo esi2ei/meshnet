@@ -15,7 +15,7 @@ MainActivity + WebViewAssetLoader
         v
 MeshForegroundService
   |-- MeshPeerRegistry       live, established transport connections
-  |-- MeshRouteRegistry      bounded, authenticated route observations
+  |-- MeshRouteRegistry      authenticated observations + bounded reverse next hops
   |-- MeshBleTransport       BLE/GATT
   |-- MeshWifiDirectTransport user-started Wi-Fi Direct
   |-- MeshWifiAwareTransport optional Wi-Fi Aware
@@ -55,7 +55,7 @@ A peer is inserted into `MeshPeerRegistry` only after a transport establishes it
 
 The peer registry key combines transport and remote address so the same IP/address observed on two transports remains distinct. Disconnect callbacks remove only the matching transport peer. Stopping the mesh clears the registry.
 
-The router separately reports a route observation only after a frame is decoded and authenticated, and only when the current node is not already in the frame's hop history. The observed path is the group-key-authenticated hop list plus this receiving node. `MeshRouteRegistry` validates node IDs and loop-free paths, caps history at 64 paths, and expires observations after 30 minutes. The dashboard renders those observed frame paths in a separate multi-hop graph. It does not merge them with the direct-link graph or claim that a previously observed hop is currently online.
+The router reports a route observation only after a frame is decoded and authenticated, and only when the current node is not already in the frame's hop history. The observed path is the group-key-authenticated hop list plus this receiving node. `MeshRouteRegistry` validates node IDs and loop-free paths, caps history at 64 paths, and expires observations after 30 minutes. It also learns up to three reverse next-hop candidates per destination from the immediate transport peer, ranking fewer hops first and fresher observations second. BLE, Wi-Fi Direct and Wi-Fi Aware expose peer-specific writes so directed frames can use a selected next hop and try alternatives when a write is rejected. If no usable route is known, the directed frame is flooded to other connected peers (excluding ingress) to discover a path; a reply can then use the reverse route. The dashboard renders observed frame paths separately from direct links. It does not claim that a previously observed hop is currently online.
 
 Current topology sources:
 - BLE/GATT: the remote MeshNet service and writable characteristic must be discovered before the client-side peer is registered; server-side peers are registered on accepted GATT connections.
@@ -74,7 +74,7 @@ The viewer is a read-only snapshot of the source at build time. It is not an edi
 
 1. Keep platform I/O in native Android classes; React components should call only the narrow bridge exposed by `MainActivity`.
 2. Keep peer membership event-driven. Never create a peer from a discovery result or parse arbitrary human-readable log strings to infer connection state.
-3. Keep transport identity explicit. A connection on BLE, Wi-Fi Direct, and Wi-Fi Aware must not overwrite another transport's connection record.
+3. Keep transport identity explicit. A connection on BLE, Wi-Fi Direct, and Wi-Fi Aware must not overwrite another transport's connection record. Route next hops are transport-qualified (`BLE/`, `P2P/`, `AWARE/`) and use the matching targeted transport API.
 4. Keep discovery separate from connection. Wi-Fi Direct remains user-controlled; Wi-Fi Aware remains optional and hardware-dependent.
 5. Keep persistent data bounded and private. Queue, replay, transfer, and wallet stores must preserve their existing quotas and validation.
 6. Keep experimental code clearly separated from production runtime. Simulation fixtures are not Android transports, cryptographic implementations, or acceptance tests.
@@ -83,7 +83,7 @@ The viewer is a read-only snapshot of the source at build time. It is not an edi
 ## Known boundaries
 
 - The direct graph shows established transport links; the separate route graph shows only authenticated paths that actually reached this node. Neither is a complete network map or a live route-quality calculation.
-- Mesh forwarding is still broadcast-style, not destination-aware or link-quality-aware routing.
+- Destination-aware routing is now supported for directed text frames using authenticated reverse-path observations and up to three next-hop alternatives. Unknown destinations still use bounded flooding; there is no route-discovery control plane, link-quality metric, persistent identity binding, or proof that a cached next hop remains online.
 - Group AES-GCM is not Signal Protocol and does not provide per-device identity or forward secrecy.
 - Offline local-unit vouchers are not money, a spendable ledger, or a settlement system.
 - The Anchor escrow source is not deployed, audited, or integrated into the Android wallet flow.
