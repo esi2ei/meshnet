@@ -559,7 +559,6 @@ class MeshForegroundService : Service() {
         wifiAwareTransport = null
         peerRegistry.clear()
         routeRegistry.clear()
-        router = null
         replayFrames = emptyList()
         replayIndex = 0
         replayActive = false
