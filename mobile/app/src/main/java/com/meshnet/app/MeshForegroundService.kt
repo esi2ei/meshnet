@@ -289,7 +289,7 @@ class MeshForegroundService : Service() {
             markReceived = outbox::markReceived,
             acknowledge = outbox::acknowledge,
             onPayload = { plaintext ->
-                if (plaintext.startsWith(\"$OFFLINE_PAYMENT_PREFIX|\")) {
+                if (plaintext.startsWith("$OFFLINE_PAYMENT_PREFIX|")) {
                     handleRouterMessage(plaintext)
                     true
                 } else fileTransfer?.accept(plaintext) == true
