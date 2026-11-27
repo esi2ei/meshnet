@@ -79,7 +79,7 @@ data class MeshFrame(
                 .toByteArray(Charsets.UTF_8)
 
         const val MAX_TTL = 8
-        const val MAX_FRAME_BYTES = 480
+        const val MAX_FRAME_BYTES = 640
         private const val MAX_AGE_MS = 24L * 60L * 60L * 1000L
         private const val MAX_CLOCK_SKEW_MS = 5L * 60L * 1000L
     }
