@@ -55,7 +55,10 @@ class MeshRouter(
         }
 
         if (frame.kind == MeshFrame.KIND_ACK) {
-            if (frame.id in seen || hasReceived(frame.id)) return
+            if (frame.id in seen || hasReceived(frame.id)) {
+                relayIfNeeded(frame)
+                return
+            }
             val target = frame.ackFor ?: return
             val removed = acknowledge(target)
             relayIfNeeded(frame)
@@ -66,8 +69,9 @@ class MeshRouter(
         }
 
         if (frame.id in seen || hasReceived(frame.id)) {
-            // Re-send the receipt: the previous ACK may have been lost during a disconnect.
+            // Retry both paths: an earlier receipt or relay may have been queued while no peer was connected.
             sendReceipt(frame.id)
+            relayIfNeeded(frame)
             return
         }
 
