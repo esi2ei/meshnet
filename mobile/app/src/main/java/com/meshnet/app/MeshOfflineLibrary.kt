@@ -69,7 +69,7 @@ internal class MeshOfflineLibrary(context: Context) {
     }
     @Synchronized fun cancelPending(id:String){pending.remove(id);persist()}
     @Synchronized fun completeDownload(id:String,received:File):Boolean {
-        val advertised=remote[id]?:return false
+        val advertised=remote[id] ?: run { pending.remove(id); persist(); return false }
         if(id !in pending||!received.isFile||received.length()!=advertised.size||runCatching{digest(received)}.getOrNull()!=id){
             pending.remove(id);persist();return false
         }
@@ -146,7 +146,11 @@ internal class MeshOfflineLibrary(context: Context) {
             "Offline library is full; remove an item before publishing or downloading more content"
         }
     }
-    private fun pruneRemote(now:Long){remote.entries.removeAll{now-it.value.createdAt>REMOTE_TTL_MS}}
+    private fun pruneRemote(now:Long){
+        val expired=remote.values.filter{now-it.createdAt>REMOTE_TTL_MS}.map{it.id}.toSet()
+        remote.entries.removeAll{it.key in expired}
+        if(expired.isNotEmpty())pending.removeAll(expired)
+    }
     private fun fileFor(id:String)=File(root,"$id.blob")
     private fun safeName(value:String):String{
         val safe=value.substringAfterLast('/').substringAfterLast('\\').replace(Regex("[^A-Za-z0-9._-]"),"_").take(MAX_NAME_CHARS)

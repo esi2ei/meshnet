@@ -73,24 +73,26 @@ internal class MeshDeviceIdentity private constructor(
             return MeshDeviceIdentity(pair.private, pair.public.encoded)
         }
 
-        fun verify(frame: MeshFrame, plaintext: String): Boolean = runCatching {
-            val encodedKey = frame.deviceKey ?: return false
-            val encodedSignature = frame.signature ?: return false
-            val expectedHash = frame.payloadHash ?: return false
-            val publicBytes = Base64.decode(
-                encodedKey, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
-            )
-            if (nodeIdFor(publicBytes) != frame.origin) return false
-            if (sha256(plaintext.toByteArray(Charsets.UTF_8)) != expectedHash) return false
-            val publicKey = KeyFactory.getInstance("EC")
-                .generatePublic(X509EncodedKeySpec(publicBytes))
-            val verifier = Signature.getInstance("SHA256withECDSA")
-            verifier.initVerify(publicKey)
-            verifier.update(signingBytes(frame))
-            verifier.verify(Base64.decode(
-                encodedSignature, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
-            ))
-        }.getOrDefault(false)
+        fun verify(frame: MeshFrame, plaintext: String): Boolean {
+            return runCatching {
+                val encodedKey = frame.deviceKey ?: return@runCatching false
+                val encodedSignature = frame.signature ?: return@runCatching false
+                val expectedHash = frame.payloadHash ?: return@runCatching false
+                val publicBytes = Base64.decode(
+                    encodedKey, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+                )
+                if (nodeIdFor(publicBytes) != frame.origin) return@runCatching false
+                if (sha256(plaintext.toByteArray(Charsets.UTF_8)) != expectedHash) return@runCatching false
+                val publicKey = KeyFactory.getInstance("EC")
+                    .generatePublic(X509EncodedKeySpec(publicBytes))
+                val verifier = Signature.getInstance("SHA256withECDSA")
+                verifier.initVerify(publicKey)
+                verifier.update(signingBytes(frame))
+                verifier.verify(Base64.decode(
+                    encodedSignature, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+                ))
+            }.getOrDefault(false)
+        }
 
         private fun signingBytes(frame: MeshFrame): ByteArray =
             "meshnet-device-v1|${frame.kind}|${frame.id}|${frame.origin}|${frame.destination.orEmpty()}|${frame.createdAt}|${frame.ackFor.orEmpty()}|${frame.deviceKey.orEmpty()}|${frame.payloadHash.orEmpty()}"
