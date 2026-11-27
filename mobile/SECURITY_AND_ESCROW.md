@@ -4,7 +4,7 @@ This document records an implementation decision, not a claim that the integrati
 
 ## 1. Cryptography: use vodozemac instead of libsignal
 
-**Selected candidate:** [matrix-org/vodozemac](https://github.com/matrix-org/vodozemac), Apache-2.0, Rust crate. It implements Olm (Double Ratchet) and Megolm, and its maintainers publish a security audit by Least Authority. The current crate line is 0.11.x; pin an exact reviewed version and commit the dependency lockfile when integrating.
+**Selected candidate:** [matrix-org/vodozemac](https://github.com/matrix-org/vodozemac), Apache-2.0, Rust crate. The inspected release is 0.11.2 (Rust edition 2024; minimum Rust 1.96). It implements Olm (Double Ratchet) and Megolm, and its maintainers publish a security audit by Least Authority. Pin the exact release and commit the dependency lockfile when integrating. The Android NDK/JNI build must use a compatible Rust toolchain; this repository's current Android setup does not yet provide that toolchain.
 
 Why this is a better licensing fit than libsignal for this repository:
 - Apache-2.0 permits commercial redistribution subject to its license, notice, and attribution conditions.
@@ -25,7 +25,7 @@ Required integration sequence:
 
 ## 2. Escrow: non-custodial Solana PDA escrow; no custodial server wallet
 
-**Selected starting point:** [Solana Foundation escrow program](https://github.com/solana-foundation/escrow), MIT-licensed, with an Accretion audit report and an explicit audit-status file. Its published deployment is Devnet only. It is a receipt-based deposit/withdrawal program; it is not, by itself, a marketplace contract that releases payment to a service provider after delivery or resolves buyer/provider disputes.
+**Selected starting point for code study only:** [Solana Foundation escrow program](https://github.com/solana-foundation/escrow), MIT-licensed. Its audit status file identifies Accretion's audited-through commit as `36187ad52c7c03d11b13b6f1da9461f2f757cee2` (2026-04-07); the current `main` is 106 commits ahead of that baseline, so the current head is **not covered by that audit**. Its published deployment is Devnet only. It is a receipt-based deposit/withdrawal program; it is not, by itself, a marketplace contract that releases payment to a service provider after delivery or resolves buyer/provider disputes. Therefore, neither the current upstream head nor its Devnet deployment is approved here for real funds.
 
 For MeshNet bandwidth or service payments, the target design is:
 - USDC SPL token only, with the canonical mint explicitly pinned per cluster.
@@ -36,7 +36,7 @@ For MeshNet bandwidth or service payments, the target design is:
 - Fee collection separated from user escrow principal; multisig + timelock for any administrative authority.
 - Client verifies the program ID, cluster genesis/network, mint, PDA derivation, transaction simulation, and finalised transaction signature before showing a settled status.
 
-The Foundation's DvP program is another audited option for atomic exchange of two token/asset legs with a named settlement authority. It is appropriate for swaps, not a substitute for a reviewed delivery/dispute state machine for bandwidth metering.
+The Foundation's DvP program is another audited option for atomic exchange of two token/asset legs with a named settlement authority. It is appropriate for swaps, not a substitute for a reviewed delivery/dispute state machine for bandwidth metering. Any adoption must independently pin the deployed program ID, audited commit, audit scope, and upgrade authority; a public claim that a program was audited is not evidence that the current deployed binary matches the audited source.
 
 ### Safe activation gates
 
