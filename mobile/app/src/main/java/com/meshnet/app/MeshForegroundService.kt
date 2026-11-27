@@ -51,6 +51,8 @@ class MeshForegroundService : Service() {
                 stopSelf(startId)
                 return START_NOT_STICKY
             }
+            // A user-supplied replacement key must be able to recover from a lost/reset Keystore key.
+            secretStore.clear()
             null
         }
 
