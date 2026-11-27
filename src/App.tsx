@@ -92,7 +92,7 @@ export default function App() {
               <div className="text-xl font-display font-bold tracking-wide text-white flex items-center gap-2">
                 MESH<span className="text-cyan-400">NET</span>
                 <span className="px-2 py-0.5 bg-green-500/10 text-green-400 text-[10px] font-mono rounded border border-green-500/35 uppercase font-bold tracking-wider">
-                  BROWSER SIMULATION
+                  OFFLINE-FIRST
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1 font-medium font-display">
@@ -102,8 +102,8 @@ export default function App() {
           </div>
           <div className="flex items-center gap-6">
             <div className="hidden md:flex flex-col items-end">
-              <span className="text-[10px] text-slate-500 uppercase font-mono tracking-widest leading-none">Demo Wallet (Not Connected)</span>
-              <span className="text-xs font-mono text-cyan-400 mt-1">No wallet connected</span>
+              <span className="text-[10px] text-slate-500 uppercase font-mono tracking-widest leading-none">Optional online integrations</span>
+              <span className="text-xs font-mono text-cyan-400 mt-1">Disabled by default</span>
             </div>
             <div className="w-10 h-10 rounded-full border-2 border-slate-705 bg-slate-800 flex items-center justify-center">
               <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
@@ -164,21 +164,21 @@ export default function App() {
 
         </div>
 
-        {/* MIDDLE COLUMN: Native runtime instructions */}
+        {/* Native Android controls are live only inside the packaged APK. */}
         <div className="xl:col-span-4 flex justify-center w-full">
           <div className="flex flex-col items-center w-full max-w-[340px]">
             
-            {/* Display which phone screen is currently loaded */}
+            {/* Device status and native actions */}
             <div className="mb-3 text-center">
               <span className="text-[10px] font-bold uppercase text-slate-500 font-mono tracking-widest">
                 Native Runtime
               </span>
               <h2 className="text-xs font-semibold text-slate-300 mt-1 font-display uppercase tracking-wide">
-                Android setup · {activeNodeId}
+                Native controls for this device
               </h2>
             </div>
 
-            {/* Simulated hardware wrapper */}
+            {/* Real native runtime panel, bridged to Android in the APK. */}
             <PhoneWorkspace />
           </div>
         </div>
