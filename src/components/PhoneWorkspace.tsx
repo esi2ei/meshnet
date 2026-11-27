@@ -8,6 +8,8 @@ type NativeRuntimeStatus = {
   walletBusy: boolean;
   walletAddress: string | null;
   offlineWalletAddress: string | null;
+  offlineWalletTransfers: Array<{ id: string; recipient: string; amountMinor: number; createdAt: number; status: string }>;
+  offlineWalletReceipts: Array<{ id: string; sender: string; amountMinor: number; createdAt: number; asset: string }>;
   platform: string;
   recentEvents: string[];
 };
@@ -53,6 +55,8 @@ const initialStatus: NativeRuntimeStatus = {
   walletBusy: false,
   walletAddress: null,
   offlineWalletAddress: null,
+  offlineWalletTransfers: [],
+  offlineWalletReceipts: [],
   platform: 'browser',
   recentEvents: [],
 };
@@ -219,6 +223,22 @@ export default function PhoneWorkspace() {
           Send signed transfer over local mesh
         </button>
         <p className="text-[11px] leading-relaxed text-amber-200/80">The recipient verifies and saves the voucher, then returns a signed acknowledgement that the sender verifies. These are provisional local-unit receipts, not real currency or blockchain settlement. Offline software still cannot guarantee a global balance or prevent double-spending across disconnected devices. Do not use this prototype for money or valuable assets.</p>
+        {(runtime.offlineWalletTransfers.length > 0 || runtime.offlineWalletReceipts.length > 0) && (
+          <div className="space-y-2 border-t border-slate-800 pt-3">
+            <div className="text-xs font-semibold text-slate-300">Recent wallet activity</div>
+            {runtime.offlineWalletTransfers.slice().reverse().map((transfer) => (
+              <div key={transfer.id} className="flex items-center justify-between gap-3 text-[11px]">
+                <span className="min-w-0 truncate text-slate-400">Sent to {transfer.recipient.slice(0, 12)}… · {transfer.amountMinor} local units</span>
+                <span className={transfer.status === 'RECEIVED' ? 'shrink-0 text-emerald-300' : 'shrink-0 text-amber-300'}>{transfer.status === 'RECEIVED' ? 'Recipient confirmed' : 'Awaiting acknowledgement'}</span>
+              </div>
+            ))}
+            {runtime.offlineWalletReceipts.slice().reverse().map((receipt) => (
+              <div key={receipt.id} className="text-[11px] text-emerald-300">
+                Received {receipt.amountMinor} local units from {receipt.sender.slice(0, 12)}…
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="space-y-3 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
