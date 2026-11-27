@@ -2,6 +2,7 @@ package com.meshnet.app
 
 import android.content.Context
 import android.net.Uri
+import android.util.AtomicFile
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -14,6 +15,7 @@ internal class MeshOfflineLibrary(context: Context) {
     private val appContext=context.applicationContext
     private val root=File(appContext.filesDir,"meshnet-library").apply{mkdirs()}
     private val index=File(root,"catalog.json")
+    private val atomicIndex=AtomicFile(index)
     private val local=linkedMapOf<String,Item>()
     private val remote=linkedMapOf<String,Item>()
     private val pending=linkedSetOf<String>()
@@ -38,7 +40,12 @@ internal class MeshOfflineLibrary(context: Context) {
             ensureCapacity(size)
             val name=safeName(queryName(uri))
             val dest=fileFor(id)
-            if(dest.exists())temp.delete() else check(temp.renameTo(dest)){ "Unable to commit offline content" }
+            if (dest.exists() && (dest.length() != size || runCatching { digest(dest) }.getOrNull() != id)) {
+                check(dest.delete()) { "Unable to replace corrupt offline content" }
+            }
+            if (dest.exists()) temp.delete()
+            else check(temp.renameTo(dest)) { "Unable to commit offline content" }
+            check(dest.length() == size && digest(dest) == id) { "Published content failed integrity verification" }
             val item=Item(id,name,size,System.currentTimeMillis(),true,null)
             local[id]=item;remote.remove(id);persist();return item
         } catch(e:Exception){temp.delete();throw e}
@@ -60,7 +67,12 @@ internal class MeshOfflineLibrary(context: Context) {
     @Synchronized fun localFile(id:String):File? {
         val item=local[id]?:return null
         val file=fileFor(id)
-        if(!file.isFile||file.length()!=item.size||runCatching{digest(file)}.getOrNull()!=id){local.remove(id);persist();return null}
+        if(!file.isFile||file.length()!=item.size||runCatching{digest(file)}.getOrNull()!=id){
+            local.remove(id)
+            runCatching { file.delete() }
+            persist()
+            return null
+        }
         return file
     }
     @Synchronized fun markPending(id:String):Boolean {
@@ -76,9 +88,29 @@ internal class MeshOfflineLibrary(context: Context) {
         if(!local.containsKey(id)){
             ensureCapacity(advertised.size)
             val temp=File(root,"$id.tmp")
-            received.inputStream().use{input->FileOutputStream(temp).use{output->input.copyTo(output,IO_BUFFER_BYTES);output.fd.sync()}}
-            val dest=fileFor(id)
-            if(dest.exists())temp.delete() else check(temp.renameTo(dest)){ "Unable to commit downloaded content" }
+            try {
+                received.inputStream().use { input ->
+                    FileOutputStream(temp).use { output ->
+                        input.copyTo(output, IO_BUFFER_BYTES)
+                        output.fd.sync()
+                    }
+                }
+                check(temp.length() == advertised.size && digest(temp) == id) {
+                    "Downloaded content changed while being committed"
+                }
+                val dest = fileFor(id)
+                if (dest.exists() && (dest.length() != advertised.size || runCatching { digest(dest) }.getOrNull() != id)) {
+                    check(dest.delete()) { "Unable to replace corrupt offline content" }
+                }
+                if (dest.exists()) temp.delete()
+                else check(temp.renameTo(dest)) { "Unable to commit offline content" }
+                check(dest.length() == advertised.size && digest(dest) == id) {
+                    "Committed offline content failed integrity verification"
+                }
+            } catch (error: Exception) {
+                temp.delete()
+                throw error
+            }
             local[id]=advertised.copy(createdAt=System.currentTimeMillis(),local=true,origin=null,pending=false)
         }
         pending.remove(id);remote.remove(id);persist();return true
@@ -97,49 +129,71 @@ internal class MeshOfflineLibrary(context: Context) {
         .put("local",it.local).put("origin",it.origin?:JSONObject.NULL).put("pending",it.pending))}}
 
     private fun load(){
-        if(!index.isFile)return
-        runCatching{
-            val json=JSONObject(index.readText());val locals=json.optJSONArray("local")?:JSONArray()
-            for(i in 0 until locals.length()){
-                runCatching {
-                    val e=locals.getJSONObject(i);val id=e.getString("id")
-                    if(id.matches(Regex("[a-f0-9]{64}"))) {
-                        val file=fileFor(id)
-                        val size=e.getLong("size")
-                        val item=Item(id,safeName(e.getString("name")),size,e.getLong("createdAt"),true,null)
-                        if(size in 1..MAX_FILE_BYTES.toLong() && file.isFile &&
-                            file.length()==item.size && runCatching{digest(file)}.getOrNull()==id
-                        ) local[id]=item
-                    }
+        val json = runCatching {
+            atomicIndex.openRead().bufferedReader(Charsets.UTF_8).use { JSONObject(it.readText()) }
+        }.getOrNull() ?: return
+        val now = System.currentTimeMillis()
+        val locals = json.optJSONArray("local") ?: JSONArray()
+        for (i in 0 until locals.length()) {
+            runCatching {
+                val entry = locals.getJSONObject(i)
+                val id = entry.getString("id")
+                val size = entry.getLong("size")
+                val createdAt = entry.getLong("createdAt")
+                require(id.matches(Regex("[a-f0-9]{64}")))
+                require(size in 1..MAX_FILE_BYTES.toLong())
+                require(createdAt in 1..(now + MAX_FUTURE_CLOCK_SKEW_MS))
+                val file = fileFor(id)
+                if (file.isFile && file.length() == size && digest(file) == id) {
+                    local[id] = Item(id, safeName(entry.getString("name")), size, createdAt, true, null)
                 }
             }
-            val remotes=json.optJSONArray("remote")?:JSONArray()
-            for(i in 0 until remotes.length()){
-                val e=remotes.getJSONObject(i)
-                val id=e.getString("id")
-                val origin=e.getString("origin")
-                val size=e.getLong("size")
-                val createdAt=e.getLong("createdAt")
-                if(id.matches(Regex("[a-f0-9]{64}")) &&
-                    origin.matches(Regex("[A-Za-z0-9_-]{1,32}")) &&
-                    size in 1..MAX_FILE_BYTES.toLong() && !local.containsKey(id)
-                ) remote[id]=Item(id,safeName(e.getString("name")),size,createdAt,false,origin)
-            }
-            val pend=json.optJSONArray("pending")?:JSONArray()
-            for(i in 0 until pend.length()){val id=pend.optString(i);if(remote.containsKey(id)&&pending.size<MAX_PENDING_DOWNLOADS)pending.add(id)}
         }
+
+        val remotes = json.optJSONArray("remote") ?: JSONArray()
+        for (i in 0 until remotes.length()) {
+            runCatching {
+                val entry = remotes.getJSONObject(i)
+                val id = entry.getString("id")
+                val origin = entry.getString("origin")
+                val size = entry.getLong("size")
+                val createdAt = entry.getLong("createdAt")
+                require(id.matches(Regex("[a-f0-9]{64}")))
+                require(origin.matches(Regex("[A-Za-z0-9_-]{1,32}")))
+                require(size in 1..MAX_FILE_BYTES.toLong())
+                require(createdAt in 1..(now + MAX_FUTURE_CLOCK_SKEW_MS))
+                require(now - createdAt <= REMOTE_TTL_MS)
+                if (!local.containsKey(id) && remote.size < MAX_REMOTE_ITEMS) {
+                    remote[id] = Item(id, safeName(entry.getString("name")), size, createdAt, false, origin)
+                }
+            }
+        }
+
+        val pendingEntries = json.optJSONArray("pending") ?: JSONArray()
+        for (i in 0 until pendingEntries.length()) {
+            val id = pendingEntries.optString(i)
+            if (remote.containsKey(id) && pending.size < MAX_PENDING_DOWNLOADS) pending.add(id)
+        }
+        pruneRemote(now)
         persist()
     }
     private fun persist(){
-        val json=JSONObject().put("local",JSONArray().apply{local.values.forEach{put(itemJson(it))}})
-            .put("remote",JSONArray().apply{remote.values.forEach{put(itemJson(it))}})
-            .put("pending",JSONArray().apply{pending.forEach{put(it)}})
-        val temp=File(root,"catalog.json.tmp")
-        FileOutputStream(temp).use{it.write(json.toString().toByteArray(Charsets.UTF_8));it.fd.sync()}
-        if(index.exists())check(index.delete()){ "Unable to replace offline catalogue" }
-        check(temp.renameTo(index)){ "Unable to persist offline catalogue" }
+        val json = JSONObject().put("local", JSONArray().apply {
+            local.values.forEach { put(itemJson(it)) }
+        }).put("remote", JSONArray().apply {
+            remote.values.forEach { put(itemJson(it)) }
+        }).put("pending", JSONArray().apply {
+            pending.forEach { put(it) }
+        })
+        val stream = atomicIndex.startWrite()
+        try {
+            stream.write(json.toString().toByteArray(Charsets.UTF_8))
+            atomicIndex.finishWrite(stream)
+        } catch (error: Exception) {
+            atomicIndex.failWrite(stream)
+            throw error
+        }
     }
-    private fun itemJson(i:Item)=JSONObject().put("id",i.id).put("name",i.name).put("size",i.size).put("createdAt",i.createdAt).put("origin",i.origin?:JSONObject.NULL)
     private fun ensureCapacity(incoming:Long){
         require(incoming in 1..MAX_FILE_BYTES.toLong())
         require(local.size<MAX_LOCAL_ITEMS&&local.values.sumOf{it.size}+incoming<=MAX_STORAGE_BYTES){
@@ -147,7 +201,9 @@ internal class MeshOfflineLibrary(context: Context) {
         }
     }
     private fun pruneRemote(now:Long){
-        val expired=remote.values.filter{now-it.createdAt>REMOTE_TTL_MS}.map{it.id}.toSet()
+        val expired=remote.values.filter {
+            it.createdAt > now + MAX_FUTURE_CLOCK_SKEW_MS || now - it.createdAt > REMOTE_TTL_MS
+        }.map{it.id}.toSet()
         remote.entries.removeAll{it.key in expired}
         if(expired.isNotEmpty())pending.removeAll(expired)
     }
@@ -175,5 +231,6 @@ internal class MeshOfflineLibrary(context: Context) {
         private const val MAX_NAME_CHARS=32
         private const val IO_BUFFER_BYTES=8192
         private const val REMOTE_TTL_MS=7L*24L*60L*60L*1000L
+        private const val MAX_FUTURE_CLOCK_SKEW_MS=5L*60L*1000L
     }
 }
