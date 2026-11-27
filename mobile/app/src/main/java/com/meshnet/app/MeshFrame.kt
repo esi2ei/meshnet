@@ -29,7 +29,7 @@ data class MeshFrame(
         .toByteArray(Charsets.UTF_8)
 
     companion object {
-        const val PROTOCOL_VERSION = 2
+        const val PROTOCOL_VERSION = 3
         const val KIND_MESSAGE = "MESSAGE"
         const val KIND_ACK = "ACK"
 
@@ -75,7 +75,7 @@ data class MeshFrame(
         }
 
         fun aad(frame: MeshFrame): ByteArray =
-            "meshnet-v2|${frame.kind}|${frame.id}|${frame.origin}|${frame.createdAt}|${frame.ackFor.orEmpty()}"
+            "meshnet-v3|${frame.kind}|${frame.id}|${frame.origin}|${frame.createdAt}|${frame.ackFor.orEmpty()}|${frame.ttl}|${frame.hops.joinToString(",")}"
                 .toByteArray(Charsets.UTF_8)
 
         const val MAX_TTL = 8
