@@ -7,6 +7,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $mobileRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repositoryRoot = Split-Path -Parent $mobileRoot
 $apkSource = Join-Path $mobileRoot "app\build\outputs\apk\debug\app-debug.apk"
 $distRoot = Join-Path $mobileRoot "dist"
 $apkDestination = Join-Path $distRoot "MeshNet-debug.apk"
@@ -62,6 +63,17 @@ if ($null -eq $sdkRoot) {
     throw "Android SDK Platform 36 was not found. Set ANDROID_SDK_ROOT or ANDROID_HOME to an SDK containing platforms\android-36\android.jar."
 }
 
+$node = Get-RequiredApplication "node"
+$nodeVersionText = (& $node.Source --version 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $nodeVersionText -notmatch '^v(?<major>\d+)\.') {
+    throw "Unable to determine the Node.js version: $nodeVersionText"
+}
+$nodeMajor = [int]$Matches["major"]
+if ($nodeMajor -lt 22) {
+    throw "MeshNet dashboard builds require Node.js 22 or newer. Detected: $nodeVersionText"
+}
+$npm = Get-RequiredApplication "npm"
+
 $env:ANDROID_SDK_ROOT = $sdkRoot
 if ([string]::IsNullOrWhiteSpace($env:ANDROID_HOME)) {
     $env:ANDROID_HOME = $sdkRoot
@@ -71,6 +83,19 @@ Write-Host "Building MeshNet debug APK locally (no CI)..."
 Write-Host "JDK major: $javaMajor"
 Write-Host "Gradle: $gradleVersion"
 Write-Host "Android SDK: $sdkRoot"
+Write-Host "Node.js: $nodeVersionText"
+
+Write-Host "Installing dashboard dependencies (no lockfile is written)..."
+Push-Location -LiteralPath $repositoryRoot
+try {
+    & $npm.Source install --no-package-lock --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm dependency installation failed with exit code $LASTEXITCODE."
+    }
+}
+finally {
+    Pop-Location
+}
 
 Push-Location -LiteralPath $mobileRoot
 try {
