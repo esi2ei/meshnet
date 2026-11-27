@@ -77,6 +77,13 @@ class MeshRouter(
             return
         }
 
+        if (frame.origin == nodeId) {
+            // Never treat our own frame returning through a relay as a remote delivery receipt.
+            markReceived(frame.id, frame.createdAt)
+            remember(seen, frame.id)
+            return
+        }
+
         if (displayed.add(frame.id)) {
             onMessage("${frame.origin}: $plaintext (hops: ${frame.hops.size - 1})")
             trim(displayed)
