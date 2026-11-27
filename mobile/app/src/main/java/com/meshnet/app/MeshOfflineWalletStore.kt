@@ -11,7 +11,6 @@ import java.security.MessageDigest
 import java.security.Signature
 import java.security.spec.X509EncodedKeySpec
 import java.util.UUID
-import javax.crypto.SecretKey
 import java.security.KeyStore
 
 /**
@@ -164,7 +163,7 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         runCatching { JSONArray(preferences.getString(KEY_HISTORY, "[]")) }.getOrDefault(JSONArray())
 
     private fun addressFor(publicKey: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(publicKey).joinToString("") { "%02x".format(it) }
+        MessageDigest.getInstance("SHA-256").digest(publicKey).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private fun canonical(json: JSONObject): ByteArray {
         val fields = listOf("version", "id", "asset", "amountMinor", "sender", "senderPublicKey", "recipient", "createdAt")
