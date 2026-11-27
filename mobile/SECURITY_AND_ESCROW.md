@@ -19,7 +19,7 @@ Required integration sequence:
 3. Persist encrypted/pickled account and session state using Android Keystore-wrapped storage keys; bind records to the local device identity and handle rollback/corruption explicitly.
 4. Define key rotation, device revocation, lost-device recovery, and protocol-version negotiation before switching message encryption.
 5. Add cross-device interoperability vectors, tamper/replay tests, state-restoration tests, dependency/license inventory, and an independent cryptographic review.
-6. Only then migrate messages. Keep protocol v2 group AES-GCM as a clearly marked legacy mode until all devices have upgraded; do not silently reinterpret old ciphertext as ratchet ciphertext.
+6. Only then migrate messages. Keep protocol v3 group AES-GCM as a clearly marked legacy mode until all devices have upgraded; do not silently reinterpret old ciphertext as ratchet ciphertext.
 
 **Current state:** selected as the Apache-2.0 replacement candidate; not integrated into the Android runtime. The current app still uses a shared AES-GCM group key and does not provide per-device identity or forward secrecy.
 
