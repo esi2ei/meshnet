@@ -280,13 +280,13 @@ class MeshBleTransport(
         }
     }
 
-    fun sendToPeers(payload: ByteArray, excludePeer: String? = null): Boolean {
+    fun sendToPeers(payload: ByteArray, excludePeer: String? = null, onlyPeer: String? = null): Boolean {
         if (payload.isEmpty() || payload.size > MeshFrame.MAX_FRAME_BYTES) {
             onState("Rejected oversized MeshNet frame")
             return false
         }
         var queuedAny = false
-        clients.entries.toList().filter { it.key != excludePeer }.forEach { (address, gatt) ->
+        clients.entries.toList().filter { it.key != excludePeer && (onlyPeer == null || it.key == onlyPeer) }.forEach { (address, gatt) ->
             val health = peerHealth.computeIfAbsent(address) { PeerHealth() }
             val now = System.currentTimeMillis()
             if (now < synchronized(health) { health.backoffUntil }) {
@@ -330,6 +330,8 @@ class MeshBleTransport(
         if (!queuedAny) onState("No BLE peer accepted the frame for transmission")
         return queuedAny
     }
+
+    fun sendToPeer(payload: ByteArray, address: String): Boolean = sendToPeers(payload, onlyPeer = address)
 
     private fun writeNext(address: String, gatt: BluetoothGatt) {
         val queue = writeQueues[address] ?: run { writing.remove(address); return }
