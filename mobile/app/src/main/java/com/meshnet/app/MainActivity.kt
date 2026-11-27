@@ -385,9 +385,15 @@ class MainActivity : Activity() {
     private fun disconnectSolanaWallet() {
         val authToken = walletAuthToken ?: runCatching { walletAuthStore.load()?.authToken }.getOrNull()
         if (authToken == null) {
+            val cleared = runCatching { walletAuthStore.clear() }
             walletAddress = null
-            walletStatus.text = "Solana wallet: not connected · Devnet only"
-            toast("No in-memory wallet authorization is active")
+            walletStatus.text = if (cleared.isSuccess) {
+                "Solana wallet: not connected · Devnet only"
+            } else {
+                "Local wallet authorization cleanup failed"
+            }
+            if (cleared.isSuccess) toast("Local wallet authorization data cleared")
+            else toast(cleared.exceptionOrNull()?.message ?: "Unable to clear local wallet authorization")
             return
         }
         if (walletBusy) {

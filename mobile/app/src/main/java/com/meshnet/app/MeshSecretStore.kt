@@ -30,18 +30,27 @@ class MeshSecretStore(context: Context) {
     @Synchronized
     fun load(): String? {
         val ciphertext = preferences.getString(KEY_CIPHERTEXT, null) ?: return null
-        val iv = preferences.getString(KEY_IV, null)?.let { Base64.decode(it, Base64.NO_WRAP) }
-            ?: return null
+        val encodedIv = preferences.getString(KEY_IV, null)
+            ?: throw IllegalStateException("Saved group credential IV is missing; enter the passphrase again")
+        val iv = Base64.decode(encodedIv, Base64.NO_WRAP)
+        require(iv.size == GCM_IV_BYTES) { "Saved group credential IV is invalid; enter the passphrase again" }
+
+        val store = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        val key = store.getKey(KEY_ALIAS, null) as? SecretKey
+            ?: throw IllegalStateException("Saved group credential key is missing; enter the passphrase again")
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
+        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
         return cipher.doFinal(Base64.decode(ciphertext, Base64.NO_WRAP)).toString(Charsets.UTF_8)
     }
 
     @Synchronized
     fun clear() {
-        preferences.edit().clear().commit()
+        check(preferences.edit().clear().commit()) { "Unable to clear saved group credentials" }
         val store = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        if (store.containsAlias(KEY_ALIAS)) store.deleteEntry(KEY_ALIAS)
+        if (store.containsAlias(KEY_ALIAS)) {
+            store.deleteEntry(KEY_ALIAS)
+            check(!store.containsAlias(KEY_ALIAS)) { "Unable to delete the saved group credential key" }
+        }
     }
 
     private fun getOrCreateKey(): SecretKey {
@@ -67,5 +76,7 @@ class MeshSecretStore(context: Context) {
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val KEY_CIPHERTEXT = "ciphertext"
         private const val KEY_IV = "iv"
+        private const val GCM_IV_BYTES = 12
+        private const val GCM_TAG_BITS = 128
     }
 }
