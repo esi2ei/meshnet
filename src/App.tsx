@@ -103,7 +103,7 @@ export default function App() {
               <div className="text-xl font-display font-bold tracking-wide text-white flex items-center gap-2">
                 MESH<span className="text-cyan-400">NET</span>
                 <span className="px-2 py-0.5 bg-green-500/10 text-green-400 text-[10px] font-mono rounded border border-green-500/35 uppercase font-bold tracking-wider">
-                  Mesh Active: 12 Nodes
+                  BROWSER SIMULATION · 3 SAMPLE NODES
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1 font-medium font-display">
@@ -137,7 +137,7 @@ export default function App() {
                 Local Mesh Topology Space
               </h2>
               <p className="text-xs text-slate-500 mt-1 font-sans italic">
-                Scanning via BLE &amp; Wi-Fi Aware. Drag nodes around to re-route dynamically based on simulated RF distances.
+                Illustrative topology only — this browser view is not connected to phone radios. Drag nodes to explore simulated RF links.
               </p>
             </div>
 
@@ -160,7 +160,7 @@ export default function App() {
             <div className="mt-4 flex gap-3 p-4 bg-[#0A0B0D] border border-slate-800 rounded-2xl text-xs text-slate-400 leading-relaxed">
               <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
               <div>
-                <span className="font-semibold text-slate-205">How to test Store-and-Forward routing:</span> Separate Delta (Gateway) and Charlie (Self) until their links snap. Leave Echo in the middle to act as a bridging router. Type and send a message on Charlie's phone to Delta. You will visually view the packet hopping through Echo first, and delivering instantly!
+                <span className="font-semibold text-slate-205">How to test Store-and-Forward routing:</span> Demo only: separate the sample nodes to explore simulated store-and-forward routing. No real BLE packets are transmitted by this browser screen.
               </div>
             </div>
           </div>
@@ -216,10 +216,10 @@ export default function App() {
           <div className="mb-4">
             <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-300 flex items-center gap-2">
               <HardDrive className="w-4 h-4 text-cyan-400" />
-              Cross-Platform Deployment Codebase Workspace (Flutter/Kotlin/Swift)
+              Experimental Mobile Source Snippets (Not a Deployable App)
             </h2>
             <p className="text-xs text-slate-500 mt-1 font-sans">
-              Select any file tab to view and copy the fully robust mobile networking algorithms, native platform channels, and local-first encryption layers.
+              These snippets are design references only. The native Android BLE prototype lives in mobile/; iOS, payment and production security are not implemented.
             </p>
           </div>
           
