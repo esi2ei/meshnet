@@ -66,11 +66,42 @@ class MeshFrameTest {
             ciphertext = "ciphertext"
         )
         val legacyBytes = frame.encode().toString(Charsets.UTF_8)
-            .replace(""" "v":2 """.trim(), """ "v":1 """.trim())
+            .replace(""" "v":3 """.trim(), """ "v":1 """.trim())
             .toByteArray(Charsets.UTF_8)
         assertThrows(IllegalArgumentException::class.java) {
             MeshFrame.decode(legacyBytes)
         }
+    }
+
+    @Test
+    fun routeMetadataIsAuthenticatedAndRelaysMustReencrypt() {
+        val crypto = MeshCrypto("a sufficiently long group passphrase".toCharArray())
+        val original = MeshFrame(
+            id = "message_route",
+            origin = "node_01",
+            ttl = MeshFrame.MAX_TTL,
+            hops = listOf("node_01"),
+            nonce = "",
+            ciphertext = ""
+        )
+        val (nonce, ciphertext) = crypto.encrypt("route-bound payload", MeshFrame.aad(original))
+        val authenticated = original.copy(nonce = nonce, ciphertext = ciphertext)
+        val modifiedRoute = authenticated.copy(
+            ttl = MeshFrame.MAX_TTL - 1,
+            hops = listOf("node_01", "node_02")
+        )
+
+        assertThrows(Exception::class.java) {
+            crypto.decrypt(modifiedRoute.nonce, modifiedRoute.ciphertext, MeshFrame.aad(modifiedRoute))
+        }
+
+        val (relayNonce, relayCiphertext) = crypto.encrypt(
+            "route-bound payload", MeshFrame.aad(modifiedRoute)
+        )
+        assertEquals(
+            "route-bound payload",
+            crypto.decrypt(relayNonce, relayCiphertext, MeshFrame.aad(modifiedRoute))
+        )
     }
 
     @Test
