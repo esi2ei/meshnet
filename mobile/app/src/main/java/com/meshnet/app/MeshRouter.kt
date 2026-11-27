@@ -13,7 +13,9 @@ class MeshRouter(
     /** Atomically persists the received frame ID; true means it was already seen. */
     private val markReceived: (String, Long) -> Boolean,
     /** Removes the original group message after an authenticated group receipt. */
-    private val acknowledge: (String) -> Int
+    private val acknowledge: (String) -> Int,
+    /** Returns true when an authenticated plaintext payload is consumed by an application protocol. */
+    private val onPayload: (String) -> Boolean = { false }
 ) {
     private val seen = LinkedHashSet<String>()
     private val displayed = LinkedHashSet<String>()
@@ -89,9 +91,12 @@ class MeshRouter(
             return
         }
 
-        if (displayed.add(frame.id)) {
+        val handled = onPayload(plaintext)
+        if (!handled && displayed.add(frame.id)) {
             onMessage("${frame.origin}: $plaintext (hops: ${frame.hops.size - 1})")
             trim(displayed)
+        } else {
+            remember(displayed, frame.id)
         }
         sendReceipt(frame.id)
         relayIfNeeded(frame, plaintext)
