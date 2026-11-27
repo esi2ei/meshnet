@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import java.security.AlgorithmParameters
 import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyPairGenerator
@@ -11,7 +12,10 @@ import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.Signature
+import java.security.interfaces.ECPublicKey
+import java.security.spec.ECFieldFp
 import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECParameterSpec
 import java.security.spec.X509EncodedKeySpec
 
 /**
@@ -78,21 +82,47 @@ internal class MeshDeviceIdentity private constructor(
                 val encodedKey = frame.deviceKey ?: return@runCatching false
                 val encodedSignature = frame.signature ?: return@runCatching false
                 val expectedHash = frame.payloadHash ?: return@runCatching false
-                val publicBytes = Base64.decode(
-                    encodedKey, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
-                )
+                val publicBytes = decodeCanonicalBase64(encodedKey) ?: return@runCatching false
+                val signatureBytes = decodeCanonicalBase64(encodedSignature) ?: return@runCatching false
                 if (nodeIdFor(publicBytes) != frame.origin) return@runCatching false
                 if (sha256(plaintext.toByteArray(Charsets.UTF_8)) != expectedHash) return@runCatching false
                 val publicKey = KeyFactory.getInstance("EC")
-                    .generatePublic(X509EncodedKeySpec(publicBytes))
+                    .generatePublic(X509EncodedKeySpec(publicBytes)) as? ECPublicKey
+                    ?: return@runCatching false
+                if (!isP256(publicKey)) return@runCatching false
                 val verifier = Signature.getInstance("SHA256withECDSA")
                 verifier.initVerify(publicKey)
                 verifier.update(signingBytes(frame))
-                verifier.verify(Base64.decode(
-                    encodedSignature, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
-                ))
+                verifier.verify(signatureBytes)
             }.getOrDefault(false)
         }
+
+        private fun decodeCanonicalBase64(value: String): ByteArray? {
+            val decoded = runCatching {
+                Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+            }.getOrNull() ?: return null
+            val canonical = Base64.encodeToString(
+                decoded, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+            )
+            return decoded.takeIf { canonical == value }
+        }
+
+        private fun isP256(publicKey: ECPublicKey): Boolean = runCatching {
+            val expected = AlgorithmParameters.getInstance("EC").apply {
+                init(ECGenParameterSpec("secp256r1"))
+            }.getParameterSpec(ECParameterSpec::class.java)
+            val actual = publicKey.params
+            val actualField = actual.curve.field as? ECFieldFp ?: return@runCatching false
+            val expectedField = expected.curve.field as? ECFieldFp ?: return@runCatching false
+            actual.curve.field.fieldSize == 256 &&
+                actualField.p == expectedField.p &&
+                actual.curve.a == expected.curve.a &&
+                actual.curve.b == expected.curve.b &&
+                publicKey.w.affineX == expected.generator.affineX &&
+                publicKey.w.affineY == expected.generator.affineY &&
+                actual.order == expected.order &&
+                actual.cofactor == expected.cofactor
+        }.getOrDefault(false)
 
         private fun signingBytes(frame: MeshFrame): ByteArray =
             "meshnet-device-v1|${frame.kind}|${frame.id}|${frame.origin}|${frame.destination.orEmpty()}|${frame.createdAt}|${frame.ackFor.orEmpty()}|${frame.deviceKey.orEmpty()}|${frame.payloadHash.orEmpty()}"
