@@ -20,7 +20,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import com.solana.mobilewalletadapter.clientlib.protocol.MobileWalletAdapterClient
 import com.solana.mobilewalletadapter.clientlib.scenario.LocalAssociationIntentCreator
 import com.solana.mobilewalletadapter.clientlib.scenario.LocalAssociationScenario
 import com.solana.mobilewalletadapter.clientlib.scenario.Scenario
@@ -278,10 +277,20 @@ class MainActivity : Activity() {
                         null, null, "MeshNet prototype", ProtocolContract.CHAIN_SOLANA_DEVNET,
                         null, null, null, null
                     ).get(WALLET_RPC_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                    val account = authorization.accounts.firstOrNull()
-                        ?: throw IllegalStateException("Wallet returned no authorized account")
-                    val address = encodeBase58(account.publicKey)
-                    walletAuthStore.save(authorization.authToken, address)
+                    val address = try {
+                        val account = authorization.accounts.firstOrNull()
+                            ?: throw IllegalStateException("Wallet returned no authorized account")
+                        val publicAddress = encodeBase58(account.publicKey)
+                        walletAuthStore.save(authorization.authToken, publicAddress)
+                        publicAddress
+                    } catch (error: Exception) {
+                        // Do not leave a wallet session authorized when local secure persistence failed.
+                        runCatching {
+                            client.deauthorize(authorization.authToken)
+                                .get(WALLET_RPC_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        }
+                        throw error
+                    }
                     walletAuthToken = authorization.authToken
                     walletAddress = address
                     runOnUiThread {

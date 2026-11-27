@@ -238,10 +238,15 @@ class MeshLiveVoiceCall(
                 val count = try {
                     mic.read(pcm, filled, pcm.size - filled, AudioRecord.READ_BLOCKING)
                 } catch (_: Exception) { -1 }
-                if (count <= 0) {
-                    if (count < 0 && active.get()) onEvent("Live voice microphone stream stopped ($count)")
-                    break
+                if (count < 0) {
+                    if (active.get()) {
+                        onEvent("Live voice microphone stream stopped ($count); ending the call")
+                        Thread({ stopMedia() }, "meshnet-voice-capture-cleanup")
+                            .apply { isDaemon = true; start() }
+                    }
+                    return
                 }
+                if (count == 0) break
                 filled += count
             }
             if (filled != pcm.size || !active.get()) continue
