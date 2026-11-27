@@ -144,7 +144,7 @@ class MeshForegroundService : Service() {
         outbox.pending().forEach { frame ->
             if (link.sendToPeers(frame)) outbox.noteReplay(frame)
         }
-        emit("Retried durable outbox; entries remain until expiry (no delivery ACK protocol)")
+        emit("Retried durable outbox; messages retire on group receipt, receipts expire after 24 hours")
     }
 
     private fun stopMesh() {
