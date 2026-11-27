@@ -204,6 +204,22 @@ export default function PhoneWorkspace() {
       </div>
 
       <div className="space-y-3 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
+        <div className="flex items-center gap-2 text-sm font-semibold text-white"><Wallet className="h-4 w-4 text-cyan-400" /> Offline wallet-to-wallet transfer</div>
+        <p className="break-all text-[11px] text-slate-400">This device address: {runtime.offlineWalletAddress || (native ? "Creating local key…" : "Available in the Android APK")}</p>
+        <label className="block text-xs text-slate-400" htmlFor="offline-wallet-recipient">Recipient MeshNet wallet address (64 hex characters)</label>
+        <input id="offline-wallet-recipient" value={offlineRecipient} onChange={(event) => setOfflineRecipient(event.target.value)}
+          placeholder="Recipient local wallet address" className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-cyan-400" />
+        <label className="block text-xs text-slate-400" htmlFor="offline-wallet-amount">Amount (integer minor units)</label>
+        <input id="offline-wallet-amount" inputMode="numeric" value={offlineAmount} onChange={(event) => setOfflineAmount(event.target.value.replace(/[^0-9]/g, ''))}
+          placeholder="e.g. 1250" className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-cyan-400" />
+        <button className={primaryClass} disabled={!runtime.native || !runtime.running || !/^[0-9a-f]{64}$/i.test(offlineRecipient) || !/^[1-9][0-9]{0,12}$/.test(offlineAmount)}
+          onClick={() => { const sent = native?.sendOfflinePayment(offlineRecipient.trim().toLowerCase(), Number(offlineAmount)) === true; setLastEvent(sent ? "Signed offline wallet transfer queued over the local mesh" : "Offline wallet transfer was not queued"); if (sent) setOfflineAmount(""); }}>
+          Send signed transfer over local mesh
+        </button>
+        <p className="text-[11px] leading-relaxed text-amber-200/80">Offline transfers use device-held signing keys and encrypted local-radio delivery. They are provisional local-unit receipts, not real currency or blockchain settlement. Without an online consensus/ledger, offline software cannot prevent double-spending or guarantee final balances. Do not use this prototype for money or valuable assets.</p>
+      </div>
+
+      <div className="space-y-3 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><Settings2 className="h-4 w-4 text-cyan-400" /> Online integrations</div>
         <label className="flex items-start gap-3 text-sm text-slate-200">
           <input type="checkbox" className="mt-1 h-4 w-4 accent-cyan-400" checked={runtime.onlineIntegrationsEnabled}
