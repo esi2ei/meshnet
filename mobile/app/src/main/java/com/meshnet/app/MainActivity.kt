@@ -38,6 +38,8 @@ import com.solana.mobilewalletadapter.clientlib.scenario.LocalAssociationScenari
 import com.solana.mobilewalletadapter.clientlib.scenario.Scenario
 import com.solana.mobilewalletadapter.common.ProtocolContract
 import java.math.BigInteger
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.TimeUnit
 
 class MainActivity : Activity() {
@@ -461,6 +463,11 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface
+        fun sendSolanaDevnetTransfer(recipientAddress: String, amountSol: String) {
+            runOnUiThread { submitSolanaDevnetTransfer(recipientAddress, amountSol) }
+        }
+
+        @JavascriptInterface
         fun disconnectWallet() {
             runOnUiThread { disconnectSolanaWallet() }
         }
@@ -577,6 +584,178 @@ class MainActivity : Activity() {
             walletBusy = false
             walletStatus.text = "Solana wallet: not connected · Devnet only"
             toast(error.message ?: "No compatible wallet activity was found")
+        }
+    }
+
+    /**
+     * Sends a native SOL transfer on Devnet through the connected wallet.
+     * The wallet displays the transaction and controls signing/submission; the app never sees keys.
+     */
+    private fun submitSolanaDevnetTransfer(recipientAddress: String, amountSol: String) {
+        if (!appPreferences.getBoolean(KEY_ONLINE_INTEGRATIONS, false)) {
+            toast("Enable optional online integrations before sending a Devnet transaction")
+            return
+        }
+        if (walletBusy) {
+            toast("A wallet operation is already in progress")
+            return
+        }
+        val saved = runCatching { walletAuthStore.load() }.getOrNull()
+        val authToken = walletAuthToken ?: saved?.authToken
+        val savedAddress = walletAddress ?: saved?.address
+        if (authToken.isNullOrBlank() || savedAddress.isNullOrBlank()) {
+            toast("Connect a Solana Devnet wallet first")
+            return
+        }
+        val lamports = try {
+            SolanaDevnetTransfer.parseLamports(amountSol)
+        } catch (error: Exception) {
+            toast(error.message ?: "Invalid SOL amount")
+            return
+        }
+        val recipient = try {
+            SolanaDevnetTransfer.decodeBase58(recipientAddress.trim()).also {
+                require(it.size == 32) { "Recipient must be a 32-byte Solana address" }
+                require(SolanaDevnetTransfer.encodeBase58(it) != savedAddress) {
+                    "Sender and recipient addresses must be different"
+                }
+            }
+        } catch (error: Exception) {
+            toast(error.message ?: "Invalid Solana recipient address")
+            return
+        }
+        walletBusy = true
+        walletStatus.text = "Preparing Solana Devnet transfer…"
+        publishRuntimeStatus("Preparing Devnet SOL transfer")
+        val scenario = try {
+            LocalAssociationScenario(Scenario.DEFAULT_CLIENT_TIMEOUT_MS)
+        } catch (error: Exception) {
+            walletBusy = false
+            toast(error.message ?: "Unable to create wallet association")
+            publishRuntimeStatus()
+            return
+        }
+        walletScenario = scenario
+        try {
+            val associationIntent = LocalAssociationIntentCreator.createAssociationIntent(
+                null, scenario.port, scenario.session
+            )
+            val connectionFuture = scenario.start()
+            @Suppress("DEPRECATION")
+            startActivityForResult(associationIntent, REQUEST_WALLET)
+            Thread({
+                try {
+                    val client = connectionFuture.get(WALLET_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    val authorization = client.authorize(
+                        null, null, "MeshNet prototype", ProtocolContract.CHAIN_SOLANA_DEVNET,
+                        authToken, null, null, null
+                    ).get(WALLET_RPC_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    val account = authorization.accounts.firstOrNull()
+                        ?: throw IllegalStateException("Wallet returned no authorized account")
+                    val payerAddress = encodeBase58(account.publicKey)
+                    require(payerAddress == savedAddress) {
+                        "Connected wallet account changed; reconnect and verify the selected address"
+                    }
+                    walletAuthStore.save(authorization.authToken, payerAddress)
+                    walletAuthToken = authorization.authToken
+                    walletAddress = payerAddress
+
+                    val blockhash = fetchDevnetRecentBlockhash()
+                    val transaction = SolanaDevnetTransfer.buildUnsignedTransfer(
+                        account.publicKey, recipient, blockhash, lamports
+                    )
+                    val submitted = client.signAndSendTransactions(
+                        arrayOf(transaction), null, "confirmed", false, 3, true
+                    ).get(WALLET_RPC_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    val signatureBytes = submitted.signatures.firstOrNull()
+                        ?: throw IllegalStateException("Wallet returned no transaction signature")
+                    val signature = SolanaDevnetTransfer.encodeBase58(signatureBytes)
+                    val confirmation = runCatching { checkDevnetSignature(signature) }
+                        .getOrElse { "wallet submitted; RPC confirmation read-back unavailable" }
+                    runOnUiThread {
+                        walletStatus.text = "Devnet transaction · $confirmation"
+                        append("Solana Devnet SOL transfer · $signature · $confirmation")
+                    }
+                } catch (error: Exception) {
+                    runOnUiThread {
+                        walletStatus.text = "Solana Devnet transfer not confirmed"
+                        toast(error.cause?.message ?: error.message ?: "Devnet transfer failed")
+                        append("Solana Devnet transfer failed or remains unconfirmed: " +
+                            (error.cause?.message ?: error.message ?: "unknown error"))
+                    }
+                } finally {
+                    runCatching { scenario.close().get(WALLET_CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+                    runOnUiThread {
+                        if (walletScenario === scenario) walletScenario = null
+                        walletBusy = false
+                        publishRuntimeStatus()
+                    }
+                }
+            }, "meshnet-solana-devnet-transfer").apply { isDaemon = true; start() }
+        } catch (error: Exception) {
+            runCatching { scenario.close() }
+            walletScenario = null
+            walletBusy = false
+            toast(error.message ?: "Unable to open the Devnet wallet")
+            publishRuntimeStatus()
+        }
+    }
+
+    private fun fetchDevnetRecentBlockhash(): ByteArray {
+        val result = solanaDevnetRpc(
+            "getLatestBlockhash",
+            JSONArray().put(JSONObject().put("commitment", "confirmed"))
+        )
+        val encoded = result.getJSONObject("value").getString("blockhash")
+        return SolanaDevnetTransfer.decodeBase58(encoded).also {
+            require(it.size == 32) { "Devnet RPC returned an invalid recent blockhash" }
+        }
+    }
+
+    private fun checkDevnetSignature(signature: String): String {
+        val result = solanaDevnetRpc(
+            "getSignatureStatuses",
+            JSONArray()
+                .put(JSONArray().put(signature))
+                .put(JSONObject().put("searchTransactionHistory", true))
+        )
+        val status = result.getJSONArray("value").optJSONObject(0)
+            ?: return "submitted; confirmation pending"
+        val error = status.opt("err")
+        require(error == null || error == JSONObject.NULL) { "Devnet rejected transaction: $error" }
+        val commitment = status.optString("confirmationStatus")
+        return if (commitment == "confirmed" || commitment == "finalized") {
+            "confirmed ($commitment)"
+        } else {
+            "submitted; confirmation pending"
+        }
+    }
+
+    private fun solanaDevnetRpc(method: String, params: JSONArray): JSONObject {
+        val connection = (URL(SOLANA_DEVNET_RPC).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = WALLET_RPC_TIMEOUT_SECONDS * 1000
+            readTimeout = WALLET_RPC_TIMEOUT_SECONDS * 1000
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Accept", "application/json")
+        }
+        try {
+            val request = JSONObject()
+                .put("jsonrpc", "2.0")
+                .put("id", 1)
+                .put("method", method)
+                .put("params", params)
+            connection.outputStream.use { it.write(request.toString().toByteArray(Charsets.UTF_8)) }
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val response = stream.bufferedReader(Charsets.UTF_8).use { JSONObject(it.readText()) }
+            require(status in 200..299) { "Devnet RPC HTTP $status: $response" }
+            val error = response.optJSONObject("error")
+            require(error == null) { "Devnet RPC error: $error" }
+            return response.getJSONObject("result")
+        } finally {
+            connection.disconnect()
         }
     }
 
@@ -982,6 +1161,7 @@ class MainActivity : Activity() {
         private const val REQUEST_EXPORT_FILE = 4107
         private const val WALLET_CONNECT_TIMEOUT_SECONDS = 60L
         private const val WALLET_RPC_TIMEOUT_SECONDS = 60L
+        private const val SOLANA_DEVNET_RPC = "https://api.devnet.solana.com"
         private const val WALLET_CLOSE_TIMEOUT_SECONDS = 3L
         private const val REQUEST_LIVE_VOICE = 4105
     }
