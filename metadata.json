@@ -1,6 +1,6 @@
 {
   "name": "MeshNet",
-  "description": "Interactive Offline Mesh & Encrypted Blockchain-Tethering Simulator & Code Generator",
+  "description": "Offline-first peer-to-peer messaging prototype with a bundled Android dashboard and local topology simulator",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }
