@@ -1,4 +1,6 @@
 use anchor_lang::prelude::*;
+#[cfg(all(feature = "devnet", feature = "mainnet"))]
+compile_error!("Select exactly one escrow cluster profile: default devnet or --no-default-features --features mainnet.");
 use anchor_spl::{
     associated_token::AssociatedToken,
     token::{self, CloseAccount, Mint, Token, TokenAccount, TransferChecked},
@@ -12,6 +14,13 @@ const INITIAL_ADMIN: Pubkey = pubkey!("11111111111111111111111111111111");
 const ORDER_SEED: &[u8] = b"order";
 const MAX_ORDER_LIFETIME: i64 = 30 * 24 * 60 * 60;
 
+// Cargo's default deployment profile is Devnet. Mainnet builds must explicitly disable
+// default features and enable "mainnet"; conflicting cluster profiles are rejected.
+#[cfg(feature = "mainnet")]
+const CANONICAL_USDC_MINT: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+#[cfg(not(feature = "mainnet"))]
+const CANONICAL_USDC_MINT: Pubkey = pubkey!("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+
 #[program]
 pub mod meshnet_escrow {
     use super::*;
@@ -22,7 +31,7 @@ pub mod meshnet_escrow {
         arbitrator: Pubkey,
     ) -> Result<()> {
         require_keys_eq!(ctx.accounts.admin.key(), INITIAL_ADMIN, EscrowError::UnauthorizedAdmin);
-        require!(usdc_mint != Pubkey::default(), EscrowError::InvalidMint);
+        validate_usdc_mint(usdc_mint, CANONICAL_USDC_MINT)?;
         require!(arbitrator != Pubkey::default(), EscrowError::InvalidArbitrator);
         let config = &mut ctx.accounts.config;
         config.admin = ctx.accounts.admin.key();
@@ -116,6 +125,11 @@ fn validate_order_terms(amount: u64, now: i64, expires_at: i64) -> Result<()> {
     Ok(())
 }
 
+fn validate_usdc_mint(actual: Pubkey, expected: Pubkey) -> Result<()> {
+    require_keys_eq!(actual, expected, EscrowError::UnsupportedUsdcMint);
+    Ok(())
+}
+
 fn validate_vault_balance(vault_amount: u64, order_amount: u64) -> Result<()> {
     require!(vault_amount >= order_amount, EscrowError::VaultBalanceMismatch);
     Ok(())
@@ -150,6 +164,12 @@ mod tests {
     #[test]
     fn rejects_underfunded_vault() {
         assert!(validate_vault_balance(99, 100).is_err());
+    }
+
+    #[test]
+    fn accepts_only_the_selected_cluster_usdc_mint() {
+        assert!(validate_usdc_mint(CANONICAL_USDC_MINT, CANONICAL_USDC_MINT).is_ok());
+        assert!(validate_usdc_mint(Pubkey::new_unique(), CANONICAL_USDC_MINT).is_err());
     }
 
     #[test]
@@ -499,6 +519,7 @@ pub struct OrderSettled { pub order: Pubkey, pub status: OrderStatus, pub amount
 pub enum EscrowError {
     #[msg("Unauthorized escrow config initializer")] UnauthorizedAdmin,
     #[msg("Invalid USDC mint")] InvalidMint,
+    #[msg("The configured mint is not the canonical USDC mint for this build's cluster profile")] UnsupportedUsdcMint,
     #[msg("USDC mint must use six decimals")] InvalidMintDecimals,
     #[msg("Invalid arbitrator")] InvalidArbitrator,
     #[msg("Amount must be greater than zero")] InvalidAmount,

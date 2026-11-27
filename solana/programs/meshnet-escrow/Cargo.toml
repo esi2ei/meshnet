@@ -10,7 +10,9 @@ crate-type = ["cdylib", "lib"]
 name = "meshnet_escrow"
 
 [features]
-default = []
+default = ["devnet"]
+devnet = []
+mainnet = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
