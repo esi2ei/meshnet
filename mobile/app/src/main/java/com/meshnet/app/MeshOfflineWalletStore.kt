@@ -22,7 +22,9 @@ import java.security.KeyStore
  * local demonstration units and receipts remain provisional until an authoritative
  * settlement system exists.
  */
-class MeshOfflineWalletStore(context: Context) {
+class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
+    private val walletId = walletId.also { require(it.matches(Regex("[a-zA-Z0-9_-]{1,32}"))) { "Invalid local wallet ID" } }
+    private val keyAlias = "meshnet-offline-wallet-signing-$walletId"
     data class Receipt(
         val id: String,
         val sender: String,
@@ -33,7 +35,7 @@ class MeshOfflineWalletStore(context: Context) {
     )
 
     private val preferences = context.applicationContext
-        .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        .getSharedPreferences("$PREFERENCES-$walletId", Context.MODE_PRIVATE)
 
     @Synchronized
     fun address(): String = addressFor(identity().public.encoded)
@@ -97,9 +99,6 @@ class MeshOfflineWalletStore(context: Context) {
         val received = readIds()
         require(id !in received) { "This offline payment was already imported on this device" }
         received.add(id)
-        check(preferences.edit().putStringSet(KEY_RECEIVED_IDS, received).commit()) {
-            "Could not persist offline payment replay protection"
-        }
         val receipt = Receipt(id, sender, recipient, amount, ASSET_CODE, createdAt)
         val history = readHistory()
         history.put(
@@ -111,9 +110,10 @@ class MeshOfflineWalletStore(context: Context) {
                 .put("asset", receipt.asset)
                 .put("createdAt", receipt.createdAt)
         )
-        check(preferences.edit().putString(KEY_HISTORY, history.toString()).commit()) {
-            "Could not persist offline payment receipt"
-        }
+        check(preferences.edit()
+            .putStringSet(KEY_RECEIVED_IDS, received)
+            .putString(KEY_HISTORY, history.toString())
+            .commit()) { "Could not persist offline payment receipt and replay protection" }
         return receipt
     }
 
@@ -131,15 +131,22 @@ class MeshOfflineWalletStore(context: Context) {
         }
     }
 
+    @Synchronized
+    fun clear() {
+        check(preferences.edit().clear().commit()) { "Could not clear offline wallet data" }
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        if (keyStore.containsAlias(keyAlias)) keyStore.deleteEntry(keyAlias)
+    }
+
     private fun identity(): KeyPair {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        val privateKey = keyStore.getKey(KEY_ALIAS, null) as? java.security.PrivateKey
-        val certificate = keyStore.getCertificate(KEY_ALIAS)
+        val privateKey = keyStore.getKey(keyAlias, null) as? java.security.PrivateKey
+        val certificate = keyStore.getCertificate(keyAlias)
         if (privateKey != null && certificate != null) return KeyPair(certificate.publicKey, privateKey)
         val generator = KeyPairGenerator.getInstance(KEY_ALGORITHM, ANDROID_KEYSTORE)
         generator.initialize(
             android.security.keystore.KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
+                keyAlias,
                 android.security.keystore.KeyProperties.PURPOSE_SIGN or
                     android.security.keystore.KeyProperties.PURPOSE_VERIFY
             )
@@ -170,7 +177,6 @@ class MeshOfflineWalletStore(context: Context) {
     companion object {
         const val ASSET_CODE = "MESH-LOCAL-UNIT"
         private const val PREFERENCES = "meshnet-offline-wallet-v1"
-        private const val KEY_ALIAS = "meshnet-offline-wallet-signing-v1"
         private const val KEY_RECEIVED_IDS = "received_payment_ids"
         private const val KEY_HISTORY = "received_payment_history"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
