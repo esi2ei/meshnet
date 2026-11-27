@@ -58,21 +58,23 @@ class MeshWifiDirectTransport(
         }
         val p2p = manager ?: error("Wi-Fi Direct service is unavailable")
         running.set(true)
-        channel = p2p.initialize(app, app.mainLooper, null)
-            ?: run { running.set(false); error("Unable to initialize Wi-Fi Direct") }
-        val filter = IntentFilter().apply {
-            addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
-            addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
-            addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
-        }
-        if (Build.VERSION.SDK_INT >= 33) {
-            app.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("DEPRECATION")
-            app.registerReceiver(receiver, filter)
-        }
-        registered = true
-        try { discover() } catch (error: Exception) {
+        try {
+            channel = p2p.initialize(app, app.mainLooper, null)
+                ?: error("Unable to initialize Wi-Fi Direct")
+            val filter = IntentFilter().apply {
+                addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
+                addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
+                addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
+            }
+            if (Build.VERSION.SDK_INT >= 33) {
+                app.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                app.registerReceiver(receiver, filter)
+            }
+            registered = true
+            discover()
+        } catch (error: Exception) {
             stop()
             throw error
         }
