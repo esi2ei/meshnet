@@ -254,6 +254,8 @@ class MeshBleTransport(
             negotiatedMtu.remove(address)
             writeQueues.remove(address)
             writing.remove(address)
+            peerHealth.remove(address)
+            assemblies.keys.removeAll { it.startsWith("$address|") }
             if (activeRemoved) onPeer(address, false)
             runCatching { gatt.disconnect() }
             runCatching { gatt.close() }
