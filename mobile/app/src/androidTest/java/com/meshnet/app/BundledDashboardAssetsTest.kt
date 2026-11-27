@@ -33,7 +33,7 @@ class BundledDashboardAssetsTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val html = context.assets.open("web/index.html").bufferedReader().use { it.readText() }
 
-        assertTrue("The local dashboard entry point must be included in the APK", html.contains("id=\"root\""))
+        assertTrue("The local dashboard entry point must be included in the APK", html.contains("id=\\"root\\""))
         assertTrue("The dashboard must load a relative bundled script", html.contains("./assets/"))
         assertTrue("The dashboard must ship with a restrictive content security policy", html.contains("connect-src 'none'"))
 
@@ -47,9 +47,13 @@ class BundledDashboardAssetsTest {
         val css = context.assets.open("web/assets/$stylesheet").bufferedReader().use { it.readText() }
         assertTrue("The UI bundle must expose the native runtime controls", js.contains("MeshNetNative"))
         assertFalse("The packaged stylesheet must not fetch Google Fonts", css.contains("fonts.googleapis.com"))
+        val remoteUnsplashRequest = Regex(
+            """(?:src|href)\s*=\s*["']https?://images\.unsplash\.com|url\(\s*["']?https?://images\.unsplash\.com|fetch\(\s*["']https?://images\.unsplash\.com""",
+            RegexOption.IGNORE_CASE
+        )
         assertFalse(
             "The runtime bundle must not actively request remote Unsplash images",
-            Regex("""(?:src|href)\s*=\s*["\x27]https?://images\.unsplash\.com|url\(\s*["\x27]?https?://images\.unsplash\.com|fetch\(\s*["\x27]https?://images\.unsplash\.com""", RegexOption.IGNORE_CASE).containsMatchIn(js)
+            remoteUnsplashRequest.containsMatchIn(js)
         )
         assertTrue("The source browser must bundle the Android peer registry", js.contains("MeshPeerRegistry.kt"))
         assertTrue("The source browser must bundle route registry and router sources", js.contains("MeshRouteRegistry.kt") && js.contains("MeshRouter.kt"))
