@@ -230,7 +230,7 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
 
     private fun canonicalAcknowledgement(json: JSONObject): ByteArray {
         val fields = listOf("version", "voucherId", "sender", "recipient", "amountMinor", "recipientPublicKey", "acknowledgedAt")
-        return fields.joinToString("\\n") { key -> "$key=${json.get(key)}" }.toByteArray(Charsets.UTF_8)
+        return fields.joinToString("\n") { key -> "$key=${json.get(key)}" }.toByteArray(Charsets.UTF_8)
     }
 
     @Synchronized
