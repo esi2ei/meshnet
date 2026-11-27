@@ -548,6 +548,9 @@ class MeshForegroundService : Service() {
         fileTransfer?.cancelOutgoing()
         fileTransfer?.close()
         fileTransfer = null
+        // Detach the router before closing sockets so late reader callbacks cannot
+        // repopulate route observations while transports are shutting down.
+        router = null
         transport?.stop()
         transport = null
         wifiTransport?.stop()
