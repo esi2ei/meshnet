@@ -77,7 +77,7 @@ class MainActivity : Activity() {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             meshService = (binder as? MeshForegroundService.LocalBinder)?.service()
             meshService?.setListener(::append)
-            status.text = if (meshService?.isRunning() == true) "BLE mesh running" else "Service connected · mesh stopped"
+            status.text = if (meshService?.isRunning() == true) "Local mesh session running" else "Service connected · mesh stopped"
             append("Connected to MeshNet foreground service")
             publishRuntimeStatus()
         }
