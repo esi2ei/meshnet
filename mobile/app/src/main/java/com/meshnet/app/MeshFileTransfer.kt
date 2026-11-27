@@ -1,206 +1,507 @@
 package com.meshnet.app
+
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Base64
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
 import java.io.RandomAccessFile
 import java.security.MessageDigest
 import java.util.BitSet
 import java.util.concurrent.ConcurrentHashMap
 
-/** Bounded group file transfer over encrypted MeshRouter text messages. */
+/** Bounded streaming file transfer with receiver-acknowledged windows and durable resume checkpoints. */
 class MeshFileTransfer(
     private val context: Context,
     private val sendMessage: (String) -> Boolean,
     private val onEvent: (String) -> Unit,
     private val canQueueBatch: (Int) -> Boolean = { true }
 ) {
-    private data class Incoming(val name:String,val size:Int,val chunks:Int,val digest:String,val file:File,val meta:File,val received:BitSet=BitSet(),var receivedBytes:Int=0)
-    private val incoming=ConcurrentHashMap<String,Incoming>()
-    private val pending=ConcurrentHashMap<String,MutableMap<Int,Pair<Int,ByteArray>>>()
-    private var pendingBytes=0
-    private val root=File(context.filesDir,"meshnet-received").apply{
-        mkdirs()
-        listFiles()?.filter { (it.name.endsWith(".part") || it.name.endsWith(".meta") || it.name.endsWith(".meta.tmp")) &&
-            System.currentTimeMillis()-it.lastModified()>PARTIAL_TTL_MS }?.forEach { it.delete() }
-    }
-    private val outgoingRoot=File(context.filesDir,"meshnet-outgoing").apply{
-        mkdirs()
-        listFiles()?.filter { it.name.endsWith(".id") &&
-            System.currentTimeMillis()-it.lastModified()>OUTGOING_ID_TTL_MS }?.forEach { it.delete() }
+    private data class Incoming(
+        val name: String, val size: Int, val chunks: Int, val digest: String,
+        val file: File, val meta: File, val received: BitSet,
+        var lastAckNext: Int = 0, var unackedChunks: Int = 0
+    )
+    private class SenderAck {
+        val lock = java.lang.Object()
+        var hasAck = false
+        var nextChunk = 0
     }
 
-    fun send(uri:Uri):Boolean {
-        val name=compactName(queryName(uri).replace(Regex("[^A-Za-z0-9._-]"),"_")).let{if(it.isBlank() || it=="." || it=="..") "mesh-file.bin" else it}
-        val bytes=context.contentResolver.openInputStream(uri)?.use { input ->
-            val output=java.io.ByteArrayOutputStream(); val buffer=ByteArray(CHUNK_BYTES)
-            while(true){ val n=input.read(buffer); if(n<0) break
-                require(output.size()+n<=MAX_FILE_BYTES){"File exceeds the 16 KiB transfer limit"}
-                output.write(buffer,0,n)
-            }; output.toByteArray()
-        } ?: throw IllegalArgumentException("Unable to open selected file")
-        require(bytes.isNotEmpty()){"Empty files are not supported"}
-        val digest=MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(""){"%02x".format(it)}
-        val id=transferIdFor(digest,name)
-        val count=(bytes.size+CHUNK_BYTES-1)/CHUNK_BYTES
-        if (!canQueueBatch(count + 1)) {
-            onEvent("File not queued: outbox does not have room for all ${count + 1} file frames")
+    private val incoming = ConcurrentHashMap<String, Incoming>()
+    private val senderAcks = ConcurrentHashMap<String, SenderAck>()
+    private val root = File(context.filesDir, "meshnet-received").apply {
+        mkdirs()
+        listFiles()?.filter {
+            (it.name.endsWith(".part") || it.name.endsWith(".meta") ||
+                it.name.endsWith(".meta.tmp") || it.name.endsWith(".done")) &&
+                System.currentTimeMillis() - it.lastModified() > PARTIAL_TTL_MS
+        }?.forEach { it.delete() }
+    }
+    private val outgoingRoot = File(context.filesDir, "meshnet-outgoing").apply {
+        mkdirs()
+        listFiles()?.filter {
+            it.name.endsWith(".id") &&
+                System.currentTimeMillis() - it.lastModified() > OUTGOING_ID_TTL_MS
+        }?.forEach { it.delete() }
+    }
+
+    fun send(uri: Uri): Boolean {
+        val name = compactName(queryName(uri).replace(Regex("[^A-Za-z0-9._-]"), "_"))
+            .let { if (it.isBlank() || it == "." || it == "..") "mesh-file.bin" else it }
+        val inspected = inspect(uri)
+        require(inspected.first in 1..MAX_FILE_BYTES.toLong()) {
+            "File must be between 1 byte and 256 KiB"
+        }
+        val size = inspected.first.toInt()
+        val digest = inspected.second
+        val id = transferIdFor(digest, name)
+        val count = (size + CHUNK_BYTES - 1) / CHUNK_BYTES
+        val safeName = Base64.encodeToString(
+            name.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        )
+        val ackState = senderAcks.computeIfAbsent(id) { SenderAck() }
+        synchronized(ackState.lock) {
+            ackState.hasAck = false
+            ackState.nextChunk = 0
+        }
+
+        if (!canQueueBatch(1)) {
+            onEvent("File not started: the durable outbox has no room for its manifest")
             return false
         }
-        val safeName=Base64.encodeToString(name.toByteArray(Charsets.UTF_8),Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-        if(!sendMessage("~F1M|$id|${bytes.size}|$count|$digest|$safeName")) return false
-        for(index in 0 until count){
-            val start=index*CHUNK_BYTES
-            val encoded=Base64.encodeToString(bytes.copyOfRange(start,minOf(start+CHUNK_BYTES,bytes.size)),Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-            if(!sendMessage("~F1C|$id|$index|$count|$encoded")){onEvent("File transfer $id paused at chunk $index/$count");return false}
+        if (!sendMessage("~F2M|$id|$size|$count|$digest|$safeName")) {
+            onEvent("File manifest could not be queued")
+            return false
         }
-        onEvent("File queued: $name (${bytes.size} bytes, $count encrypted chunks)")
+        var next = awaitCheckpoint(ackState, null, INITIAL_ACK_TIMEOUT_MS)
+        if (next == null) {
+            onEvent("File transfer $id paused: receiver checkpoint was not received; retry with the same file")
+            return false
+        }
+        next = next.coerceIn(0, count)
+
+        while (next < count) {
+            if (Thread.currentThread().isInterrupted) {
+                onEvent("File transfer $id interrupted at chunk $next/$count")
+                return false
+            }
+            val end = minOf(next + WINDOW_SIZE, count)
+            val windowCount = end - next
+            if (!waitForOutboxCapacity(windowCount)) {
+                onEvent("File transfer $id paused at chunk $next/$count: outbox remained full")
+                return false
+            }
+            var ack: Int? = null
+            var retry = 0
+            while (ack == null && retry <= MAX_WINDOW_RETRIES) {
+                if (!sendWindow(uri, id, size, count, next, end)) {
+                    onEvent("File transfer $id paused at chunk $next/$count: source changed or a chunk could not be queued")
+                    return false
+                }
+                ack = awaitCheckpoint(ackState, next, ACK_TIMEOUT_MS)
+                if (ack == null) retry++
+            }
+            if (ack == null) {
+                onEvent("File transfer $id paused at chunk $next/$count after $MAX_WINDOW_RETRIES retries; reselect the same file to resume")
+                return false
+            }
+            next = ack.coerceIn(next + 1, count)
+            onEvent("File transfer progress: $name · $next/$count chunks")
+        }
+
+        val afterSend = inspect(uri)
+        if (afterSend.first != inspected.first || afterSend.second != inspected.second) {
+            onEvent("File source changed while sending; receiver will reject the digest")
+            return false
+        }
+        senderAcks.remove(id, ackState)
+        onEvent("File transfer completed: $name ($size bytes, $count acknowledged chunks)")
         return true
     }
 
-    fun latestVoiceNote():File? = root.listFiles()
+    fun latestVoiceNote(): File? = root.listFiles()
         ?.filter { it.isFile && it.extension.equals("m4a", ignoreCase = true) }
         ?.maxByOrNull { it.lastModified() }
 
-    @Synchronized fun accept(message:String):Boolean {
-        if(!message.startsWith("~F1")) return false
-        val f=message.split('|')
-        return when(f.firstOrNull()){ "~F1M"->manifest(f); "~F1C"->chunk(f); else->true }
+    @Synchronized
+    fun accept(message: String): Boolean {
+        if (!message.startsWith("~F2")) return false
+        val fields = message.split('|')
+        return when (fields.firstOrNull()) {
+            "~F2M" -> receiveManifest(fields)
+            "~F2C" -> receiveChunk(fields)
+            "~F2A" -> receiveAck(fields)
+            "~F2X" -> cancelIncoming(fields)
+            else -> true
+        }
     }
-    private fun manifest(f:List<String>):Boolean {
-        if(f.size!=6)return true
-        val id=f[1]; if(!id.matches(Regex("[A-Za-z0-9_-]{8,24}")))return true
-        val size=f[2].toIntOrNull()?:return true; val count=f[3].toIntOrNull()?:return true; val hash=f[4]
-        if(size !in 1..MAX_FILE_BYTES || count !in 1..MAX_CHUNKS || count!=(size+CHUNK_BYTES-1)/CHUNK_BYTES ||
-            !hash.matches(Regex("[a-f0-9]{64}")) || (incoming.size>=MAX_ACTIVE && !incoming.containsKey(id)))return true
-        val decoded=try{String(Base64.decode(f[5],Base64.URL_SAFE or Base64.NO_WRAP),Charsets.UTF_8)}catch(_:Exception){"mesh-file.bin"}
-        val name=compactName(decoded.replace(Regex("[^A-Za-z0-9._-]"),"_")).let{if(it.isBlank() || it=="." || it=="..") "mesh-file.bin" else it}
-        val partial=File(root,"$id.part")
-        val meta=File(root,"$id.meta")
+
+    private fun receiveManifest(fields: List<String>): Boolean {
+        if (fields.size != 6) return true
+        val id = fields[1]
+        if (!validTransferId(id)) return true
+        val size = fields[2].toIntOrNull() ?: return true
+        val count = fields[3].toIntOrNull() ?: return true
+        val digest = fields[4]
+        if (size !in 1..MAX_FILE_BYTES || count !in 1..MAX_CHUNKS ||
+            count != (size + CHUNK_BYTES - 1) / CHUNK_BYTES ||
+            !digest.matches(Regex("[A-Za-z0-9_-]{43}"))
+        ) return true
+
+        val decodedName = try {
+            String(Base64.decode(fields[5], Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8)
+        } catch (_: Exception) { "mesh-file.bin" }
+        val name = compactName(decodedName.replace(Regex("[^A-Za-z0-9._-]"), "_"))
+            .let { if (it.isBlank() || it == "." || it == "..") "mesh-file.bin" else it }
+
+        val done = File(root, "$id.done")
+        if (done.exists()) {
+            val completed = runCatching { JSONObject(done.readText()) }.getOrNull()
+            if (completed?.optInt("size") == size &&
+                completed.optString("digest") == digest &&
+                completed.optString("name") == name
+            ) {
+                sendAck(id, count)
+                return true
+            }
+            done.delete()
+        }
+
+        val partial = File(root, "$id.part")
+        val meta = File(root, "$id.meta")
+        if (incoming.size >= MAX_ACTIVE && !incoming.containsKey(id)) return true
+
         try {
-            val restored=if(partial.exists() && meta.exists()) runCatching {
-                val saved=JSONObject(meta.readText())
-                if(saved.optString("name")==name && saved.optInt("size")==size &&
-                    saved.optInt("chunks")==count && saved.optString("digest")==hash) {
-                    BitSet.valueOf(Base64.decode(saved.optString("received"),Base64.DEFAULT))
-                } else null
+            val restored = if (partial.exists() && meta.exists()) runCatching {
+                val saved = JSONObject(meta.readText())
+                if (saved.optString("name") == name && saved.optInt("size") == size &&
+                    saved.optInt("chunks") == count && saved.optString("digest") == digest
+                ) BitSet.valueOf(Base64.decode(saved.optString("received"), Base64.DEFAULT))
+                else null
             }.getOrNull() else null
-            val bits=restored ?: run {
-                partial.delete();meta.delete()
-                RandomAccessFile(partial,"rw").use{it.setLength(size.toLong())}
+            val bits = restored ?: run {
+                partial.delete()
+                meta.delete()
+                RandomAccessFile(partial, "rw").use { it.setLength(size.toLong()) }
                 BitSet()
             }
-            var storedBytes=0
-            var bit=bits.nextSetBit(0)
-            while(bit>=0 && bit<count) {
-                storedBytes+=minOf(CHUNK_BYTES,size-bit*CHUNK_BYTES)
-                bit=bits.nextSetBit(bit+1)
-            }
-            val state=Incoming(name,size,count,hash,partial,meta,bits,storedBytes)
-            incoming[id]=state
+            if (bits.nextSetBit(count) >= 0) bits.clear(count, bits.length())
+            val state = Incoming(name, size, count, digest, partial, meta, bits)
+            incoming[id] = state
             persistMetadata(state)
-            onEvent(if(bits.cardinality()==0) "Incoming file: $name ($size bytes)" else "Resuming file: $name (${bits.cardinality()}/$count chunks already stored)")
-        } catch(_:Exception) {
+            val resumeAt = nextContiguous(state)
+            state.lastAckNext = resumeAt
+            sendAck(id, resumeAt)
+            onEvent(
+                if (bits.cardinality() == 0) "Incoming file: $name ($size bytes)"
+                else "Resuming file: $name (${bits.cardinality()}/$count chunks already stored)"
+            )
+            if (state.received.cardinality() == state.chunks) finishIfComplete(id, state)
+        } catch (error: Exception) {
             incoming.remove(id)
-            partial.delete();meta.delete();onEvent("Unable to create private transfer file")
+            partial.delete()
+            meta.delete()
+            onEvent("Unable to create private transfer checkpoint: ${error.message}")
         }
-        val early=pending.remove(id)
-        if(early!=null){for((index,pair) in early){pendingBytes-=pair.second.size;storeChunk(id,index,pair.first,pair.second)}}
-        incoming[id]?.let { finishIfComplete(id,it) }
         return true
     }
-    private fun chunk(f:List<String>):Boolean {
-        if(f.size!=5)return true
-        val id=f[1];val index=f[2].toIntOrNull()?:return true;val count=f[3].toIntOrNull()?:return true
-        val data=try{Base64.decode(f[4],Base64.URL_SAFE or Base64.NO_WRAP)}catch(_:Exception){return true}
-        val s=incoming[id]
-        if(s==null){
-            if(count !in 1..MAX_CHUNKS || index !in 0 until count || data.size !in 1..CHUNK_BYTES ||
-                pendingBytes+data.size>MAX_PENDING_BYTES || (pending.size>=MAX_ACTIVE && !pending.containsKey(id)))return true
-            val chunks=pending.getOrPut(id){linkedMapOf()}
-            if(!chunks.containsKey(index)){chunks[index]=count to data;pendingBytes+=data.size}
-            return true
-        }
-        storeChunk(id,index,count,data)
+
+    private fun receiveChunk(fields: List<String>): Boolean {
+        if (fields.size != 5) return true
+        val id = fields[1]
+        if (!validTransferId(id)) return true
+        val index = fields[2].toIntOrNull() ?: return true
+        val count = fields[3].toIntOrNull() ?: return true
+        val data = try {
+            Base64.decode(fields[4], Base64.URL_SAFE or Base64.NO_WRAP)
+        } catch (_: Exception) { return true }
+        val state = incoming[id] ?: return true
+        storeChunk(id, index, count, data, state)
         return true
     }
-    private fun storeChunk(id:String,index:Int,count:Int,data:ByteArray){
-        val s=incoming[id]?:return
-        if(count!=s.chunks || index !in 0 until s.chunks || s.received[index] ||
-            data.size!=minOf(CHUNK_BYTES,s.size-index*CHUNK_BYTES))return
-        try{
-            RandomAccessFile(s.file,"rw").use{it.seek((index*CHUNK_BYTES).toLong());it.write(data)}
-            s.received.set(index);s.receivedBytes+=data.size
-            persistMetadata(s)
-            finishIfComplete(id,s)
-        }catch(_:Exception){onEvent("File chunk could not be stored")}
+
+    private fun storeChunk(id: String, index: Int, count: Int, data: ByteArray, state: Incoming) {
+        if (count != state.chunks || index !in 0 until state.chunks ||
+            data.size != minOf(CHUNK_BYTES, state.size - index * CHUNK_BYTES)
+        ) return
+        if (state.received[index]) {
+            sendAck(id, nextContiguous(state))
+            return
+        }
+        try {
+            RandomAccessFile(state.file, "rw").use {
+                it.seek((index * CHUNK_BYTES).toLong())
+                it.write(data)
+                it.fd.sync()
+            }
+            state.received.set(index)
+            persistMetadata(state)
+            state.unackedChunks++
+            val next = nextContiguous(state)
+            if (next - state.lastAckNext >= ACK_EVERY_CHUNKS ||
+                next == state.chunks || state.unackedChunks >= ACK_EVERY_CHUNKS
+            ) {
+                state.lastAckNext = next
+                state.unackedChunks = 0
+                sendAck(id, next)
+            }
+            if (state.received.cardinality() == state.chunks) finishIfComplete(id, state)
+        } catch (error: Exception) {
+            onEvent("File chunk could not be stored durably: ${error.message}")
+        }
     }
-    private fun finishIfComplete(id:String,state:Incoming) {
-        if(state.received.cardinality()!=state.chunks || state.receivedBytes!=state.size)return
-        val actual=MessageDigest.getInstance("SHA-256").digest(state.file.readBytes()).joinToString(""){"%02x".format(it)}
-        if(actual!=state.digest){
-            state.file.delete();state.meta.delete();incoming.remove(id)
+
+    private fun finishIfComplete(id: String, state: Incoming) {
+        if (state.received.cardinality() != state.chunks) return
+        if (digestFile(state.file) != state.digest) {
+            state.file.delete()
+            state.meta.delete()
+            incoming.remove(id)
             onEvent("File integrity check failed: ${state.name}")
             return
         }
-        val destination=uniqueDestination(state.name)
-        if(state.file.renameTo(destination)){
-            state.meta.delete();incoming.remove(id)
+        val destination = uniqueDestination(state.name)
+        if (state.file.renameTo(destination)) {
+            val done = File(root, "$id.done")
+            val record = JSONObject()
+                .put("name", state.name)
+                .put("size", state.size)
+                .put("chunks", state.chunks)
+                .put("digest", state.digest)
+            runCatching {
+                FileOutputStream(done).use { output ->
+                    output.write(record.toString().toByteArray(Charsets.UTF_8))
+                    output.fd.sync()
+                }
+            }
+            state.meta.delete()
+            incoming.remove(id)
+            sendAck(id, state.chunks)
             onEvent("File received and verified: ${destination.name} (${state.size} bytes)")
-        } else onEvent("Verified file could not be moved; transfer checkpoint retained for retry")
+        } else {
+            onEvent("Verified file could not be moved; transfer checkpoint retained for retry")
+        }
     }
 
-    private fun persistMetadata(state:Incoming) {
-        val temp=File(root,"${state.file.name}.meta.tmp")
-        val json=JSONObject()
-            .put("name",state.name)
-            .put("size",state.size)
-            .put("chunks",state.chunks)
-            .put("digest",state.digest)
-            .put("received",Base64.encodeToString(state.received.toByteArray(),Base64.NO_WRAP))
-        temp.writeText(json.toString())
-        if(state.meta.exists()) state.meta.delete()
-        if(!temp.renameTo(state.meta)) { temp.delete(); throw IllegalStateException("Unable to persist transfer resume state") }
+    private fun receiveAck(fields: List<String>): Boolean {
+        if (fields.size != 3 || !validTransferId(fields[1])) return true
+        val next = fields[2].toIntOrNull() ?: return true
+        if (next !in 0..MAX_CHUNKS) return true
+        val state = senderAcks[fields[1]] ?: return true
+        synchronized(state.lock) {
+            state.nextChunk = maxOf(state.nextChunk, next)
+            state.hasAck = true
+            state.lock.notifyAll()
+        }
+        return true
+    }
+
+    private fun cancelIncoming(fields: List<String>): Boolean {
+        if (fields.size != 2 || !validTransferId(fields[1])) return true
+        val id = fields[1]
+        incoming.remove(id)
+        File(root, "$id.part").delete()
+        File(root, "$id.meta").delete()
+        onEvent("Incoming file transfer $id cancelled")
+        return true
+    }
+
+    private fun sendAck(id: String, next: Int) {
+        sendMessage("~F2A|$id|$next")
+    }
+
+    private fun awaitCheckpoint(state: SenderAck, previous: Int?, timeoutMs: Long): Int? {
+        synchronized(state.lock) {
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (!state.hasAck || (previous != null && state.nextChunk <= previous)) {
+                val remaining = deadline - System.currentTimeMillis()
+                if (remaining <= 0L || Thread.currentThread().isInterrupted) return null
+                state.lock.wait(remaining)
+            }
+            return state.nextChunk
+        }
+    }
+
+    private fun waitForOutboxCapacity(count: Int): Boolean {
+        val deadline = System.currentTimeMillis() + OUTBOX_WAIT_MS
+        while (!canQueueBatch(count)) {
+            if (Thread.currentThread().isInterrupted || System.currentTimeMillis() >= deadline) return false
+            Thread.sleep(OUTBOX_POLL_MS)
+        }
+        return true
+    }
+
+    private fun sendWindow(uri: Uri, id: String, size: Int, count: Int, start: Int, endExclusive: Int): Boolean {
+        val input = context.contentResolver.openInputStream(uri) ?: return false
+        input.use { stream ->
+            skipFully(stream, start.toLong() * CHUNK_BYTES)
+            for (index in start until endExclusive) {
+                val expected = minOf(CHUNK_BYTES, size - index * CHUNK_BYTES)
+                val data = readExactlyUpTo(stream, expected) ?: return false
+                if (data.size != expected) return false
+                val encoded = Base64.encodeToString(
+                    data, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+                )
+                if (!sendMessage("~F2C|$id|$index|$count|$encoded")) return false
+            }
+        }
+        return true
+    }
+
+    private fun inspect(uri: Uri): Pair<Long, String> {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(IO_BUFFER_BYTES)
+        var size = 0L
+        val input = context.contentResolver.openInputStream(uri)
+            ?: throw IllegalArgumentException("Unable to open selected file")
+        input.use { stream ->
+            while (true) {
+                val read = stream.read(buffer)
+                if (read < 0) break
+                if (read == 0) continue
+                size += read
+                require(size <= MAX_FILE_BYTES) { "File exceeds the 256 KiB transfer limit" }
+                digest.update(buffer, 0, read)
+            }
+        }
+        return size to Base64.encodeToString(
+            digest.digest(), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        )
+    }
+
+    private fun digestFile(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(IO_BUFFER_BYTES)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                if (read > 0) digest.update(buffer, 0, read)
+            }
+        }
+        return Base64.encodeToString(
+            digest.digest(), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        )
+    }
+
+    private fun persistMetadata(state: Incoming) {
+        val temp = File(root, "${state.file.name}.meta.tmp")
+        val json = JSONObject()
+            .put("name", state.name)
+            .put("size", state.size)
+            .put("chunks", state.chunks)
+            .put("digest", state.digest)
+            .put("received", Base64.encodeToString(state.received.toByteArray(), Base64.NO_WRAP))
+        FileOutputStream(temp).use { output ->
+            output.write(json.toString().toByteArray(Charsets.UTF_8))
+            output.fd.sync()
+        }
+        if (state.meta.exists() && !state.meta.delete()) {
+            temp.delete()
+            throw IllegalStateException("Unable to replace transfer checkpoint")
+        }
+        if (!temp.renameTo(state.meta)) {
+            temp.delete()
+            throw IllegalStateException("Unable to persist transfer resume state")
+        }
     }
 
     @Synchronized
-    private fun transferIdFor(digest:String,name:String):String {
-        val key=MessageDigest.getInstance("SHA-256").digest("$digest|$name".toByteArray(Charsets.UTF_8))
-            .joinToString(""){"%02x".format(it)}
-        val file=File(outgoingRoot,"$key.id")
-        if(file.exists()) {
-            val saved=file.readText().trim()
-            if(saved.matches(Regex("[A-Za-z0-9_-]{8,24}"))) return saved
+    private fun transferIdFor(digest: String, name: String): String {
+        val key = MessageDigest.getInstance("SHA-256")
+            .digest("$digest|$name".toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        val file = File(outgoingRoot, "$key.id")
+        if (file.exists()) {
+            val saved = file.readText().trim()
+            if (validTransferId(saved)) return saved
         }
-        val id=ByteArray(9).also(java.security.SecureRandom()::nextBytes)
-            .let{Base64.encodeToString(it,Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)}
+        val id = ByteArray(9).also(java.security.SecureRandom()::nextBytes)
+            .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
         file.writeText(id)
         return id
     }
 
-    private fun compactName(value:String):String {
-        if(value.length<=MAX_NAME_CHARS)return value
-        val dot=value.lastIndexOf('.')
-        if(dot>0 && value.length-dot<=6) {
-            val suffix=value.substring(dot)
-            return value.substring(0,MAX_NAME_CHARS-suffix.length)+suffix
+    private fun nextContiguous(state: Incoming): Int =
+        state.received.nextClearBit(0).coerceAtMost(state.chunks)
+
+    private fun validTransferId(id: String): Boolean =
+        id.matches(Regex("[A-Za-z0-9_-]{8,24}"))
+
+    private fun compactName(value: String): String {
+        if (value.length <= MAX_NAME_CHARS) return value
+        val dot = value.lastIndexOf('.')
+        if (dot > 0 && value.length - dot <= 6) {
+            val suffix = value.substring(dot)
+            return value.substring(0, MAX_NAME_CHARS - suffix.length) + suffix
         }
         return value.take(MAX_NAME_CHARS)
     }
 
-    private fun uniqueDestination(name:String):File{
-        var f=File(root,name);var n=1
-        while(f.exists()){val dot=name.lastIndexOf('.');f=if(dot>0)File(root,name.substring(0,dot)+"-$n"+name.substring(dot))else File(root,"$name-$n");n++}
-        return f
+    private fun uniqueDestination(name: String): File {
+        var file = File(root, name)
+        var suffix = 1
+        while (file.exists()) {
+            val dot = name.lastIndexOf('.')
+            file = if (dot > 0) File(root, name.substring(0, dot) + "-$suffix" + name.substring(dot))
+            else File(root, "$name-$suffix")
+            suffix++
+        }
+        return file
     }
-    private fun queryName(uri:Uri):String {
-        if (uri.scheme == "file") return uri.lastPathSegment ?: "voice-note.m4a"
+
+    private fun queryName(uri: Uri): String {
+        if (uri.scheme == "file") return uri.lastPathSegment ?: "mesh-file.bin"
         return try {
-            context.contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)
-                ?.use{c->if(c.moveToFirst())c.getString(0)?:"mesh-file.bin" else "mesh-file.bin"}?:"mesh-file.bin"
-        } catch(_:Exception) { "mesh-file.bin" }
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) ?: "mesh-file.bin" else "mesh-file.bin"
+                } ?: "mesh-file.bin"
+        } catch (_: Exception) { "mesh-file.bin" }
     }
-    companion object{const val MAX_FILE_BYTES=256*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=20;private const val MAX_ACTIVE=4;private const val MAX_PENDING_BYTES=MAX_FILE_BYTES*MAX_ACTIVE;private const val PARTIAL_TTL_MS=24L*60L*60L*1000L;private const val OUTGOING_ID_TTL_MS=90L*24L*60L*60L*1000L}
+
+    private fun skipFully(input: InputStream, bytes: Long) {
+        var remaining = bytes
+        while (remaining > 0) {
+            val skipped = input.skip(remaining)
+            if (skipped > 0) remaining -= skipped
+            else {
+                if (input.read() < 0) throw IllegalArgumentException("Source file ended before resume offset")
+                remaining--
+            }
+        }
+    }
+
+    private fun readExactlyUpTo(input: InputStream, size: Int): ByteArray? {
+        val data = ByteArray(size)
+        var offset = 0
+        while (offset < size) {
+            val read = input.read(data, offset, size - offset)
+            if (read < 0) break
+            if (read > 0) offset += read
+        }
+        return if (offset == 0) null else data.copyOf(offset)
+    }
+
+    companion object {
+        const val MAX_FILE_BYTES = 256 * 1024
+        private const val CHUNK_BYTES = 48
+        private const val MAX_CHUNKS = (MAX_FILE_BYTES + CHUNK_BYTES - 1) / CHUNK_BYTES
+        private const val MAX_NAME_CHARS = 20
+        private const val MAX_ACTIVE = 4
+        private const val WINDOW_SIZE = 16
+        private const val ACK_EVERY_CHUNKS = 8
+        private const val MAX_WINDOW_RETRIES = 3
+        private const val INITIAL_ACK_TIMEOUT_MS = 20_000L
+        private const val ACK_TIMEOUT_MS = 8_000L
+        private const val OUTBOX_WAIT_MS = 15_000L
+        private const val OUTBOX_POLL_MS = 100L
+        private const val IO_BUFFER_BYTES = 8 * 1024
+        private const val PARTIAL_TTL_MS = 24L * 60L * 60L * 1000L
+        private const val OUTGOING_ID_TTL_MS = 90L * 24L * 60L * 60L * 1000L
+    }
 }

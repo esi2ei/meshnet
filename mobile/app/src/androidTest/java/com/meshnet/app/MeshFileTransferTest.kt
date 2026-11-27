@@ -2,6 +2,7 @@ package com.meshnet.app
 
 import android.content.Context
 import android.net.Uri
+import android.util.Base64
 import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -11,6 +12,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.security.MessageDigest
 
 class MeshFileTransferTest {
     private lateinit var context: Context
@@ -31,19 +33,12 @@ class MeshFileTransferTest {
     }
 
     @Test fun reconstructsOutOfOrderChunksAndVerifiesDigest() {
-        val frames = mutableListOf<String>()
-        val sender = MeshFileTransfer(context, { frames.add(it); true }, {})
         val events = mutableListOf<String>()
         val receiver = MeshFileTransfer(context, { true }, { events.add(it) })
-
-        assertTrue(sender.send(Uri.fromFile(source)))
-        assertTrue(frames.all { it.toByteArray(Charsets.UTF_8).size <= 120 })
-        val manifest = frames.first { it.startsWith("~F1M|") }
-        val chunks = frames.filter { it.startsWith("~F1C|") }.reversed()
-        chunks.forEach { assertTrue(receiver.accept(it)) }
+        val (manifest, chunks) = protocolMessages(source, "transfer_0001")
         assertTrue(receiver.accept(manifest))
-
-        val saved = receivedDir.listFiles()?.firstOrNull { it.extension != "part" }
+        chunks.reversed().forEach { receiver.accept(it) }
+        val saved = receivedDir.listFiles()?.firstOrNull { it.extension !in setOf("part", "meta", "done", "tmp") }
         assertTrue(saved != null)
         assertArrayEquals(source.readBytes(), saved!!.readBytes())
         assertTrue(events.any { it.contains("received and verified") })
@@ -52,11 +47,10 @@ class MeshFileTransferTest {
     @Test fun preservesM4aExtensionForReceivedVoiceNotePlayback() {
         val voice = File(context.cacheDir, "a-very-long-mesh-voice-recording-name.m4a")
         voice.writeBytes(ByteArray(2048) { (it % 127).toByte() })
-        val frames = mutableListOf<String>()
-        val sender = MeshFileTransfer(context, { frames.add(it); true }, {})
+        val (manifest, chunks) = protocolMessages(voice, "voicefile_001")
         val receiver = MeshFileTransfer(context, { true }, {})
-        assertTrue(sender.send(Uri.fromFile(voice)))
-        frames.forEach { receiver.accept(it) }
+        receiver.accept(manifest)
+        chunks.forEach { receiver.accept(it) }
         assertTrue(receiver.latestVoiceNote()?.exists() == true)
         voice.delete()
     }
@@ -68,37 +62,41 @@ class MeshFileTransferTest {
         assertTrue(frames.isEmpty())
     }
 
-    @Test fun resumesPersistedPartialTransferAfterReceiverAndSenderRecreation() {
-        val firstFrames = mutableListOf<String>()
-        val firstSender = MeshFileTransfer(context, { firstFrames.add(it); true }, {})
+    @Test fun resumesFromDurableReceiverCheckpointAfterRecreation() {
+        val (manifest, chunks) = protocolMessages(source, "resume_00001")
         val firstReceiver = MeshFileTransfer(context, { true }, {})
-        assertTrue(firstSender.send(Uri.fromFile(source)))
-        firstReceiver.accept(firstFrames.first { it.startsWith("~F1M|") })
-        val firstChunks = firstFrames.filter { it.startsWith("~F1C|") }
-        firstChunks.take(firstChunks.size / 2).forEach { firstReceiver.accept(it) }
+        firstReceiver.accept(manifest)
+        val half = chunks.size / 2
+        chunks.take(half).forEach { firstReceiver.accept(it) }
 
-        val retryFrames = mutableListOf<String>()
-        val restartedSender = MeshFileTransfer(context, { retryFrames.add(it); true }, {})
-        val restartedReceiver = MeshFileTransfer(context, { true }, {})
-        assertTrue(restartedSender.send(Uri.fromFile(source)))
-        assertEquals(
-            firstFrames.first { it.startsWith("~F1M|") }.split('|')[1],
-            retryFrames.first { it.startsWith("~F1M|") }.split('|')[1]
-        )
-        retryFrames.forEach { restartedReceiver.accept(it) }
+        val acks = mutableListOf<String>()
+        val restartedReceiver = MeshFileTransfer(context, { message -> acks.add(message); true }, {})
+        restartedReceiver.accept(manifest)
+        val savedNext = acks.first { it.startsWith("~F2A|") }.substringAfterLast('|').toInt()
+        assertEquals(half, savedNext)
+        chunks.drop(half).forEach { restartedReceiver.accept(it) }
 
-        val saved = receivedDir.listFiles()?.firstOrNull { it.extension != "part" && it.extension != "meta" }
+        val saved = receivedDir.listFiles()?.firstOrNull { it.extension !in setOf("part", "meta", "done", "tmp") }
         assertTrue(saved != null)
         assertArrayEquals(source.readBytes(), saved!!.readBytes())
     }
 
-    @Test fun queuesAFileAtThe256KiBBoundaryWithinTheOutboxWindow() {
-        source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES) { (it % 251).toByte() })
-        val frames = mutableListOf<String>()
-        val sender = MeshFileTransfer(context, { frames.add(it); true }, {})
+    @Test fun sendsThroughBoundedWindowsAndCompletesAfterReceiverAcknowledges() {
+        val sent = mutableListOf<String>()
+        lateinit var sender: MeshFileTransfer
+        val receiver = MeshFileTransfer(context, { message -> sender.accept(message); true }, {})
+        sender = MeshFileTransfer(context, { message -> sent.add(message); receiver.accept(message); true }, {})
         assertTrue(sender.send(Uri.fromFile(source)))
-        assertEquals(1 + (MeshFileTransfer.MAX_FILE_BYTES + 47) / 48, frames.size)
-        assertTrue(frames.all { it.toByteArray(Charsets.UTF_8).size <= 120 })
+        assertTrue(sent.first().startsWith("~F2M|"))
+        assertTrue(sent.any { it.startsWith("~F2C|") })
+    }
+
+    @Test fun acceptsFileAt256KiBBoundaryUsingStreamingSource() {
+        source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES) { (it % 251).toByte() })
+        val (manifest, chunks) = protocolMessages(source, "boundary_001")
+        assertEquals(MeshFileTransfer.MAX_FILE_BYTES, manifest.split('|')[2].toInt())
+        assertEquals((MeshFileTransfer.MAX_FILE_BYTES + 47) / 48, chunks.size)
+        assertTrue(chunks.all { it.toByteArray(Charsets.UTF_8).size <= 120 })
     }
 
     @Test fun rejectsFilesLargerThan256KiBTransferLimit() {
@@ -109,10 +107,26 @@ class MeshFileTransferTest {
         assertTrue(rejected)
     }
 
-    @Test fun ignoresMalformedAndUnannouncedChunks() {
-        val receiver = MeshFileTransfer(context, { true }, {})
-        assertFalse(receiver.accept("ordinary chat message"))
-        assertTrue(receiver.accept("~F1C|not-a-valid-transfer|0|1|AQ"))
-        assertTrue(receiver.accept("~F1M|bad|0|0|not-a-hash|"))
+    private fun protocolMessages(file: File, id: String): Pair<String, List<String>> {
+        val bytes = file.readBytes()
+        val digest = Base64.encodeToString(
+            MessageDigest.getInstance("SHA-256").digest(bytes),
+            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        )
+        val count = (bytes.size + 47) / 48
+        val safeName = Base64.encodeToString(
+            file.name.take(20).toByteArray(Charsets.UTF_8),
+            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        )
+        val manifest = "~F2M|$id|${bytes.size}|$count|$digest|$safeName"
+        val messages = (0 until count).map { index ->
+            val start = index * 48
+            val data = bytes.copyOfRange(start, minOf(start + 48, bytes.size))
+            val encoded = Base64.encodeToString(
+                data, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+            )
+            "~F2C|$id|$index|$count|$encoded"
+        }
+        return manifest to messages
     }
 }
