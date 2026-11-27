@@ -31,7 +31,6 @@ class MainActivity : Activity() {
             meshService?.setListener(::append)
             append("Connected to MeshNet foreground service")
         }
-
         override fun onServiceDisconnected(name: ComponentName?) {
             meshService?.setListener(null)
             meshService = null
@@ -46,9 +45,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        bound = bindService(
-            Intent(this, MeshForegroundService::class.java), connection, BIND_AUTO_CREATE
-        )
+        bound = bindService(Intent(this, MeshForegroundService::class.java), connection, BIND_AUTO_CREATE)
     }
 
     private fun render() {
@@ -56,14 +53,11 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 36, 28, 24)
         }
-        root.addView(TextView(this).apply {
-            text = "MeshNet · Native Android"
-            textSize = 24f
-        })
+        root.addView(TextView(this).apply { text = "MeshNet · Native Android"; textSize = 24f })
         status = TextView(this).apply { text = "Stopped" }
         root.addView(status)
         keyInput = EditText(this).apply {
-            hint = "Group passphrase (24+ chars); leave blank to reuse saved key"
+            hint = "Group passphrase (24+ chars); blank reuses saved key"
             inputType = 0x00000081
         }
         root.addView(keyInput)
@@ -74,7 +68,7 @@ class MainActivity : Activity() {
         root.addView(Button(this).apply {
             text = "Stop BLE mesh"
             setOnClickListener {
-                stopService(Intent(this@MainActivity, MeshForegroundService::class.java).apply {
+                startService(Intent(this@MainActivity, MeshForegroundService::class.java).apply {
                     action = MeshForegroundService.ACTION_STOP
                 })
                 status.text = "Stopping"
@@ -83,7 +77,7 @@ class MainActivity : Activity() {
         root.addView(Button(this).apply {
             text = "Forget saved group credentials"
             setOnClickListener {
-                stopService(Intent(this@MainActivity, MeshForegroundService::class.java).apply {
+                startService(Intent(this@MainActivity, MeshForegroundService::class.java).apply {
                     action = MeshForegroundService.ACTION_FORGET_CREDENTIALS
                 })
                 status.text = "Deleting saved credentials"
@@ -106,9 +100,7 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this)
         log = TextView(this).apply { textSize = 13f }
         scroll.addView(log)
-        root.addView(scroll, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
-        ))
+        root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(TextView(this).apply {
             text = "Outbox and replay cache persist locally. BLE writes are fragmented to fit negotiated MTU. There is no end-to-end delivery acknowledgement. Shared group AES-GCM is a prototype, not Signal or forward-secret."
             textSize = 11f
@@ -118,15 +110,11 @@ class MainActivity : Activity() {
 
     private fun requestAndStart() {
         val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            arrayOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_ADVERTISE
-            )
-        } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        val missing = permissions.filter {
-            checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
-        }
+            mutableListOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_ADVERTISE)
+        } else mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (Build.VERSION.SDK_INT >= 33) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        val missing = permissions.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) {
             requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS)
             return
@@ -138,11 +126,11 @@ class MainActivity : Activity() {
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_PERMISSIONS &&
-            grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+        if (requestCode == REQUEST_PERMISSIONS && grantResults.isNotEmpty() &&
+            grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
             startMeshService()
         } else if (requestCode == REQUEST_PERMISSIONS) {
-            toast("Bluetooth permissions are required for mesh discovery")
+            toast("Bluetooth and notification permissions are required for full background operation")
         }
     }
 
@@ -154,9 +142,7 @@ class MainActivity : Activity() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
             else startService(intent)
-            if (!bound) bound = bindService(
-                Intent(this, MeshForegroundService::class.java), connection, BIND_AUTO_CREATE
-            )
+            if (!bound) bound = bindService(Intent(this, MeshForegroundService::class.java), connection, BIND_AUTO_CREATE)
             status.text = "Starting foreground BLE service…"
             keyInput.text.clear()
         } catch (error: Exception) {
@@ -171,8 +157,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun toast(message: String) =
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
     override fun onStop() {
         meshService?.setListener(null)
