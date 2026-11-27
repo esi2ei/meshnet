@@ -279,6 +279,11 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_FILE && resultCode == RESULT_OK) {
             val uri = data?.data ?: return
+            val readGrant = data.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
+            if (readGrant != 0 && (data.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+                runCatching { contentResolver.takePersistableUriPermission(uri, readGrant) }
+                    .onFailure { append("Selected file provider did not allow a persistent read grant: ${it.message}") }
+            }
             try {
                 queueFile(uri)
             } catch (error: Exception) {
@@ -466,7 +471,7 @@ class MainActivity : Activity() {
     }
 
     private fun playLatestVoiceNote() {
-        val file = meshService?.latestReceivedVoiceNote()
+        val file = receivedFileAccess.latestVoiceNote()
         if (file == null || !file.exists()) {
             toast("No received voice note is available")
             return
