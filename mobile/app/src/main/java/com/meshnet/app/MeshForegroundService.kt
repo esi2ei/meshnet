@@ -113,6 +113,7 @@ class MeshForegroundService : Service() {
                 }
             },
             onMessage = ::emit,
+            hasReceived = outbox::hasReceived,
             markReceived = outbox::markReceived
         )
         transport = MeshBleTransport(
