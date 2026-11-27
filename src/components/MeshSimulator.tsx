@@ -34,7 +34,7 @@ export default function MeshSimulator({ running, native, peers, routes, localNod
   // Keep their graph separate from live radio links: a recently observed path is not
   // proof that every hop is still connected at this instant.
   const allValidRoutes = routes.filter(route =>
-    route.nodes.length >= 2 &&
+    route.nodes.length >= 3 &&
     route.nodes.length <= 9 &&
     localNodeId !== null &&
     route.nodes[route.nodes.length - 1] === localNodeId
