@@ -49,6 +49,18 @@ class MeshFileTransferTest {
         assertTrue(events.any { it.contains("received and verified") })
     }
 
+    @Test fun preservesM4aExtensionForReceivedVoiceNotePlayback() {
+        val voice = File(context.cacheDir, "a-very-long-mesh-voice-recording-name.m4a")
+        voice.writeBytes(ByteArray(2048) { (it % 127).toByte() })
+        val frames = mutableListOf<String>()
+        val sender = MeshFileTransfer(context, { frames.add(it); true }, {})
+        val receiver = MeshFileTransfer(context, { true }, {})
+        assertTrue(sender.send(Uri.fromFile(voice)))
+        frames.forEach { receiver.accept(it) }
+        assertTrue(receiver.latestVoiceNote()?.exists() == true)
+        voice.delete()
+    }
+
     @Test fun preflightsOutboxAndDoesNotQueuePartialFile() {
         val frames = mutableListOf<String>()
         val sender = MeshFileTransfer(context, { frames.add(it); true }, {}, canQueueBatch = { false })
