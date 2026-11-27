@@ -203,6 +203,7 @@ class MeshFileTransfer(
             }
             done.delete()
         }
+        if (recoverPendingCompletion(id, name, size, count, digest)) return true
 
         val partial = File(root, "$id.part")
         val meta = File(root, "$id.meta")
@@ -361,6 +362,7 @@ class MeshFileTransfer(
                 .put("size", state.size)
                 .put("chunks", state.chunks)
                 .put("digest", state.digest)
+                .put("destination", destination.name)
             // Write and fsync the completion record before moving the verified file. The
             // record is not published until after the final file rename succeeds.
             FileOutputStream(doneTemp).use { output ->
@@ -399,6 +401,61 @@ class MeshFileTransfer(
             }
             onEvent("File completion could not be persisted: ${error.message}")
         }
+    }
+
+
+    /**
+     * Recovers the narrow crash window after the verified partial file was renamed but before
+     * its .done marker was atomically published. The marker is trusted only if the final file
+     * is still inside our private directory and its size and SHA-256 digest match.
+     *
+     * Returns true when this manifest was fully handled or must be retried later.
+     */
+    private fun recoverPendingCompletion(
+        id: String,
+        name: String,
+        size: Int,
+        chunks: Int,
+        digest: String
+    ): Boolean {
+        val pendingFile = File(root, "$id.done.tmp")
+        if (!pendingFile.isFile) return false
+        val record = runCatching { JSONObject(pendingFile.readText()) }.getOrNull()
+            ?: run { pendingFile.delete(); return false }
+        if (record.optString("name") != name ||
+            record.optInt("size") != size ||
+            record.optInt("chunks") != chunks ||
+            record.optString("digest") != digest
+        ) {
+            pendingFile.delete()
+            return false
+        }
+
+        val destinationName = record.optString("destination")
+        if (destinationName.isBlank()) {
+            pendingFile.delete()
+            return false
+        }
+        val destination = runCatching { File(root, destinationName).canonicalFile }.getOrNull()
+            ?: run { pendingFile.delete(); return false }
+        if (destination.parentFile != root.canonicalFile ||
+            !destination.isFile ||
+            destination.length() != size.toLong() ||
+            runCatching { digestFile(destination) }.getOrNull() != digest
+        ) {
+            // The crash happened before the partial-file rename; the regular checkpoint is intact.
+            pendingFile.delete()
+            return false
+        }
+
+        val done = File(root, "$id.done")
+        if (!pendingFile.renameTo(done)) {
+            onEvent("Verified file ${destination.name} is present; completion recovery will retry before acknowledging")
+            return true
+        }
+        sendAck(id, chunks)
+        onEvent("Recovered completed file: ${destination.name} ($size bytes)")
+        return true
     }
 
     private fun receiveAck(fields: List<String>): Boolean {
