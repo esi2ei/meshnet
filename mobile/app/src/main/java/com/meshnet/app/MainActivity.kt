@@ -45,6 +45,7 @@ class MainActivity : Activity() {
     private var joinVoiceAfterPermission = false
     private var voicePlayer: MediaPlayer? = null
     private lateinit var walletStatus: TextView
+    private lateinit var walletAuthStore: MeshWalletAuthorizationStore
     @Volatile private var walletScenario: LocalAssociationScenario? = null
     @Volatile private var walletBusy = false
     @Volatile private var walletAuthToken: String? = null
@@ -66,7 +67,20 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        walletAuthStore = MeshWalletAuthorizationStore(applicationContext)
         render()
+        runCatching { walletAuthStore.load() }
+            .onSuccess { saved ->
+                if (saved != null) {
+                    walletAuthToken = saved.authToken
+                    walletAddress = saved.address
+                    walletStatus.text = "Authorized · Devnet · ${saved.address}"
+                }
+            }
+            .onFailure {
+                walletStatus.text = "Stored wallet authorization unavailable · reconnect required"
+                append("Stored wallet authorization could not be decrypted: ${it.message}")
+            }
     }
 
     override fun onStart() {
@@ -232,6 +246,10 @@ class MainActivity : Activity() {
      * constructed or sent: the escrow program is still a non-deployed, unaudited draft.
      */
     private fun connectSolanaWalletDevnet() {
+        if (walletAuthToken != null) {
+            toast("A wallet is already authorized; disconnect it before connecting another account")
+            return
+        }
         if (walletBusy) {
             toast("A wallet operation is already in progress")
             return
@@ -263,6 +281,7 @@ class MainActivity : Activity() {
                     val account = authorization.accounts.firstOrNull()
                         ?: throw IllegalStateException("Wallet returned no authorized account")
                     val address = encodeBase58(account.publicKey)
+                    walletAuthStore.save(authorization.authToken, address)
                     walletAuthToken = authorization.authToken
                     walletAddress = address
                     runOnUiThread {
@@ -292,7 +311,7 @@ class MainActivity : Activity() {
     }
 
     private fun disconnectSolanaWallet() {
-        val authToken = walletAuthToken
+        val authToken = walletAuthToken ?: runCatching { walletAuthStore.load()?.authToken }.getOrNull()
         if (authToken == null) {
             walletAddress = null
             walletStatus.text = "Solana wallet: not connected · Devnet only"
@@ -333,6 +352,7 @@ class MainActivity : Activity() {
                     runCatching { scenario.close().get(WALLET_CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
                     runOnUiThread {
                         if (deauthorized) {
+                            walletAuthStore.clear()
                             walletAuthToken = null
                             walletAddress = null
                             walletStatus.text = "Solana wallet: disconnected · Devnet"

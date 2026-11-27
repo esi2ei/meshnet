@@ -203,9 +203,9 @@ class MeshLiveVoiceCall(
                 localPlayer.play()
                 active.set(true)
 
-                val readyMic = localRecorder
-                val readyEncoder = localEncoder
-                val readyPlayer = localPlayer
+                val readyMic = checkNotNull(localRecorder)
+                val readyEncoder = checkNotNull(localEncoder)
+                val readyPlayer = checkNotNull(localPlayer)
                 captureThread = Thread({ captureLoop(id, readyMic, readyEncoder) }, "meshnet-voice-capture")
                     .apply { isDaemon = true; start() }
                 playbackThread = Thread({ playbackLoop(readyPlayer) }, "meshnet-voice-playback")
