@@ -189,7 +189,24 @@ internal class MeshOfflineLibrary(context: Context) {
             if (remote.containsKey(id) && pending.size < MAX_PENDING_DOWNLOADS) pending.add(id)
         }
         pruneRemote(now)
+        pruneOrphanedFiles()
         persist()
+    }
+
+    private fun pruneOrphanedFiles() {
+        val retainedIds = local.keys
+        root.listFiles()?.forEach { file ->
+            val name = file.name
+            when {
+                name.endsWith(".blob") -> {
+                    val id = name.removeSuffix(".blob")
+                    if (id.matches(Regex("[a-f0-9]{64}")) && id !in retainedIds) {
+                        runCatching { file.delete() }
+                    }
+                }
+                name.endsWith(".tmp") -> runCatching { file.delete() }
+            }
+        }
     }
     private fun persist(){
         val json = JSONObject().put("local", JSONArray().apply {
