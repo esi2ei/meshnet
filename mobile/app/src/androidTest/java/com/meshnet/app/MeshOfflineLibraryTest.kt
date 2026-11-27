@@ -96,7 +96,9 @@ class MeshOfflineLibraryTest {
         val now = System.currentTimeMillis()
         assertFalse(library.observeRemote("node_stale", id, 64, "stale.txt", now - 8L * 24L * 60L * 60L * 1000L))
         assertFalse(library.items().any { it.id == id })
-        assertFalse(library.observeRemote("node_future", id, 64, "future.txt", now + 60L * 60L * 1000L))
+        assertThrows(IllegalArgumentException::class.java) {
+            library.observeRemote("node_future", id, 64, "future.txt", now + 60L * 60L * 1000L)
+        }
         assertFalse(library.items().any { it.id == id })
     }
 
