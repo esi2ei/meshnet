@@ -4,10 +4,11 @@ import { Copy, FileCode2, Search } from 'lucide-react';
 // Every tracked-style text source family is discovered from this repository checkout at build time.
 // Explicit hidden-file patterns include project automation and root ignore/config files.
 // Generated output, dependency caches and local build directories are intentionally excluded.
-const sourcePatterns = [
+const bundledSources = import.meta.glob([
   '../../**/*.{ts,tsx,js,jsx,mjs,cjs,css,html,json,md,yml,yaml,properties,gradle,kts,kt,xml,rs,toml,ps1,sh,bat,cmd,txt}',
   '../../.gitignore',
   '../../.github/**/*.{yml,yaml}',
+  '../../assets/.aistudio/.gitignore',
   '!../../**/node_modules/**',
   '!../../**/.git/**',
   '!../../**/.gradle/**',
@@ -16,8 +17,7 @@ const sourcePatterns = [
   '!../../**/coverage/**',
   '!../../**/.idea/**',
   '!../../**/.vite/**',
-];
-const bundledSources = import.meta.glob(sourcePatterns, {
+], {
   eager: true,
   query: '?raw',
   import: 'default',
