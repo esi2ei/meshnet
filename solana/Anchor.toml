@@ -2,8 +2,8 @@
 seeds = false
 skip-lint = false
 
-[programs.localnet]
-meshnet_escrow = "Fg6PaFpoGXkYsidMpWxTWqZ7FEfcYkgMQhgX5j4mYp"
+# Add a [programs.localnet] mapping before localnet deployment. Its
+# meshnet_escrow value must equal MESHNET_ESCROW_PROGRAM_ID supplied to Cargo.
 
 [provider]
 cluster = "Localnet"

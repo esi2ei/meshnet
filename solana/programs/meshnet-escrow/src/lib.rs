@@ -1,4 +1,9 @@
 use anchor_lang::prelude::*;
+
+// Program ID and initial administrator are mandatory build inputs. There are deliberately
+// no example-key defaults in the deployable program.
+include!(concat!(env!("OUT_DIR"), "/deployment_config.rs"));
+
 #[cfg(all(feature = "devnet", feature = "mainnet"))]
 compile_error!("Select exactly one escrow cluster profile: default devnet or --no-default-features --features mainnet.");
 #[cfg(not(any(feature = "devnet", feature = "mainnet")))]
@@ -8,11 +13,7 @@ use anchor_spl::{
     token::{self, CloseAccount, Mint, Token, TokenAccount, TransferChecked},
 };
 
-declare_id!("Fg6PaFpoGXkYsidMpWxTWqZ7FEfcYkgMQhgX5j4mYp");
-
 const CONFIG_SEED: &[u8] = b"config";
-// Replace this placeholder with the audited deployment-admin public key before building.
-const INITIAL_ADMIN: Pubkey = pubkey!("11111111111111111111111111111111");
 const ORDER_SEED: &[u8] = b"order";
 const MAX_ORDER_LIFETIME: i64 = 30 * 24 * 60 * 60;
 

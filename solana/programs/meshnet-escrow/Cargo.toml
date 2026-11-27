@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Non-custodial USDC order escrow for MeshNet"
 edition = "2021"
 license = "MIT"
+build = "build.rs"
 
 [lib]
 crate-type = ["cdylib", "lib"]

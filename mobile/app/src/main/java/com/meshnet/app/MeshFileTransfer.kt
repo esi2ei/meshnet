@@ -45,12 +45,13 @@ class MeshFileTransfer(
     private val incoming = ConcurrentHashMap<String, Incoming>()
     private val senderAcks = ConcurrentHashMap<String, SenderAck>()
     private val activeSends = ConcurrentHashMap.newKeySet<String>()
+    private val activeSendThreads = ConcurrentHashMap<String, Thread>()
+    private val activeTransferIdFiles = ConcurrentHashMap<String, File>()
     private val root = File(context.filesDir, "meshnet-received").apply {
         mkdirs()
         listFiles()?.filter {
             (it.name.endsWith(".part") || it.name.endsWith(".meta") ||
-                it.name.endsWith(".meta.tmp") || it.name.endsWith(".done") ||
-                it.name.endsWith(".done.tmp")) &&
+                it.name.endsWith(".meta.tmp") || it.name.endsWith(".cancelled")) &&
                 System.currentTimeMillis() - it.lastModified() > PARTIAL_TTL_MS
         }?.forEach { it.delete() }
     }
@@ -77,8 +78,10 @@ class MeshFileTransfer(
             return false
         }
         val ackState = senderAcks.computeIfAbsent(id) { SenderAck() }
+        activeSendThreads[id] = Thread.currentThread()
         try {
             val count = (size + CHUNK_BYTES - 1) / CHUNK_BYTES
+            onEvent("File transfer progress: $name · 0/$count chunks")
             val safeName = Base64.encodeToString(
                 name.toByteArray(Charsets.UTF_8),
                 Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
@@ -97,6 +100,7 @@ class MeshFileTransfer(
             }
 
             var next = awaitCheckpoint(ackState, null, INITIAL_ACK_TIMEOUT_MS)
+            if (Thread.currentThread().isInterrupted) throw InterruptedException("File transfer cancelled")
             if (next == null) {
                 onEvent("File transfer $id paused: receiver checkpoint was not received; retry with the same file")
                 return false
@@ -104,10 +108,7 @@ class MeshFileTransfer(
             next = next.coerceIn(0, count)
 
             while (next < count) {
-                if (Thread.currentThread().isInterrupted) {
-                    onEvent("File transfer $id interrupted at chunk $next/$count")
-                    return false
-                }
+                if (Thread.currentThread().isInterrupted) throw InterruptedException("File transfer cancelled")
                 val end = minOf(next + WINDOW_SIZE, count)
                 val windowCount = end - next
                 if (!waitForOutboxCapacity(windowCount)) {
@@ -122,6 +123,7 @@ class MeshFileTransfer(
                         return false
                     }
                     ack = awaitCheckpoint(ackState, next, ACK_TIMEOUT_MS)
+                    if (Thread.currentThread().isInterrupted) throw InterruptedException("File transfer cancelled")
                     if (ack == null) retry++
                 }
                 if (ack == null) {
@@ -139,15 +141,59 @@ class MeshFileTransfer(
             }
             onEvent("File transfer completed: $name ($size bytes, $count acknowledged chunks)")
             return true
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            onEvent("File transfer $id cancelled on this device")
+            return false
         } finally {
             activeSends.remove(id)
+            activeSendThreads.remove(id, Thread.currentThread())
+            activeTransferIdFiles.remove(id)
             senderAcks.remove(id, ackState)
         }
     }
 
-    fun latestVoiceNote(): File? = root.listFiles()
-        ?.filter { it.isFile && it.extension.equals("m4a", ignoreCase = true) }
-        ?.maxByOrNull { it.lastModified() }
+    /** Cancel active local senders and ask group peers to discard their partial checkpoints. */
+    fun cancelOutgoing(): Boolean {
+        val active = activeSendThreads.entries.toList()
+        if (active.isEmpty()) {
+            onEvent("No outgoing file transfer is currently active")
+            return false
+        }
+        active.forEach { (id, thread) ->
+            runCatching { sendMessage("~F2X|$id") }
+            activeTransferIdFiles.remove(id)?.let { mapping ->
+                if (mapping.isFile && runCatching { mapping.readText().trim() == id }.getOrDefault(false)) {
+                    mapping.delete()
+                }
+            }
+            thread.interrupt()
+        }
+        onEvent("Cancellation requested for ${active.size} outgoing file transfer(s)")
+        return true
+    }
+
+    /** Only files with a durable completion marker are exposed to the UI. */
+    fun receivedFiles(): List<File> = completedRecords()
+        .map { it.second }
+        .sortedByDescending { it.lastModified() }
+
+    fun latestReceivedFile(): File? = receivedFiles().firstOrNull()
+
+    fun latestVoiceNote(): File? = receivedFiles()
+        .filter { it.extension.equals("m4a", ignoreCase = true) }
+        .firstOrNull()
+
+    fun exportReceivedFile(fileName: String, destination: Uri) {
+        val source = receivedFiles().firstOrNull { it.name == fileName }
+            ?: throw IllegalArgumentException("The selected received file is no longer available")
+        val output = context.contentResolver.openOutputStream(destination, "w")
+            ?: throw IllegalStateException("Unable to open the selected destination")
+        output.use { target ->
+            source.inputStream().buffered().use { input -> input.copyTo(target, IO_BUFFER_BYTES) }
+        }
+        onEvent("Saved received file: ${source.name}")
+    }
 
     @Synchronized
     fun accept(message: String): Boolean {
@@ -166,6 +212,14 @@ class MeshFileTransfer(
         if (fields.size != 6) return true
         val id = fields[1]
         if (!validTransferId(id)) return true
+        val cancellationMarker = File(root, "$id.cancelled")
+        if (cancellationMarker.exists()) {
+            if (System.currentTimeMillis() - cancellationMarker.lastModified() <= PARTIAL_TTL_MS) {
+                onEvent("Ignored delayed manifest for cancelled transfer $id")
+                return true
+            }
+            cancellationMarker.delete()
+        }
         val size = fields[2].toIntOrNull() ?: return true
         val count = fields[3].toIntOrNull() ?: return true
         val digest = fields[4]
@@ -184,7 +238,11 @@ class MeshFileTransfer(
             if (existing.name == name && existing.size == size &&
                 existing.chunks == count && existing.digest == digest
             ) {
-                sendAck(id, existing.lastAckNext)
+                if (existing.received.cardinality() == existing.chunks) {
+                    finishIfComplete(id, existing)
+                } else {
+                    sendAck(id, existing.lastAckNext)
+                }
                 return true
             }
             closeHandle(existing)
@@ -194,13 +252,24 @@ class MeshFileTransfer(
         val done = File(root, "$id.done")
         if (done.exists()) {
             val completed = runCatching { JSONObject(done.readText()) }.getOrNull()
+            val destinationName = completed?.optString("destination").orEmpty()
+            val completedFile = if (destinationName.isNotBlank() && File(destinationName).name == destinationName) {
+                runCatching { File(root, destinationName).canonicalFile }.getOrNull()
+            } else null
+            val completedFileIsValid = completedFile != null &&
+                completedFile.parentFile == root.canonicalFile &&
+                completedFile.isFile &&
+                completedFile.length() == size.toLong() &&
+                runCatching { digestFile(completedFile) }.getOrNull() == digest
             if (completed?.optInt("size") == size &&
                 completed.optString("digest") == digest &&
-                completed.optString("name") == name
+                completed.optString("name") == name &&
+                completedFileIsValid
             ) {
                 sendAck(id, count)
                 return true
             }
+            // A marker is not proof of delivery if its file was removed or modified.
             done.delete()
         }
         if (recoverPendingCompletion(id, name, size, count, digest)) return true
@@ -231,12 +300,15 @@ class MeshFileTransfer(
             incoming[id] = state
             checkpoint(state)
             state.lastAckNext = nextContiguous(state)
-            sendAck(id, state.lastAckNext)
             onEvent(
                 if (bits.cardinality() == 0) "Incoming file: $name ($size bytes)"
                 else "Resuming file: $name (${bits.cardinality()}/$count chunks already stored)"
             )
-            if (state.received.cardinality() == state.chunks) finishIfComplete(id, state)
+            if (state.received.cardinality() == state.chunks) {
+                finishIfComplete(id, state)
+            } else {
+                sendAck(id, state.lastAckNext)
+            }
         } catch (error: Exception) {
             incoming.remove(id)?.let(::closeHandle)
             partial.delete()
@@ -286,7 +358,8 @@ class MeshFileTransfer(
             data.size != minOf(CHUNK_BYTES, state.size - index * CHUNK_BYTES)
         ) return
         if (state.received[index]) {
-            sendAck(id, state.lastAckNext)
+            if (state.received.cardinality() == state.chunks) finishIfComplete(id, state)
+            else sendAck(id, state.lastAckNext)
             return
         }
         try {
@@ -296,16 +369,21 @@ class MeshFileTransfer(
             state.received.set(index)
             state.unackedChunks++
             val next = nextContiguous(state)
+            if (state.received.cardinality() == state.chunks) {
+                // The terminal ACK is sent only after digest verification, file promotion,
+                // and durable completion-marker publication in finishIfComplete().
+                finishIfComplete(id, state)
+                return
+            }
             if (next - state.lastAckNext >= ACK_EVERY_CHUNKS ||
-                next == state.chunks || state.unackedChunks >= ACK_EVERY_CHUNKS
+                state.unackedChunks >= ACK_EVERY_CHUNKS
             ) {
-                // ACK only after both file bytes and the compact resume checkpoint are durable.
+                // Intermediate window ACKs confirm durable chunks, not completed-file delivery.
                 checkpoint(state)
                 state.lastAckNext = next
                 state.unackedChunks = 0
                 sendAck(id, next)
             }
-            if (state.received.cardinality() == state.chunks) finishIfComplete(id, state)
         } catch (error: Exception) {
             onEvent("File chunk could not be checkpointed durably: ${error.message}")
         }
@@ -352,6 +430,11 @@ class MeshFileTransfer(
                 state.meta.delete()
                 incoming.remove(id)
                 onEvent("File integrity check failed: ${state.name}")
+                return
+            }
+            if (!ensureCompletedFileCapacity(state.size.toLong())) {
+                state.handle = RandomAccessFile(state.file, "rw")
+                onEvent("Received-file storage quota is full; checkpoint retained for retry")
                 return
             }
             val destination = uniqueDestination(state.name)
@@ -450,6 +533,10 @@ class MeshFileTransfer(
             return false
         }
 
+        if (!ensureCompletedFileCapacity(size.toLong())) {
+            onEvent("Received-file storage quota is full; completion recovery will retry before acknowledging")
+            return true
+        }
         val done = File(root, "$id.done")
         if (!pendingFile.renameTo(done)) {
             onEvent("Verified file ${destination.name} is present; completion recovery will retry before acknowledging")
@@ -458,6 +545,47 @@ class MeshFileTransfer(
         sendAck(id, chunks)
         onEvent("Recovered completed file: ${destination.name} ($size bytes)")
         return true
+    }
+
+    private fun completedRecords(): List<Pair<File, File>> {
+        val rootPath = runCatching { root.canonicalFile }.getOrNull() ?: return emptyList()
+        return root.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".done") }
+            ?.mapNotNull { marker ->
+                val record = runCatching { JSONObject(marker.readText()) }.getOrNull() ?: return@mapNotNull null
+                val name = record.optString("destination")
+                if (name.isBlank() || File(name).name != name) return@mapNotNull null
+                val file = runCatching { File(root, name).canonicalFile }.getOrNull()
+                    ?: return@mapNotNull null
+                if (file.parentFile == rootPath && file.isFile &&
+                    file.length() == record.optLong("size", -1L) && file.length() > 0L
+                ) marker to file else null
+            } ?: emptyList()
+    }
+
+    /**
+     * Retain a bounded inbox. When necessary, the oldest completed MeshNet file is removed
+     * together with its deduplication marker so a later retransmission can be accepted again.
+     */
+    private fun ensureCompletedFileCapacity(incomingBytes: Long): Boolean {
+        if (incomingBytes !in 1L..MAX_COMPLETED_STORAGE_BYTES) return false
+        val completed = completedRecords().sortedBy { it.second.lastModified() }
+        var usedBytes = completed.sumOf { it.second.length() }
+        var count = completed.size
+        for ((marker, file) in completed) {
+            if (usedBytes + incomingBytes <= MAX_COMPLETED_STORAGE_BYTES &&
+                count < MAX_COMPLETED_FILES
+            ) break
+            val length = file.length()
+            if (file.delete()) {
+                marker.delete()
+                usedBytes = (usedBytes - length).coerceAtLeast(0L)
+                count--
+                onEvent("Inbox quota: removed oldest received file ${file.name}")
+            }
+        }
+        return usedBytes + incomingBytes <= MAX_COMPLETED_STORAGE_BYTES &&
+            count < MAX_COMPLETED_FILES
     }
 
     private fun receiveAck(fields: List<String>): Boolean {
@@ -479,7 +607,25 @@ class MeshFileTransfer(
         incoming.remove(id)?.let(::closeHandle)
         File(root, "$id.part").delete()
         File(root, "$id.meta").delete()
-        onEvent("Incoming file transfer $id cancelled")
+        File(root, "$id.meta.tmp").delete()
+        val marker = File(root, "$id.cancelled")
+        val temporary = File(root, "$id.cancelled.tmp")
+        try {
+            FileOutputStream(temporary).use { output ->
+                output.write(System.currentTimeMillis().toString().toByteArray(Charsets.UTF_8))
+                output.fd.sync()
+            }
+            if (marker.exists() && !marker.delete()) {
+                throw IllegalStateException("Unable to replace cancellation marker")
+            }
+            if (!temporary.renameTo(marker)) {
+                throw IllegalStateException("Unable to persist cancellation marker")
+            }
+            onEvent("Incoming file transfer $id cancelled; delayed frames are blocked temporarily")
+        } catch (error: Exception) {
+            temporary.delete()
+            onEvent("Incoming file transfer $id was cleared, but cancellation could not be persisted: ${error.message}")
+        }
         return true
     }
 
@@ -491,8 +637,9 @@ class MeshFileTransfer(
         synchronized(state.lock) {
             val deadline = System.currentTimeMillis() + timeoutMs
             while (!state.hasAck || (previous != null && state.nextChunk <= previous)) {
+                if (Thread.currentThread().isInterrupted) throw InterruptedException("File transfer cancelled")
                 val remaining = deadline - System.currentTimeMillis()
-                if (remaining <= 0L || Thread.currentThread().isInterrupted) return null
+                if (remaining <= 0L) return null
                 state.lock.wait(remaining)
             }
             return state.nextChunk
@@ -502,7 +649,8 @@ class MeshFileTransfer(
     private fun waitForOutboxCapacity(count: Int): Boolean {
         val deadline = System.currentTimeMillis() + OUTBOX_WAIT_MS
         while (!canQueueBatch(count)) {
-            if (Thread.currentThread().isInterrupted || System.currentTimeMillis() >= deadline) return false
+            if (Thread.currentThread().isInterrupted) throw InterruptedException("File transfer cancelled")
+            if (System.currentTimeMillis() >= deadline) return false
             Thread.sleep(OUTBOX_POLL_MS)
         }
         return true
@@ -513,6 +661,7 @@ class MeshFileTransfer(
         input.use { stream ->
             skipFully(stream, start.toLong() * CHUNK_BYTES)
             for (index in start until endExclusive) {
+                if (Thread.currentThread().isInterrupted) throw InterruptedException("File transfer cancelled")
                 val expected = minOf(CHUNK_BYTES, size - index * CHUNK_BYTES)
                 val data = readExactlyUpTo(stream, expected) ?: return false
                 if (data.size != expected) return false
@@ -585,11 +734,15 @@ class MeshFileTransfer(
         val file = File(outgoingRoot, "$key.id")
         if (file.exists()) {
             val saved = file.readText().trim()
-            if (validTransferId(saved)) return saved
+            if (validTransferId(saved)) {
+                activeTransferIdFiles[saved] = file
+                return saved
+            }
         }
         val id = ByteArray(9).also(java.security.SecureRandom()::nextBytes)
             .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
         file.writeText(id)
+        activeTransferIdFiles[id] = file
         return id
     }
 
@@ -669,6 +822,8 @@ class MeshFileTransfer(
         private const val OUTBOX_POLL_MS = 100L
         private const val IO_BUFFER_BYTES = 8 * 1024
         private const val PARTIAL_TTL_MS = 24L * 60L * 60L * 1000L
+        private const val MAX_COMPLETED_FILES = 50
+        private const val MAX_COMPLETED_STORAGE_BYTES = 100L * 1024L * 1024L
         private const val OUTGOING_ID_TTL_MS = 90L * 24L * 60L * 60L * 1000L
     }
 }

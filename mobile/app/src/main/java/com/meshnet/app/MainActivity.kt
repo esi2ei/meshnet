@@ -2,6 +2,7 @@ package com.meshnet.app
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.media.MediaRecorder
 import android.media.MediaPlayer
 import android.net.Uri
@@ -44,6 +45,10 @@ class MainActivity : Activity() {
     private var joinVoiceAfterPermission = false
     private var voicePlayer: MediaPlayer? = null
     private lateinit var walletStatus: TextView
+    private lateinit var transferStatus: TextView
+    private lateinit var receivedFileAccess: MeshFileTransfer
+    private var pendingExportFileName: String? = null
+    private var pendingExportUri: Uri? = null
     private lateinit var walletAuthStore: MeshWalletAuthorizationStore
     @Volatile private var walletScenario: LocalAssociationScenario? = null
     @Volatile private var walletBusy = false
@@ -67,6 +72,11 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         walletAuthStore = MeshWalletAuthorizationStore(applicationContext)
+        receivedFileAccess = MeshFileTransfer(
+            context = applicationContext,
+            sendMessage = { false },
+            onEvent = ::append
+        )
         render()
         runCatching { walletAuthStore.load() }
             .onSuccess { saved ->
@@ -211,6 +221,23 @@ class MainActivity : Activity() {
                 startActivityForResult(picker, REQUEST_FILE)
             }
         })
+        root.addView(Button(this).apply {
+            text = "Cancel outgoing file transfer"
+            setOnClickListener {
+                if (meshService?.cancelFileTransfers() != true) {
+                    toast("No outgoing file transfer is active")
+                }
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Save received file"
+            setOnClickListener { chooseReceivedFileForExport() }
+        })
+        transferStatus = TextView(this).apply {
+            text = "File transfers: idle"
+            textSize = 12f
+        }
+        root.addView(transferStatus)
         val scroll = ScrollView(this)
         log = TextView(this).apply { textSize = 13f }
         scroll.addView(log)
@@ -232,6 +259,17 @@ class MainActivity : Activity() {
             } catch (error: Exception) {
                 toast(error.message ?: "Unable to send file")
             }
+        }
+        if (requestCode == REQUEST_EXPORT_FILE) {
+            val uri = data?.data
+            if (resultCode == RESULT_OK && uri != null && pendingExportFileName != null) {
+                pendingExportUri = uri
+                exportPendingFileIfReady()
+            } else {
+                pendingExportFileName = null
+                pendingExportUri = null
+            }
+            return
         }
         if (requestCode == REQUEST_WALLET && resultCode == RESULT_CANCELED) {
             append("Wallet activity returned; checking the local association result")
@@ -427,17 +465,59 @@ class MainActivity : Activity() {
             toast("Mesh service is not connected")
             return
         }
+        transferStatus.text = "Preparing encrypted file transfer…"
         Thread({
             try {
                 val accepted = activeService.sendFile(uri)
                 runOnUiThread {
-                    if (accepted) toast("File queued for encrypted mesh transfer")
-                    else toast("File transfer could not be fully queued; check outbox capacity")
+                    if (accepted) toast("File transfer completed")
+                    else toast("File transfer paused or could not be fully queued; reselect the same file to resume")
                 }
             } catch (error: Exception) {
-                runOnUiThread { toast(error.message ?: "Unable to queue file transfer") }
+                runOnUiThread {
+                    transferStatus.text = "File transfer error: ${error.message}"
+                    toast(error.message ?: "Unable to queue file transfer")
+                }
             }
         }, "meshnet-file-send").start()
+    }
+
+    private fun chooseReceivedFileForExport() {
+        val files = receivedFileAccess.receivedFiles()
+        if (files.isEmpty()) {
+            toast("No completed received files are available")
+            return
+        }
+        val names = files.map { it.name }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Save received file")
+            .setItems(names) { _, index ->
+                val selected = files.getOrNull(index) ?: return@setItems
+                pendingExportFileName = selected.name
+                val picker = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "application/octet-stream"
+                    putExtra(Intent.EXTRA_TITLE, selected.name)
+                }
+                startActivityForResult(picker, REQUEST_EXPORT_FILE)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun exportPendingFileIfReady() {
+        val name = pendingExportFileName ?: return
+        val destination = pendingExportUri ?: return
+        pendingExportFileName = null
+        pendingExportUri = null
+        Thread({
+            try {
+                receivedFileAccess.exportReceivedFile(name, destination)
+                runOnUiThread { toast("Saved $name") }
+            } catch (error: Exception) {
+                runOnUiThread { toast(error.message ?: "Unable to save received file") }
+            }
+        }, "meshnet-file-export").start()
     }
 
     private fun requestVoiceRecording() {
@@ -612,6 +692,10 @@ class MainActivity : Activity() {
         runOnUiThread {
             log.append("\n$line")
             status.text = line.take(90)
+            if (line.startsWith("File transfer progress:") ||
+                line.startsWith("File transfer completed:") ||
+                line.contains("File transfer") && (line.contains("cancelled") || line.contains("paused"))
+            ) transferStatus.text = line
             liveVoiceButton?.text = if (meshService?.isLiveVoiceActive() == true) "End live group voice" else "Start live group voice"
         }
     }
@@ -649,6 +733,7 @@ class MainActivity : Activity() {
         private const val REQUEST_FILE = 4103
         private const val REQUEST_AUDIO = 4104
         private const val REQUEST_WALLET = 4106
+        private const val REQUEST_EXPORT_FILE = 4107
         private const val WALLET_CONNECT_TIMEOUT_SECONDS = 60L
         private const val WALLET_RPC_TIMEOUT_SECONDS = 60L
         private const val WALLET_CLOSE_TIMEOUT_SECONDS = 3L

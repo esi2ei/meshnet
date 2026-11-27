@@ -10,3 +10,10 @@ coverage/
 **/.gradle/
 local.properties
 .idea/
+
+
+# Solana build artifacts and local validator state (never commit deploy keypairs)
+/solana/target/
+/solana/.anchor/
+/solana/ledger/
+/solana/target/deploy/*-keypair.json

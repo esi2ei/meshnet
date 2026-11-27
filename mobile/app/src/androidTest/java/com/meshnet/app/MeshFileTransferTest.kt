@@ -13,6 +13,10 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 class MeshFileTransferTest {
     private val transfers = mutableListOf<MeshFileTransfer>()
@@ -84,6 +88,31 @@ class MeshFileTransferTest {
         voice.delete()
     }
 
+    @Test fun doesNotSendTerminalAckUntilDigestAndCompletionMarkerAreValid() {
+        val replies = mutableListOf<String>()
+        val events = mutableListOf<String>()
+        val receiver = track(MeshFileTransfer(context, { message ->
+            replies.add(message)
+            true
+        }, { events.add(it) }))
+        val (manifest, chunks) = protocolMessages(source, "digest_0001")
+        val count = chunks.size
+        receiver.accept(manifest)
+        chunks.dropLast(1).forEach { receiver.accept(it) }
+
+        val finalFields = chunks.last().split('|').toMutableList()
+        val corrupted = Base64.decode(finalFields[4], Base64.URL_SAFE or Base64.NO_WRAP)
+        corrupted[0] = (corrupted[0].toInt() xor 0x5a).toByte()
+        finalFields[4] = Base64.encodeToString(
+            corrupted, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        )
+        receiver.accept(finalFields.joinToString("|"))
+
+        assertFalse(replies.contains("~F2A|digest_0001|$count"))
+        assertFalse(File(receivedDir, "digest_0001.done").exists())
+        assertTrue(events.any { it.contains("integrity check failed") })
+    }
+
     @Test fun preflightsOutboxAndDoesNotQueuePartialFile() {
         val frames = mutableListOf<String>()
         val sender = track(
@@ -132,6 +161,85 @@ class MeshFileTransferTest {
         assertTrue(sender.send(Uri.fromFile(source)))
         assertTrue(sent.first().startsWith("~F2M|"))
         assertTrue(sent.any { it.startsWith("~F2C|") })
+    }
+
+    @Test fun exposesCompletedFilesAndExportsThemThroughContentResolver() {
+        val receiver = track(MeshFileTransfer(context, { true }, {}))
+        val (manifest, chunks) = protocolMessages(source, "export_0001")
+        receiver.accept(manifest)
+        chunks.forEach { receiver.accept(it) }
+
+        val received = receiver.receivedFiles().single()
+        val exported = File(context.cacheDir, "mesh-exported-copy.bin")
+        receiver.exportReceivedFile(received.name, Uri.fromFile(exported))
+        assertArrayEquals(source.readBytes(), exported.readBytes())
+        exported.delete()
+    }
+
+    @Test fun retainsCompletedInboxMarkersBeyondPartialCheckpointTtl() {
+        val receiver = track(MeshFileTransfer(context, { true }, {}))
+        val (manifest, chunks) = protocolMessages(source, "retain_0001")
+        receiver.accept(manifest)
+        chunks.forEach { receiver.accept(it) }
+        val marker = File(receivedDir, "retain_0001.done")
+        assertTrue(marker.isFile)
+        marker.setLastModified(System.currentTimeMillis() - 48L * 60L * 60L * 1000L)
+
+        val restarted = track(MeshFileTransfer(context, { true }, {}))
+        assertTrue(restarted.receivedFiles().any { it.exists() })
+        assertTrue(marker.exists())
+    }
+
+    @Test fun boundsCompletedInboxByFileCountAndEvictsOldEntries() {
+        val tiny = File(context.cacheDir, "mesh-quota.bin").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val receiver = track(MeshFileTransfer(context, { true }, {}))
+        repeat(51) { index ->
+            val id = "quota_${index.toString().padStart(5, '0')}"
+            val (manifest, chunks) = protocolMessages(tiny, id)
+            receiver.accept(manifest)
+            chunks.forEach { receiver.accept(it) }
+        }
+        assertEquals(50, receiver.receivedFiles().size)
+        assertTrue(receiver.receivedFiles().all { it.exists() && it.length() == 3L })
+        tiny.delete()
+    }
+
+    @Test fun cancelsAnActiveSenderAndSendsPeerCancellationControl() {
+        val sent = CopyOnWriteArrayList<String>()
+        val events = CopyOnWriteArrayList<String>()
+        val manifestQueued = CountDownLatch(1)
+        val sender = track(MeshFileTransfer(context, { message ->
+            sent.add(message)
+            if (message.startsWith("~F2M|")) manifestQueued.countDown()
+            true
+        }, { events.add(it) }))
+        val result = AtomicReference<Boolean?>()
+        val worker = Thread({ result.set(sender.send(Uri.fromFile(source))) }, "mesh-file-cancel-test")
+        worker.start()
+
+        assertTrue("Sender did not queue its manifest", manifestQueued.await(5, TimeUnit.SECONDS))
+        assertTrue(sender.cancelOutgoing())
+        worker.join(5_000)
+        assertTrue("Sender worker did not stop after cancellation", !worker.isAlive)
+        assertFalse(result.get() == true)
+        assertTrue(sent.any { it.startsWith("~F2X|") })
+        assertTrue(events.any { it.contains("cancelled on this device") })
+    }
+
+    @Test fun cancellationTombstoneBlocksDelayedManifestReplay() {
+        val receiver = track(MeshFileTransfer(context, { true }, {}))
+        val (manifest, _) = protocolMessages(source, "abort_00001")
+        receiver.accept(manifest)
+        assertTrue(File(receivedDir, "abort_00001.part").exists())
+
+        receiver.accept("~F2X|abort_00001")
+        assertTrue(File(receivedDir, "abort_00001.cancelled").isFile)
+        assertFalse(File(receivedDir, "abort_00001.part").exists())
+
+        // A stale manifest still in a durable sender outbox must not resurrect the cancelled transfer.
+        receiver.accept(manifest)
+        assertFalse(File(receivedDir, "abort_00001.part").exists())
+        assertTrue(File(receivedDir, "abort_00001.cancelled").exists())
     }
 
     @Test fun acceptsFileAt10MiBBoundaryUsingStreamingSource() {

@@ -110,6 +110,8 @@ class MeshForegroundService : Service() {
         return transfer.send(uri)
     }
 
+    fun cancelFileTransfers(): Boolean = fileTransfer?.cancelOutgoing() ?: false
+
     fun latestReceivedVoiceNote(): java.io.File? = fileTransfer?.latestVoiceNote()
     fun isLiveVoiceActive(): Boolean = liveVoiceCall?.isActive() == true
 
@@ -345,6 +347,7 @@ class MeshForegroundService : Service() {
     private fun stopMesh() {
         liveVoiceCall?.end()
         liveVoiceCall = null
+        fileTransfer?.cancelOutgoing()
         fileTransfer?.close()
         fileTransfer = null
         transport?.stop()

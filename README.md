@@ -31,10 +31,10 @@ Important boundaries:
 
 - BLE writes are not application-delivery acknowledgements. The current receipt is group-level and only indicates that some member holding the shared group key received the message; it does not identify or authenticate a specific recipient.
 - The current shared AES-GCM group key is not Signal Protocol. There is no per-device identity authentication, forward secrecy, or secure multi-device key rotation. `vodozemac` is a selected Apache-2.0 candidate, not an integrated runtime dependency.
-- File transfer is bounded to 10 MiB per file with resumable checkpoints; it is not an unlimited file-transfer service.
+- File transfer is bounded to 10 MiB per file with resumable checkpoints, a 100 MiB completed-inbox quota, local cancellation, and user-mediated export; it is not an unlimited file-transfer service.
 - Live group voice is an opt-in, best-effort source implementation using encrypted ephemeral frames. It has no individual recipient authorization or delivery guarantee and has not been validated for codec compatibility, echo, latency, battery use, or Android foreground-service behavior on physical devices.
 - The Android wallet code supports user-authorized Solana Mobile Wallet Adapter authorization/deauthorization and encrypted persistence of the authorization token. It does not construct, sign, or submit transactions.
-- A first-pass non-custodial Solana escrow program source exists under `solana/`. It is not built, tested, deployed, audited, or integrated with the Android wallet. Its program ID and initialization admin remain placeholders; it must not be used to accept real funds.
+- A first-pass non-custodial Solana escrow program source exists under `solana/`. Its build now fails closed unless actual program and initialization-admin public keys are supplied through environment variables. It is not built, tested, deployed, audited, or integrated with the Android wallet; it must not be used to accept real funds.
 
 See [mobile/README.md](mobile/README.md) and [mobile/SECURITY_AND_ESCROW.md](mobile/SECURITY_AND_ESCROW.md) for implementation details, known limitations, and activation gates.
 
