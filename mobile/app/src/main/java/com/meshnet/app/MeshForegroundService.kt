@@ -487,7 +487,8 @@ class MeshForegroundService : Service() {
             { state ->
                 emit(state)
                 handleTransportState(state)
-            }
+            },
+            { address, rssi -> linkQualityRegistry.recordRssi("BLE/$address", rssi) }
         )
         try {
             runCatching { transport?.start() }.onFailure { error ->

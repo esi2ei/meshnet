@@ -70,6 +70,15 @@ internal class MeshLinkQualityRegistry(
     }.sortedByDescending { it.score }
 
     @Synchronized
+    fun recordRssi(peer: String, rssiDbm: Int) {
+        if (rssiDbm !in -127..0) return
+        val state = states.getOrPut(peer) { State() }
+        state.rssiDbm = rssiDbm
+        state.observedAt = clock()
+        trim()
+    }
+
+    @Synchronized
     fun remove(peer: String) { states.remove(peer) }
 
     @Synchronized
