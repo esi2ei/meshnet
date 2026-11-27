@@ -82,7 +82,7 @@ class MeshFileTransfer(
         activeSendThreads[id] = Thread.currentThread()
         try {
             val count = (size + CHUNK_BYTES - 1) / CHUNK_BYTES
-            val startedAtMs = System.currentTimeMillis()
+            val startedAtNs = System.nanoTime()
             onEvent("File transfer progress: $name · 0/$count chunks · 0% · 0/$size bytes · 0 B/s")
             val safeName = Base64.encodeToString(
                 name.toByteArray(Charsets.UTF_8),
@@ -134,7 +134,7 @@ class MeshFileTransfer(
                 }
                 next = ack.coerceIn(next + 1, count)
                 val acknowledgedBytes = minOf(size.toLong(), next.toLong() * CHUNK_BYTES)
-                val elapsedMs = (System.currentTimeMillis() - startedAtMs).coerceAtLeast(1L)
+                val elapsedMs = ((System.nanoTime() - startedAtNs) / 1_000_000L).coerceAtLeast(1L)
                 val averageBytesPerSecond = acknowledgedBytes * 1_000L / elapsedMs
                 val percentage = (acknowledgedBytes * 100L / size).toInt().coerceIn(0, 100)
                 onEvent(
