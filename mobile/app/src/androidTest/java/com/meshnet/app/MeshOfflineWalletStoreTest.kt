@@ -108,4 +108,17 @@ class MeshOfflineWalletStoreTest {
         assertEquals(voucher, reopened.pendingOutgoingVouchers().single().payload)
     }
 
+    @Test
+    fun pendingOutgoingVoucherCanBeRetriedUntilRecipientAcknowledges() {
+        val voucher = sender.createPayment(recipient.address(), 120L)
+        sender.recordOutgoing(voucher)
+        val pending = sender.pendingOutgoingVouchers().single()
+        assertEquals(org.json.JSONObject(voucher).getString("id"), pending.id)
+        assertEquals(voucher, pending.payload)
+
+        val receipt = recipient.acceptPayment(voucher)
+        sender.acceptAcknowledgement(recipient.createAcknowledgement(receipt))
+        assertTrue(sender.pendingOutgoingVouchers().isEmpty())
+    }
+
 }
