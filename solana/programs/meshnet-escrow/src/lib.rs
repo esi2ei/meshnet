@@ -300,7 +300,7 @@ pub struct OpenOrder<'info> {
     pub mint: Account<'info, Mint>,
     #[account(mut, associated_token::mint = mint, associated_token::authority = buyer)]
     pub buyer_token: Account<'info, TokenAccount>,
-    #[account(init, payer = buyer, associated_token::mint = usdc_mint, associated_token::authority = order)]
+    #[account(init, payer = buyer, associated_token::mint = mint, associated_token::authority = order)]
     pub vault: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
