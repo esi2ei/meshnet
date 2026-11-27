@@ -226,7 +226,7 @@ class MeshForegroundService : Service() {
                 val awareSent = wifiAwareTransport?.sendToPeers(frame) == true
                 bleSent || p2pSent || awareSent
             },
-            onEphemeralPayload = { plaintext -> liveVoiceCall?.accept(plaintext) },
+            onEphemeralPayload = { origin, plaintext -> liveVoiceCall?.accept(origin, plaintext) },
             sendRelay = { frame, ingress ->
                 if (!outbox.enqueue(frame)) {
                     emit("Relay frame could not be stored in the durable outbox")
@@ -247,6 +247,7 @@ class MeshForegroundService : Service() {
         )
         liveVoiceCall = MeshLiveVoiceCall(
             context = this,
+            localNodeId = nodeId,
             sendEphemeral = { text -> router?.sendEphemeral(text) ?: false },
             onEvent = { message ->
                 emit(message)

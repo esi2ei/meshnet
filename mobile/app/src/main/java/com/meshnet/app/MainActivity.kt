@@ -33,6 +33,9 @@ class MainActivity : Activity() {
     private var recordingFile: File? = null
     private var isRecording = false
     private var voiceButton: Button? = null
+    private var liveVoiceButton: Button? = null
+    private var joinVoiceButton: Button? = null
+    private var joinVoiceAfterPermission = false
     private var voicePlayer: MediaPlayer? = null
 
     private val connection = object : ServiceConnection {
@@ -141,6 +144,28 @@ class MainActivity : Activity() {
             text = "Play latest received voice note"
             setOnClickListener { playLatestVoiceNote() }
         })
+        liveVoiceButton = Button(this).apply {
+            text = "Start live group voice"
+            setOnClickListener {
+                if (meshService?.isLiveVoiceActive() == true) {
+                    runCatching { meshService?.endLiveVoiceCall() }
+                        .onFailure { toast(it.message ?: "Unable to end live call") }
+                    liveVoiceButton?.text = "Start live group voice"
+                } else {
+                    joinVoiceAfterPermission = false
+                    requestLiveVoice()
+                }
+            }
+        }
+        root.addView(liveVoiceButton)
+        joinVoiceButton = Button(this).apply {
+            text = "Join incoming live voice"
+            setOnClickListener {
+                joinVoiceAfterPermission = true
+                requestLiveVoice()
+            }
+        }
+        root.addView(joinVoiceButton)
         root.addView(Button(this).apply {
             text = "Send file (max 256 KiB)"
             setOnClickListener {
@@ -227,6 +252,31 @@ class MainActivity : Activity() {
         beginVoiceRecording()
     }
 
+    private fun requestLiveVoice() {
+        if (meshService?.isRunning() != true) {
+            toast("Start the mesh before starting or joining a live voice call")
+            joinVoiceAfterPermission = false
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_LIVE_VOICE)
+            return
+        }
+        startOrJoinLiveVoice()
+    }
+
+    private fun startOrJoinLiveVoice() {
+        try {
+            if (joinVoiceAfterPermission) meshService?.joinIncomingLiveVoiceCall()
+            else meshService?.startLiveVoiceCall()
+            liveVoiceButton?.text = "End live group voice"
+        } catch (error: Exception) {
+            toast(error.message ?: "Unable to start live voice")
+        } finally {
+            joinVoiceAfterPermission = false
+        }
+    }
+
     private fun beginVoiceRecording() {
         val file = File(cacheDir, "mesh-voice-${System.currentTimeMillis()}.m4a")
         val media = createMediaRecorder()
@@ -307,6 +357,14 @@ class MainActivity : Activity() {
             else toast("Microphone permission is required to record a voice note")
             return
         }
+        if (requestCode == REQUEST_LIVE_VOICE) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startOrJoinLiveVoice()
+            else {
+                joinVoiceAfterPermission = false
+                toast("Microphone permission is required for a live voice call")
+            }
+            return
+        }
         if (requestCode == REQUEST_PERMISSIONS) {
             val bluetoothRequired = mutableSetOf(
                 Manifest.permission.BLUETOOTH_SCAN,
@@ -358,6 +416,7 @@ class MainActivity : Activity() {
         runOnUiThread {
             log.append("\n$line")
             status.text = line.take(90)
+            liveVoiceButton?.text = if (meshService?.isLiveVoiceActive() == true) "End live group voice" else "Start live group voice"
         }
     }
 
@@ -387,5 +446,6 @@ class MainActivity : Activity() {
         private const val REQUEST_PERMISSIONS = 4102
         private const val REQUEST_FILE = 4103
         private const val REQUEST_AUDIO = 4104
+        private const val REQUEST_LIVE_VOICE = 4105
     }
 }

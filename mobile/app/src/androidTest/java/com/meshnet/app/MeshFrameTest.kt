@@ -66,7 +66,7 @@ class MeshFrameTest {
             ciphertext = "ciphertext"
         )
         val legacyBytes = frame.encode().toString(Charsets.UTF_8)
-            .replace(""" "v":3 """.trim(), """ "v":1 """.trim())
+            .replace(""" "v":4 """.trim(), """ "v":1 """.trim())
             .toByteArray(Charsets.UTF_8)
         val protocolV2Bytes = frame.encode().toString(Charsets.UTF_8)
             .replace(""" "v":3 """.trim(), """ "v":2 """.trim())
@@ -126,6 +126,23 @@ class MeshFrameTest {
         val encoded = frame.encode()
         assertTrue(encoded.size <= MeshFrame.MAX_FRAME_BYTES)
         assertEquals(hops, MeshFrame.decode(encoded).hops)
+    }
+
+
+    @Test
+    fun ephemeralFrameRoundTripsWithoutAckTarget() {
+        val frame = MeshFrame(
+            id = "voice_packet_01",
+            origin = "node_01",
+            ttl = MeshFrame.MAX_TTL,
+            hops = listOf("node_01"),
+            nonce = "nonce",
+            ciphertext = "ciphertext",
+            kind = MeshFrame.KIND_EPHEMERAL
+        )
+        val decoded = MeshFrame.decode(frame.encode())
+        assertEquals(MeshFrame.KIND_EPHEMERAL, decoded.kind)
+        assertEquals(null, decoded.ackFor)
     }
 
     @Test

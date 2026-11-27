@@ -18,7 +18,7 @@ class MeshRouter(
     /** Returns true when an authenticated plaintext payload is consumed by an application protocol. */
     private val onPayload: (String) -> Boolean = { false },
     private val sendEphemeralFrame: (ByteArray) -> Boolean = send,
-    private val onEphemeralPayload: (String) -> Unit = {},
+    private val onEphemeralPayload: (String, String) -> Unit = { _, _ -> },
     private val sendRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> send(bytes) },
     private val sendEphemeralRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> sendEphemeralFrame(bytes) }
 ) {
@@ -42,7 +42,6 @@ class MeshRouter(
         )
         val (nonce, ciphertext) = crypto.encrypt(text, MeshFrame.aad(frame))
         val accepted = sendEphemeralFrame(frame.copy(nonce = nonce, ciphertext = ciphertext).encode())
-        if (!accepted) onMessage("Ephemeral media packet dropped: no connected transport accepted it")
         return accepted
     }
 
@@ -92,7 +91,7 @@ class MeshRouter(
             }
             val duplicate = frame.id in seen
             remember(seen, frame.id)
-            if (!duplicate) onEphemeralPayload(plaintext)
+            if (!duplicate) onEphemeralPayload(frame.origin, plaintext)
             if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
             return
         }
