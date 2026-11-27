@@ -45,7 +45,7 @@ On two Android 10+ BLE phones:
 
 1. Install the same debug APK and set the same randomly generated, high-entropy group passphrase (at least 24 characters) on both devices.
 2. Grant Bluetooth scan/connect/advertise and notification permissions. Verify denied permissions produce an actionable state and do not crash the service.
-3. Start the mesh on both devices. Confirm each discovers/connects to the other and that the service notification remains visible.
+3. Start the mesh on both devices. Confirm each device exposes its BLE GATT server while also scanning/connecting as a GATT client; verify both devices can originate and receive messages. If BLE peripheral/advertising is unavailable on one phone, confirm the service remains alive and the Wi-Fi Direct/Aware fallback can carry traffic when that radio is supported. Confirm the service notification remains visible.
 4. Send messages in both directions. Repeat while one phone is temporarily out of range, then return it to range and observe queued delivery and group-level receipt behavior.
 5. Stop and restart the service and the app. Verify saved credentials can be reused; use **Forget saved group credentials** and confirm the passphrase is required again.
 6. Repeat with different group passphrases. A phone in the wrong group must not display or accept another group's encrypted payload.
