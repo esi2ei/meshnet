@@ -76,9 +76,7 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
         return db.rawQuery(
             "SELECT frame FROM outbox ORDER BY created_at ASC LIMIT ?",
             arrayOf(limit.coerceIn(1, MAX_ENTRIES).toString())
-        ).use { cursor ->
-            buildList { while (cursor.moveToNext()) add(cursor.getBlob(0)) }
-        }
+        ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getBlob(0)) } }
     }
 
     @Synchronized
@@ -107,6 +105,19 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             arrayOf(MAX_RECEIVED_IDS)
         )
         return inserted == -1L
+    }
+
+    /** Prevents frames encrypted for a previous group key from being replayed after key rotation. */
+    @Synchronized
+    fun clearAll() {
+        writableDatabase.beginTransaction()
+        try {
+            writableDatabase.delete("outbox", null, null)
+            writableDatabase.delete("received_ids", null, null)
+            writableDatabase.setTransactionSuccessful()
+        } finally {
+            writableDatabase.endTransaction()
+        }
     }
 
     private fun digest(bytes: ByteArray): String =
