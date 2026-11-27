@@ -10,7 +10,12 @@ import java.util.BitSet
 import java.util.concurrent.ConcurrentHashMap
 
 /** Bounded group file transfer over encrypted MeshRouter text messages. */
-class MeshFileTransfer(private val context: Context, private val sendMessage: (String) -> Boolean, private val onEvent: (String) -> Unit) {
+class MeshFileTransfer(
+    private val context: Context,
+    private val sendMessage: (String) -> Boolean,
+    private val onEvent: (String) -> Unit,
+    private val canQueueBatch: (Int) -> Boolean = { true }
+) {
     private data class Incoming(val name:String,val size:Int,val chunks:Int,val digest:String,val file:File,val received:BitSet=BitSet(),var receivedBytes:Int=0)
     private val incoming=ConcurrentHashMap<String,Incoming>()
     private val pending=ConcurrentHashMap<String,MutableMap<Int,Pair<Int,ByteArray>>>()
@@ -30,6 +35,10 @@ class MeshFileTransfer(private val context: Context, private val sendMessage: (S
         val id=ByteArray(9).also(java.security.SecureRandom()::nextBytes).let{Base64.encodeToString(it,Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)}
         val digest=MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(""){"%02x".format(it)}
         val count=(bytes.size+CHUNK_BYTES-1)/CHUNK_BYTES
+        if (!canQueueBatch(count + 1)) {
+            onEvent("File not queued: outbox does not have room for all ${count + 1} file frames")
+            return false
+        }
         val safeName=Base64.encodeToString(name.toByteArray(Charsets.UTF_8),Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
         if(!sendMessage("~F1M|$id|${bytes.size}|$count|$digest|$safeName")) return false
         for(index in 0 until count){
