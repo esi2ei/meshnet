@@ -17,3 +17,10 @@ local.properties
 /solana/.anchor/
 /solana/ledger/
 /solana/target/deploy/*-keypair.json
+
+# Android release signing material (keep keystores and secrets outside version control)
+/mobile/signing/
+/mobile/*.jks
+/mobile/*.keystore
+/mobile/*.p12
+/mobile/*.pfx

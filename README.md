@@ -16,7 +16,7 @@ The dashboard does not require a Gemini API key for its core UI. Do not put priv
 
 ## Native Android
 
-Requirements: JDK 17 and Android SDK Platform 35. See [mobile/README.md](mobile/README.md).
+Requirements: JDK 17 and Android SDK Platform 36. See [mobile/README.md](mobile/README.md) for the supported Gradle/AGP/Kotlin versions and external release-signing requirements.
 
 Build locally without CI:
 

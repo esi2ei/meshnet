@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -246,6 +247,30 @@ class MainActivity : Activity() {
             text = "Outbox and replay cache persist locally. Group receipts confirm reception by at least one member sharing the key, not a named recipient. Shared group AES-GCM is a prototype, not Signal or forward-secret."
             textSize = 11f
         })
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            val left: Int
+            val top: Int
+            val right: Int
+            val bottom: Int
+            if (Build.VERSION.SDK_INT >= 30) {
+                val safeInsets = insets.getInsets(
+                    WindowInsets.Type.systemBars() or
+                        WindowInsets.Type.displayCutout() or
+                        WindowInsets.Type.ime()
+                )
+                left = safeInsets.left
+                top = safeInsets.top
+                right = safeInsets.right
+                bottom = safeInsets.bottom
+            } else {
+                left = 0
+                top = insets.systemWindowInsetTop
+                right = 0
+                bottom = insets.systemWindowInsetBottom
+            }
+            view.setPadding(28 + left, 36 + top, 28 + right, 24 + bottom)
+            insets
+        }
         setContentView(root)
     }
 

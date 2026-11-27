@@ -12,7 +12,7 @@ The native Android target uses real Android BLE advertising, scanning, and GATT.
 - Protocol v4 AES-256-GCM encrypted text, receipt, and non-durable EPHEMERAL frames with authenticated frame type, origin, frame ID, timestamp, receipt target, TTL, and route history. Relays re-encrypt after updating route metadata. All participating phones must run the same protocol version; protocol upgrades clear incompatible queued ciphertext and replay state.
 - Group-level application receipts: a sender retires its queued message when any member holding the shared group key receives it; receipt frames are themselves queued and relayed.
 - Persistent SQLite outbox (6,000-frame cap, 24-hour retention) and persistent receiver replay-ID cache (bounded to 8,192 IDs).
-- Streaming bounded-file transfer over the same encrypted group-routed message channel: 10 MiB maximum per file, 48-byte chunks, 16-chunk bounded send windows, receiver-driven contiguous checkpoints, compact durable resume metadata, batched file sync/checkpoint every eight received chunks, retries after lost windows, stable transfer IDs for identical content/name, up to two active incoming files, and streaming SHA-256 verification before a file is finalized in app-private storage. The sender file is streamed rather than loaded into one whole-file byte array. A terminal completion ACK is emitted only after digest verification, promotion to the final private file, and durable publication of its deduplication marker; intermediate window ACKs only confirm checkpointed chunks. The inbox retains at most 50 completed files / 100 MiB and removes the oldest completed file when the quota is reached. The UI reports acknowledged bytes, percentage and chunk progress, average acknowledged throughput, and inbound checkpoint progress. Use **Send file**, **Cancel outgoing file transfer**, and **Save received file** in the Android app.
+- Streaming bounded-file transfer over the same encrypted group-routed message channel: 10 MiB maximum per file, 48-byte chunks, 16-chunk bounded send windows, receiver-driven contiguous checkpoints, compact durable resume metadata, batched file sync/checkpoint every eight received chunks, retries after lost windows, stable transfer IDs for identical content/name, up to two active incoming files, and streaming SHA-256 verification before a file is finalized in app-private storage. The sender file is streamed rather than loaded into one whole-file byte array. A terminal completion ACK is emitted only after digest verification, promotion to the final private file, and durable publication of its deduplication marker; intermediate window ACKs only confirm checkpointed chunks. The inbox retains at most 50 completed files / 100 MiB and removes the oldest completed file when the quota is reached. The UI reports acknowledged bytes, percentage and chunk progress, average acknowledged throughput, and inbound checkpoint progress. The app targets Android 16 (API 36); its root layout applies system-bar, display-cutout, and IME insets so interactive controls remain within safe areas on edge-to-edge displays. Use **Send file**, **Cancel outgoing file transfer**, and **Save received file** in the Android app.
 - Short voice notes are recorded locally as AAC/M4A (up to 7 seconds) and sent through encrypted file transfer. A separate opt-in live group voice prototype uses 8 kHz mono AMR-NB packets at 20 ms intervals inside encrypted v4 EPHEMERAL frames, per-speaker jitter queues/decoders, and a bounded audio mixer. Live audio bypasses the durable outbox and has no delivery ACK; incoming calls do not open the microphone. Users must explicitly start or join, and microphone permission is requested only for recording or joining/starting a call. AMR-NB codec availability, echo behavior, latency, and audio quality have not been validated on physical devices.
 - User-started Android connected-device foreground service with an ongoing notification.
 - User-initiated Solana Mobile Wallet Adapter authorization/deauthorization for Solana Devnet. The app displays the authorized public address and persists the MWA authorization token only as AES-GCM ciphertext protected by an Android Keystore key; it does not construct, sign, or submit transactions.
@@ -20,7 +20,9 @@ The native Android target uses real Android BLE advertising, scanning, and GATT.
 
 ## Build locally (no CI)
 
-Requirements: JDK 17, Android SDK Platform 35, and Gradle 8.9 or a compatible Gradle installation. From this directory:
+Requirements: JDK 17, Android SDK Platform 36, Android Gradle Plugin 8.9.1, Kotlin Gradle Plugin 2.2.21, and Gradle 8.11.1 or a compatible newer Gradle installation. From this directory:
+
+Google Play has required new apps and updates to target Android 16 (API 36) or higher since August 31, 2026. This branch is configured for API 36; confirm API-level behavior and device compatibility in your manual test pass.
 
     gradle assembleDebug
 
@@ -35,6 +37,17 @@ Install the debug APK on at least two BLE-capable Android phones. On each phone,
 For Wi-Fi Direct, start the mesh on both devices. On one device choose **Create Wi-Fi Direct group**. On the other choose **Discover Wi-Fi Direct peers**, copy the discovered device address from the log, enter it, and choose **Connect to Wi-Fi Direct peer**. The group owner hosts the local TCP socket; the client connects to it. Wi-Fi Direct is user-triggered and does not auto-connect to discovered devices. Wi-Fi Aware discovery starts automatically on Android 10+ when supported. To avoid radio coexistence conflicts, choosing Wi-Fi Direct stops Wi-Fi Aware; use “Switch back to Wi-Fi Aware” to stop Wi-Fi Direct and resume Aware discovery.
 
 For a multi-hop BLE check, use three phones with each device within BLE range of at least one neighbor, then move the origin and destination out of direct range while keeping the relay in range. Verify the receiver log shows the message and hop count.
+
+## Release signing gate
+
+Debug builds do not require signing secrets. Release packaging and signing tasks (`assembleRelease`, `bundleRelease`, and their package/sign tasks) depend on a fail-closed validation step. Supply these values through the local shell environment or a secrets manager; do not store them in Gradle files, committed properties files, or source control:
+
+- `MESHNET_RELEASE_STORE_FILE`: absolute path to the release keystore.
+- `MESHNET_RELEASE_STORE_PASSWORD`: keystore password.
+- `MESHNET_RELEASE_KEY_ALIAS`: signing key alias.
+- `MESHNET_RELEASE_KEY_PASSWORD`: signing key password.
+
+Create and back up the keystore securely outside the repository. Use `keytool -genkeypair` to create an RSA signing key in a private directory, then set the four environment variables before running `gradle bundleRelease`. Release packaging stops with an actionable error when any variable is missing or the keystore path does not exist. Never commit or share the signing key or passwords.
 
 ## Security and delivery boundaries
 
