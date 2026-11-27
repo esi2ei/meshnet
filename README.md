@@ -21,7 +21,7 @@ Requirements: Node.js 22+. The GitHub Actions workflow is currently manual-only;
     npm install
     npm run dev
 
-The browser dashboard remains useful for exploring the simulated topology, but a normal browser does not have permission to control Android Bluetooth or Wi-Fi hardware.
+The browser dashboard can preview the interface, but native Bluetooth and Wi-Fi controls are available only inside the packaged Android APK.
 
 ## Native Android build
 
