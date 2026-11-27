@@ -4,6 +4,7 @@ import org.gradle.api.tasks.Sync
 
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.android")
 }
 
 // Build the React dashboard from the repository root and package it as local APK assets.
@@ -79,7 +80,7 @@ tasks.configureEach {
 android {
     sourceSets.getByName("main").assets.srcDir(bundledWebAssets)
     namespace = "com.meshnet.app"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.meshnet.app"
@@ -112,9 +113,15 @@ android {
 
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
 dependencies {
     implementation("androidx.webkit:webkit:1.18.0")
-    implementation("com.solanamobile:mobile-wallet-adapter-clientlib-ktx:2.2.1")
+    implementation("com.solanamobile:mobile-wallet-adapter-clientlib-ktx:2.0.7")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
