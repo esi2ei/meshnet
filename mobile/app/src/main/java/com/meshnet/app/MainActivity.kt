@@ -748,8 +748,8 @@ class MainActivity : Activity() {
     private fun solanaDevnetRpc(method: String, params: JSONArray): JSONObject {
         val connection = (URL(SOLANA_DEVNET_RPC).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
-            connectTimeout = WALLET_RPC_TIMEOUT_SECONDS * 1000
-            readTimeout = WALLET_RPC_TIMEOUT_SECONDS * 1000
+            connectTimeout = (WALLET_RPC_TIMEOUT_SECONDS * 1000).toInt()
+            readTimeout = (WALLET_RPC_TIMEOUT_SECONDS * 1000).toInt()
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Accept", "application/json")
