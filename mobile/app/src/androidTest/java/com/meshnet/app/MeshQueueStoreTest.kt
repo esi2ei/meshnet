@@ -4,6 +4,7 @@ import androidx.test.core.app.ApplicationProvider
 import android.content.Context
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -26,7 +27,7 @@ class MeshQueueStoreTest {
     }
 
     @Test
-    fun authenticatedReceiptRetiresMessageButKeepsReceiptQueued() {
+    fun authenticatedReceiptRetiresMessageButKeepsReceiptQueuedUntilPeerAcceptsIt() {
         val message = frame("message_01", MeshFrame.KIND_MESSAGE)
         val receipt = frame("receipt_01", MeshFrame.KIND_ACK, "message_01")
 
@@ -37,6 +38,21 @@ class MeshQueueStoreTest {
         val pending = store.pending().map { MeshFrame.decode(it) }
         assertEquals(1, pending.size)
         assertEquals(MeshFrame.KIND_ACK, pending.single().kind)
+    }
+
+    @Test
+    fun acceptedReceiptCanBeRetiredWithoutRemovingDurableMessages() {
+        val message = frame("message_03", MeshFrame.KIND_MESSAGE)
+        val receipt = frame("receipt_03", MeshFrame.KIND_ACK, "message_03")
+
+        assertTrue(store.enqueue(message.encode()))
+        assertTrue(store.enqueue(receipt.encode()))
+        assertTrue(store.retireAcknowledgement(receipt.encode()))
+        assertFalse(store.retireAcknowledgement(message.encode()))
+
+        val pending = store.pending().map { MeshFrame.decode(it) }
+        assertEquals(1, pending.size)
+        assertEquals("message_03", pending.single().id)
     }
 
     @Test
