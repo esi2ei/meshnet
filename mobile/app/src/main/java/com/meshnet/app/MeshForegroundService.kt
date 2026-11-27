@@ -130,6 +130,34 @@ class MeshForegroundService : Service() {
         return activeRouter.sendMessage(message)
     }
 
+    fun sendDirectMessage(destinationNodeId: String, message: String): Boolean {
+        val activeRouter = router ?: throw IllegalStateException("Mesh service is not ready")
+        return activeRouter.sendMessageTo(destinationNodeId, message)
+    }
+
+    private fun sendMeshFrameToPeer(frame: ByteArray, peer: String): Boolean {
+        val separator = peer.indexOf('/')
+        if (separator <= 0 || separator == peer.lastIndex) return false
+        val transportName = peer.substring(0, separator)
+        val address = peer.substring(separator + 1)
+        return when (transportName) {
+            "BLE" -> transport?.sendToPeer(frame, address) == true
+            "P2P" -> wifiTransport?.sendToPeer(frame, address) == true
+            "AWARE" -> wifiAwareTransport?.sendToPeer(frame, address) == true
+            else -> false
+        }
+    }
+
+    private fun sendMeshFrameToOthers(frame: ByteArray, ingress: String?): Boolean {
+        val separator = ingress?.indexOf('/') ?: -1
+        val ingressTransport = if (separator > 0) ingress!!.substring(0, separator) else null
+        val ingressAddress = if (separator > 0) ingress!!.substring(separator + 1) else ingress
+        val bleSent = transport?.sendToPeers(frame, if (ingressTransport == "BLE") ingressAddress else null) == true
+        val p2pSent = wifiTransport?.sendToPeers(frame, if (ingressTransport == "P2P") ingressAddress else null) == true
+        val awareSent = wifiAwareTransport?.sendToPeers(frame, if (ingressTransport == "AWARE") ingressAddress else null) == true
+        return bleSent || p2pSent || awareSent
+    }
+
     fun offlineWalletAddress(): String = offlineWallet.address()
 
     @Synchronized
@@ -407,20 +435,14 @@ class MeshForegroundService : Service() {
                     emit("Relay frame could not be stored in the durable outbox")
                     false
                 } else {
-                    transport?.sendToPeers(frame, ingress)
-                    wifiTransport?.sendToPeers(frame, ingress)
-                    wifiAwareTransport?.sendToPeers(frame, ingress)
-                    true
+                    sendMeshFrameToOthers(frame, ingress)
                 }
             },
-            sendEphemeralRelay = { frame, ingress ->
-                val bleSent = transport?.sendToPeers(frame, ingress) == true
-                val p2pSent = wifiTransport?.sendToPeers(frame, ingress) == true
-                val awareSent = wifiAwareTransport?.sendToPeers(frame, ingress) == true
-                bleSent || p2pSent || awareSent
-            },
-            onRouteObserved = { path ->
-                if (routeRegistry.observe(path)) emit("Observed mesh route: ${path.joinToString(" → ")}")
+            sendEphemeralRelay = { frame, ingress -> sendMeshFrameToOthers(frame, ingress) },
+            resolveNextHops = routeRegistry::nextHopsFor,
+            sendToPeer = ::sendMeshFrameToPeer,
+            onRouteObserved = { path, ingress ->
+                if (routeRegistry.observe(path, ingressPeer = ingress)) emit("Observed mesh route: ${path.joinToString(" → ")}")
             }
         )
         processCompletedPendingOfflinePayments()
@@ -436,7 +458,7 @@ class MeshForegroundService : Service() {
         transport = MeshBleTransport(
             this,
             { address, connected -> recordPeerConnection("BLE/GATT", address, connected) },
-            { peer, payload -> router?.receive(payload, peer) },
+            { peer, payload -> router?.receive(payload, "BLE/$peer") },
             { state ->
                 emit(state)
                 handleTransportState(state)
@@ -450,7 +472,7 @@ class MeshForegroundService : Service() {
             }
             wifiTransport = MeshWifiDirectTransport(
                 this,
-                { peer, payload -> router?.receive(payload, peer) },
+                { peer, payload -> router?.receive(payload, "P2P/$peer") },
                 { state ->
                     emit(state)
                     if (state.contains("data channel ready")) handleTransportState("Wi-Fi Direct channel ready")
@@ -460,7 +482,7 @@ class MeshForegroundService : Service() {
             wifiAwareTransport = MeshWifiAwareTransport(
                 this,
                 passphrase,
-                { peer, payload -> router?.receive(payload, peer) },
+                { peer, payload -> router?.receive(payload, "AWARE/$peer") },
                 { state ->
                     emit(state)
                     if (state.contains("data channel ready")) handleTransportState("Wi-Fi Aware channel ready")
