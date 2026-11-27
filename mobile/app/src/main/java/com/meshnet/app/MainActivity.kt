@@ -20,6 +20,13 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.solana.mobilewalletadapter.clientlib.protocol.MobileWalletAdapterClient
+import com.solana.mobilewalletadapter.clientlib.scenario.LocalAssociationIntentCreator
+import com.solana.mobilewalletadapter.clientlib.scenario.LocalAssociationScenario
+import com.solana.mobilewalletadapter.clientlib.scenario.Scenario
+import com.solana.mobilewalletadapter.common.ProtocolContract
+import java.math.BigInteger
+import java.util.concurrent.TimeUnit
 
 class MainActivity : Activity() {
     private lateinit var status: TextView
@@ -37,6 +44,11 @@ class MainActivity : Activity() {
     private var joinVoiceButton: Button? = null
     private var joinVoiceAfterPermission = false
     private var voicePlayer: MediaPlayer? = null
+    private lateinit var walletStatus: TextView
+    @Volatile private var walletScenario: LocalAssociationScenario? = null
+    @Volatile private var walletBusy = false
+    @Volatile private var walletAuthToken: String? = null
+    @Volatile private var walletAddress: String? = null
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -70,6 +82,16 @@ class MainActivity : Activity() {
         root.addView(TextView(this).apply { text = "MeshNet · Native Android"; textSize = 24f })
         status = TextView(this).apply { text = "Stopped" }
         root.addView(status)
+        walletStatus = TextView(this).apply { text = "Solana wallet: not connected · Devnet only" }
+        root.addView(walletStatus)
+        root.addView(Button(this).apply {
+            text = "Connect Solana wallet (Devnet)"
+            setOnClickListener { connectSolanaWalletDevnet() }
+        })
+        root.addView(Button(this).apply {
+            text = "Disconnect Solana wallet"
+            setOnClickListener { disconnectSolanaWallet() }
+        })
         keyInput = EditText(this).apply {
             hint = "Group passphrase (24+ chars); blank reuses saved key"
             inputType = 0x00000081
@@ -198,6 +220,151 @@ class MainActivity : Activity() {
                 toast(error.message ?: "Unable to send file")
             }
         }
+        if (requestCode == REQUEST_WALLET && resultCode == RESULT_CANCELED) {
+            append("Wallet activity returned; checking the local association result")
+        }
+    }
+
+
+    /**
+     * Connects to a user-selected MWA-compatible wallet on Solana Devnet.
+     * Authorization data is deliberately held only in memory. No payment transaction is
+     * constructed or sent: the escrow program is still a non-deployed, unaudited draft.
+     */
+    private fun connectSolanaWalletDevnet() {
+        if (walletBusy) {
+            toast("A wallet operation is already in progress")
+            return
+        }
+        walletBusy = true
+        val scenario = try {
+            LocalAssociationScenario(Scenario.DEFAULT_CLIENT_TIMEOUT_MS)
+        } catch (error: Exception) {
+            walletBusy = false
+            toast(error.message ?: "Unable to create wallet association")
+            return
+        }
+        walletScenario = scenario
+        try {
+            val associationIntent = LocalAssociationIntentCreator.createAssociationIntent(
+                null, scenario.port, scenario.session
+            )
+            val connectionFuture = scenario.start()
+            @Suppress("DEPRECATION")
+            startActivityForResult(associationIntent, REQUEST_WALLET)
+            walletStatus.text = "Connecting to a wallet · Solana Devnet"
+            Thread({
+                try {
+                    val client = connectionFuture.get(WALLET_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    val authorization = client.authorize(
+                        null, null, "MeshNet prototype", ProtocolContract.CHAIN_SOLANA_DEVNET,
+                        null, null, null, null
+                    ).get(WALLET_RPC_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    val account = authorization.accounts.firstOrNull()
+                        ?: throw IllegalStateException("Wallet returned no authorized account")
+                    val address = encodeBase58(account.publicKey)
+                    walletAuthToken = authorization.authToken
+                    walletAddress = address
+                    runOnUiThread {
+                        walletStatus.text = "Connected · Devnet · $address"
+                        append("Wallet authorized for read-only prototype use on Solana Devnet")
+                    }
+                } catch (error: Exception) {
+                    runOnUiThread {
+                        walletStatus.text = "Solana wallet: not connected · Devnet only"
+                        toast(error.cause?.message ?: error.message ?: "Wallet authorization failed")
+                    }
+                } finally {
+                    runCatching { scenario.close().get(WALLET_CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+                    runOnUiThread {
+                        if (walletScenario === scenario) walletScenario = null
+                        walletBusy = false
+                    }
+                }
+            }, "meshnet-wallet-authorize").apply { isDaemon = true; start() }
+        } catch (error: Exception) {
+            runCatching { scenario.close() }
+            walletScenario = null
+            walletBusy = false
+            walletStatus.text = "Solana wallet: not connected · Devnet only"
+            toast(error.message ?: "No compatible wallet activity was found")
+        }
+    }
+
+    private fun disconnectSolanaWallet() {
+        val authToken = walletAuthToken
+        if (authToken == null) {
+            walletAddress = null
+            walletStatus.text = "Solana wallet: not connected · Devnet only"
+            toast("No in-memory wallet authorization is active")
+            return
+        }
+        if (walletBusy) {
+            toast("A wallet operation is already in progress")
+            return
+        }
+        walletBusy = true
+        val scenario = try {
+            LocalAssociationScenario(Scenario.DEFAULT_CLIENT_TIMEOUT_MS)
+        } catch (error: Exception) {
+            walletBusy = false
+            toast(error.message ?: "Unable to create wallet association")
+            return
+        }
+        walletScenario = scenario
+        try {
+            val associationIntent = LocalAssociationIntentCreator.createAssociationIntent(
+                null, scenario.port, scenario.session
+            )
+            val connectionFuture = scenario.start()
+            @Suppress("DEPRECATION")
+            startActivityForResult(associationIntent, REQUEST_WALLET)
+            Thread({
+                var deauthorized = false
+                try {
+                    val client = connectionFuture.get(WALLET_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    client.deauthorize(authToken).get(WALLET_RPC_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    deauthorized = true
+                } catch (error: Exception) {
+                    runOnUiThread {
+                        toast(error.cause?.message ?: error.message ?: "Wallet deauthorization failed")
+                    }
+                } finally {
+                    runCatching { scenario.close().get(WALLET_CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+                    runOnUiThread {
+                        if (deauthorized) {
+                            walletAuthToken = null
+                            walletAddress = null
+                            walletStatus.text = "Solana wallet: disconnected · Devnet"
+                            append("Wallet authorization revoked")
+                        }
+                        if (walletScenario === scenario) walletScenario = null
+                        walletBusy = false
+                    }
+                }
+            }, "meshnet-wallet-deauthorize").apply { isDaemon = true; start() }
+        } catch (error: Exception) {
+            runCatching { scenario.close() }
+            walletScenario = null
+            walletBusy = false
+            toast(error.message ?: "Unable to open wallet for deauthorization")
+        }
+    }
+
+    private fun encodeBase58(bytes: ByteArray): String {
+        val alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        var value = BigInteger(1, bytes)
+        val radix = BigInteger.valueOf(58)
+        val encoded = StringBuilder()
+        while (value.signum() > 0) {
+            val parts = value.divideAndRemainder(radix)
+            encoded.append(alphabet[parts[1].toInt()])
+            value = parts[0]
+        }
+        var leadingZeroes = 0
+        while (leadingZeroes < bytes.size && bytes[leadingZeroes] == 0.toByte()) leadingZeroes++
+        repeat(leadingZeroes) { encoded.append('1') }
+        return encoded.reverse().toString()
     }
 
     private fun playLatestVoiceNote() {
@@ -422,6 +589,12 @@ class MainActivity : Activity() {
 
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
+    override fun onDestroy() {
+        walletScenario?.let { scenario -> runCatching { scenario.close() } }
+        walletScenario = null
+        super.onDestroy()
+    }
+
     override fun onStop() {
         voicePlayer?.release()
         voicePlayer = null
@@ -446,6 +619,10 @@ class MainActivity : Activity() {
         private const val REQUEST_PERMISSIONS = 4102
         private const val REQUEST_FILE = 4103
         private const val REQUEST_AUDIO = 4104
+        private const val REQUEST_WALLET = 4106
+        private const val WALLET_CONNECT_TIMEOUT_SECONDS = 60L
+        private const val WALLET_RPC_TIMEOUT_SECONDS = 60L
+        private const val WALLET_CLOSE_TIMEOUT_SECONDS = 3L
         private const val REQUEST_LIVE_VOICE = 4105
     }
 }

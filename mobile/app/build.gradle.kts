@@ -25,6 +25,7 @@ android {
 }
 
 dependencies {
+    implementation("com.solanamobile:mobile-wallet-adapter-clientlib-ktx:2.0.7")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
