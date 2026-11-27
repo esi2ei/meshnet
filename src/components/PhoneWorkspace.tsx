@@ -281,7 +281,7 @@ export default function PhoneWorkspace() {
               onClick={() => { native?.sendSolanaDevnetTransfer(solanaRecipient.trim(), solanaAmount.trim()); setLastEvent("Devnet transfer opened · approve or reject in your wallet"); }}>
               Send SOL using connected wallet
             </button>
-            <p className="text-[11px] leading-relaxed text-amber-200/80">This action requires internet and a wallet approval. It sends native SOL on Devnet only; it is separate from the offline local-unit wallet and does not send mainnet funds.</p>
+            <p className="text-[11px] leading-relaxed text-amber-200/80">This action requires internet, wallet approval, and an MWA wallet that supports sign-and-send. It sends native SOL on Devnet only; it is separate from the offline local-unit wallet and does not send mainnet funds.</p>
           </div>
         )}
         <p className="text-[11px] leading-relaxed text-slate-500">Online integrations are off by default. Enabling this setting permits the explicitly requested wallet adapter and Devnet RPC flow only; it does not enable cloud messaging, analytics, telemetry, remote fonts, or automatic uploads.</p>
