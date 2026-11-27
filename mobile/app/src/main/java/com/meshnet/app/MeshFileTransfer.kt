@@ -49,7 +49,8 @@ class MeshFileTransfer(
         mkdirs()
         listFiles()?.filter {
             (it.name.endsWith(".part") || it.name.endsWith(".meta") ||
-                it.name.endsWith(".meta.tmp") || it.name.endsWith(".done")) &&
+                it.name.endsWith(".meta.tmp") || it.name.endsWith(".done") ||
+                it.name.endsWith(".done.tmp")) &&
                 System.currentTimeMillis() - it.lastModified() > PARTIAL_TTL_MS
         }?.forEach { it.delete() }
     }
@@ -353,27 +354,45 @@ class MeshFileTransfer(
                 return
             }
             val destination = uniqueDestination(state.name)
-            if (state.file.renameTo(destination)) {
-                val done = File(root, "$id.done")
-                val record = JSONObject()
-                    .put("name", state.name)
-                    .put("size", state.size)
-                    .put("chunks", state.chunks)
-                    .put("digest", state.digest)
-                runCatching {
-                    FileOutputStream(done).use { output ->
-                        output.write(record.toString().toByteArray(Charsets.UTF_8))
-                        output.fd.sync()
-                    }
-                }
-                state.meta.delete()
-                incoming.remove(id)
-                sendAck(id, state.chunks)
-                onEvent("File received and verified: ${destination.name} (${state.size} bytes)")
-            } else {
+            val done = File(root, "$id.done")
+            val doneTemp = File(root, "$id.done.tmp")
+            val record = JSONObject()
+                .put("name", state.name)
+                .put("size", state.size)
+                .put("chunks", state.chunks)
+                .put("digest", state.digest)
+            // Write and fsync the completion record before moving the verified file. The
+            // record is not published until after the final file rename succeeds.
+            FileOutputStream(doneTemp).use { output ->
+                output.write(record.toString().toByteArray(Charsets.UTF_8))
+                output.fd.sync()
+            }
+
+            if (!state.file.renameTo(destination)) {
+                doneTemp.delete()
                 state.handle = RandomAccessFile(state.file, "rw")
                 onEvent("Verified file could not be moved; transfer checkpoint retained for retry")
+                return
             }
+
+            if (!doneTemp.renameTo(done)) {
+                // Never ACK a completed transfer without a durable deduplication marker.
+                // Roll the final file back to its checkpoint path so the sender can safely retry.
+                val rolledBack = destination.renameTo(state.file)
+                doneTemp.delete()
+                if (rolledBack) {
+                    state.handle = RandomAccessFile(state.file, "rw")
+                } else {
+                    onEvent("File delivered to ${destination.name}, but completion metadata could not be committed; no ACK was sent")
+                }
+                onEvent("Completion marker could not be committed; sender may retry this file")
+                return
+            }
+
+            state.meta.delete()
+            incoming.remove(id)
+            sendAck(id, state.chunks)
+            onEvent("File received and verified: ${destination.name} (${state.size} bytes)")
         } catch (error: Exception) {
             if (state.file.exists() && state.handle == null) {
                 state.handle = runCatching { RandomAccessFile(state.file, "rw") }.getOrNull()

@@ -50,6 +50,16 @@ class MeshFileTransferTest {
         assertTrue(saved != null)
         assertArrayEquals(source.readBytes(), saved!!.readBytes())
         assertTrue(events.any { it.contains("received and verified") })
+        val marker = File(receivedDir, "transfer_0001.done")
+        assertTrue("A completed transfer must have a durable deduplication marker", marker.isFile)
+        val before = receivedDir.listFiles()?.count {
+            it.isFile && it.extension !in setOf("part", "meta", "done", "tmp")
+        } ?: 0
+        assertTrue(receiver.accept(manifest))
+        val after = receivedDir.listFiles()?.count {
+            it.isFile && it.extension !in setOf("part", "meta", "done", "tmp")
+        } ?: 0
+        assertEquals("A repeated manifest must not create a second copy", before, after)
     }
 
     @Test fun preservesM4aExtensionForReceivedVoiceNotePlayback() {
