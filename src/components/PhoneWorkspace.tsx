@@ -267,10 +267,10 @@ export default function PhoneWorkspace() {
             <input id="solana-devnet-recipient" value={solanaRecipient} onChange={(event) => setSolanaRecipient(event.target.value.trim())}
               placeholder="Devnet recipient address" className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-cyan-400" />
             <label className="block text-xs text-slate-400" htmlFor="solana-devnet-amount">Amount in SOL (up to 9 decimals)</label>
-            <input id="solana-devnet-amount" inputMode="decimal" value={solanaAmount} onChange={(event) => setSolanaAmount(event.target.value.replace(/[^0-9.]/g, '').replace(/(\\..*)\\./g, '$1'))}
+            <input id="solana-devnet-amount" inputMode="decimal" value={solanaAmount} onChange={(event) => setSolanaAmount(event.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
               placeholder="0.01" className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-cyan-400" />
             <button className={primaryClass}
-              disabled={!runtime.native || runtime.walletBusy || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(solanaRecipient) || !/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,9})?$/.test(solanaAmount) || Number(solanaAmount) <= 0}
+              disabled={!runtime.native || runtime.walletBusy || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(solanaRecipient) || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,9})?$/.test(solanaAmount) || Number(solanaAmount) <= 0}
               onClick={() => { native?.sendSolanaDevnetTransfer(solanaRecipient.trim(), solanaAmount.trim()); setLastEvent("Devnet transfer opened · approve or reject in your wallet"); }}>
               Send SOL using connected wallet
             </button>
