@@ -5,10 +5,14 @@ import PhoneWorkspace from './components/PhoneWorkspace';
 import SystemInfo from './components/SystemInfo';
 import CodeExporter from './components/CodeExporter';
 
+type ObservedRoute = { id: string; nodes: string[]; observedAt: number; observations: number };
+
 type RuntimeSnapshot = {
   native: boolean;
   running: boolean;
   connectedPeers: LivePeer[];
+  observedRoutes: ObservedRoute[];
+  localNodeId: string | null;
   recentEvents: string[];
 };
 
@@ -16,6 +20,8 @@ const emptyRuntime: RuntimeSnapshot = {
   native: false,
   running: false,
   connectedPeers: [],
+  observedRoutes: [],
+  localNodeId: null,
   recentEvents: [],
 };
 
@@ -36,6 +42,8 @@ export default function App() {
           native: value.native === true,
           running: value.running === true,
           connectedPeers: Array.isArray(value.connectedPeers) ? value.connectedPeers : [],
+          observedRoutes: Array.isArray(value.observedRoutes) ? value.observedRoutes : [],
+          localNodeId: typeof value.localNodeId === 'string' ? value.localNodeId : null,
           recentEvents: Array.isArray(value.recentEvents) ? value.recentEvents : [],
         });
       } catch {
@@ -80,7 +88,7 @@ export default function App() {
               <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2"><Smartphone className="h-3.5 w-3.5 text-cyan-300" /> Android runtime</span>
             </div>
           </section>
-          <MeshSimulator native={runtime.native} running={runtime.running} peers={runtime.connectedPeers} />
+          <MeshSimulator native={runtime.native} running={runtime.running} peers={runtime.connectedPeers} routes={runtime.observedRoutes} localNodeId={runtime.localNodeId} />
           <SystemInfo native={runtime.native} events={runtime.recentEvents} />
           <section className="rounded-2xl border border-slate-800 bg-[#11151B] p-4 sm:p-5">
             <div className="mb-3 flex items-center gap-2"><Code2 className="h-4 w-4 text-cyan-300" /><h2 className="text-sm font-semibold text-white">Application source code</h2></div>
