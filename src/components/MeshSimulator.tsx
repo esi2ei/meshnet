@@ -33,12 +33,13 @@ export default function MeshSimulator({ running, native, peers, routes, localNod
   // Route observations are group-key-authenticated frame histories that reached this device.
   // Keep their graph separate from live radio links: a recently observed path is not
   // proof that every hop is still connected at this instant.
-  const validRoutes = routes.filter(route =>
+  const allValidRoutes = routes.filter(route =>
     route.nodes.length >= 2 &&
     route.nodes.length <= 9 &&
     localNodeId !== null &&
     route.nodes[route.nodes.length - 1] === localNodeId
   );
+  const validRoutes = allValidRoutes.slice(0, 8);
   const depthByNode = new Map<string, number>();
   validRoutes.forEach(route => route.nodes.slice(0, -1).forEach((node, index) => {
     const depth = route.nodes.length - 1 - index;
@@ -51,7 +52,8 @@ export default function MeshSimulator({ running, native, peers, routes, localNod
     group.push(node);
     nodesByDepth.set(depth, group);
   });
-  const routeWidth = 900, routeHeight = 280;
+  const maxNodesAtDepth = Math.max(1, ...Array.from(nodesByDepth.values(), nodes => nodes.length));
+  const routeWidth = 900, routeHeight = Math.max(280, maxNodesAtDepth * 48);
   const localPosition = { x: 820, y: routeHeight / 2 };
   const routePositions = new Map<string, { x: number; y: number }>();
   nodesByDepth.forEach((nodes, depth) => {
@@ -123,9 +125,9 @@ export default function MeshSimulator({ running, native, peers, routes, localNod
                 <h4 className="text-sm font-semibold text-white">Observed multi-hop routes</h4>
                 <p className="mt-1 text-xs text-slate-500">Paths reconstructed from group-key-authenticated frame hop histories</p>
               </div>
-              <span className="rounded-lg border border-slate-700 px-2 py-1 text-[10px] text-slate-400">{validRoutes.length} observed path{validRoutes.length === 1 ? '' : 's'}</span>
+              <span className="rounded-lg border border-slate-700 px-2 py-1 text-[10px] text-slate-400">{allValidRoutes.length} observed path{allValidRoutes.length === 1 ? '' : 's'}</span>
             </div>
-            {validRoutes.length === 0 || !localNodeId ? (
+            {allValidRoutes.length === 0 || !localNodeId ? (
               <p className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-500">
                 No forwarded route has reached this device yet. When a message crosses relay nodes, its group-key-authenticated hop history will appear here. These observations expire and are not presented as currently active links.
               </p>
