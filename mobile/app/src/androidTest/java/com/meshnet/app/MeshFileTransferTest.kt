@@ -92,6 +92,15 @@ class MeshFileTransferTest {
         assertArrayEquals(source.readBytes(), saved!!.readBytes())
     }
 
+    @Test fun queuesAFileAtThe256KiBBoundaryWithinTheOutboxWindow() {
+        source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES) { (it % 251).toByte() })
+        val frames = mutableListOf<String>()
+        val sender = MeshFileTransfer(context, { frames.add(it); true }, {})
+        assertTrue(sender.send(Uri.fromFile(source)))
+        assertEquals(1 + (MeshFileTransfer.MAX_FILE_BYTES + 47) / 48, frames.size)
+        assertTrue(frames.all { it.toByteArray(Charsets.UTF_8).size <= 120 })
+    }
+
     @Test fun rejectsFilesLargerThan256KiBTransferLimit() {
         source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES + 1))
         val sender = MeshFileTransfer(context, { true }, {})
