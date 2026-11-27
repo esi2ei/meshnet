@@ -110,8 +110,9 @@ pub mod meshnet_escrow {
 
 fn validate_order_terms(amount: u64, now: i64, expires_at: i64) -> Result<()> {
     require!(amount > 0, EscrowError::InvalidAmount);
+    let max_expiry = now.checked_add(MAX_ORDER_LIFETIME).ok_or(EscrowError::ExpiryTooFar)?;
     require!(expires_at > now, EscrowError::InvalidExpiry);
-    require!(expires_at <= now + MAX_ORDER_LIFETIME, EscrowError::ExpiryTooFar);
+    require!(expires_at <= max_expiry, EscrowError::ExpiryTooFar);
     Ok(())
 }
 
@@ -154,6 +155,11 @@ mod tests {
     #[test]
     fn rejects_expiry_beyond_thirty_days() {
         assert!(validate_order_terms(1, 1_000, 1_000 + MAX_ORDER_LIFETIME + 1).is_err());
+    }
+
+    #[test]
+    fn rejects_timestamp_arithmetic_overflow() {
+        assert!(validate_order_terms(1, i64::MAX - 10, i64::MAX).is_err());
     }
 }
 
@@ -445,7 +451,7 @@ pub struct ArbitrateRefund<'info> {
     #[account(mut, address = order.buyer)]
     pub buyer: UncheckedAccount<'info>,
     #[account(
-        mut, close = buyer,
+        mut,
         seeds = [ORDER_SEED, order.buyer.as_ref(), order.order_id.as_ref()], bump = order.bump
     )]
     pub order: Account<'info, EscrowOrder>,
