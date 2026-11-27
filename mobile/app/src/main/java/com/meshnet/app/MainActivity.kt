@@ -221,6 +221,8 @@ class MainActivity : Activity() {
             recentEvents.takeLast(12).forEach { events.put(it) }
         }
         val peers = meshService?.connectedPeersJson() ?: JSONArray()
+        val routes = meshService?.observedRoutesJson() ?: JSONArray()
+        val localNodeId = meshService?.localNodeIdValue()
         val outgoingTransfers = JSONArray()
         runCatching {
             offlineWalletStore.outgoingHistory().takeLast(8).forEach { transfer ->
@@ -259,6 +261,8 @@ class MainActivity : Activity() {
             .put("offlineWalletReceipts", receivedReceipts)
             .put("recentEvents", events)
             .put("connectedPeers", peers)
+            .put("observedRoutes", routes)
+            .put("localNodeId", localNodeId ?: JSONObject.NULL)
             .toString()
     }
 
