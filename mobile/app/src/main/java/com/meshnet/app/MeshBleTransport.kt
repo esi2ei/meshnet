@@ -20,7 +20,6 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
-import android.os.Build
 import android.os.ParcelUuid
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
@@ -28,9 +27,8 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * BLE discovery + GATT transport with application-level frame fragmentation.
- * GATT writes are serialized per peer; a full MeshFrame is reassembled before it reaches
- * the router. This transport is best-effort and does not imply remote application delivery.
+ * BLE discovery + GATT transport with bounded application-level frame fragmentation.
+ * Writes are serialized per peer; full frames are reassembled before reaching the router.
  */
 @SuppressLint("MissingPermission")
 class MeshBleTransport(
@@ -112,19 +110,14 @@ class MeshBleTransport(
                 connect(device)
             }
         }
-
-        override fun onScanFailed(errorCode: Int) {
-            onState("BLE scan failed: $errorCode")
-        }
+        override fun onScanFailed(errorCode: Int) { onState("BLE scan failed: $errorCode") }
     }
 
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
             onState("BLE GATT service advertising")
         }
-        override fun onStartFailure(errorCode: Int) {
-            onState("BLE advertising failed: $errorCode")
-        }
+        override fun onStartFailure(errorCode: Int) { onState("BLE advertising failed: $errorCode") }
     }
 
     private fun clientCallback(address: String) = object : BluetoothGattCallback() {
@@ -169,9 +162,7 @@ class MeshBleTransport(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,
             status: Int
-        ) {
-            completeWrite(address, status)
-        }
+        ) { completeWrite(address, status) }
     }
 
     fun start() {
@@ -234,7 +225,7 @@ class MeshBleTransport(
             onState("Rejected oversized MeshNet frame")
             return false
         }
-        var queued = false
+        var queuedAny = false
         clients.entries.toList().forEach { (address, gatt) ->
             val mtu = (negotiatedMtu[address] ?: DEFAULT_MTU).coerceIn(DEFAULT_MTU, MAX_MTU)
             val dataSize = mtu - ATT_OVERHEAD - HEADER_BYTES
@@ -245,6 +236,7 @@ class MeshBleTransport(
             }
             val transferId = java.security.SecureRandom().nextInt()
             val queue = writeQueues.computeIfAbsent(address) { ArrayDeque() }
+            var queuedForPeer = false
             synchronized(queue) {
                 if (queue.size + count > MAX_QUEUED_CHUNKS) {
                     onState("BLE write queue is full for peer $address")
@@ -253,28 +245,26 @@ class MeshBleTransport(
                 for (index in 0 until count) {
                     val start = index * dataSize
                     val end = minOf(payload.size, start + dataSize)
-                    val chunk = ByteBuffer.allocate(HEADER_BYTES + end - start)
-                        .putShort(MAGIC)
-                        .putInt(transferId)
-                        .putShort(index.toShort())
-                        .putShort(count.toShort())
-                        .put(payload, start, end - start)
-                        .array()
-                    queue.addLast(chunk)
+                    queue.addLast(
+                        ByteBuffer.allocate(HEADER_BYTES + end - start)
+                            .putShort(MAGIC).putInt(transferId)
+                            .putShort(index.toShort()).putShort(count.toShort())
+                            .put(payload, start, end - start).array()
+                    )
                 }
-                queued = true
+                queuedForPeer = true
             }
-            if (queued && writing.add(address)) writeNext(address, gatt)
+            if (queuedForPeer) {
+                queuedAny = true
+                if (writing.add(address)) writeNext(address, gatt)
+            }
         }
-        if (!queued) onState("No BLE peer accepted the frame for transmission")
-        return queued
+        if (!queuedAny) onState("No BLE peer accepted the frame for transmission")
+        return queuedAny
     }
 
     private fun writeNext(address: String, gatt: BluetoothGatt) {
-        val queue = writeQueues[address] ?: run {
-            writing.remove(address)
-            return
-        }
+        val queue = writeQueues[address] ?: run { writing.remove(address); return }
         val chunk = synchronized(queue) { queue.peekFirst() }
         if (chunk == null) {
             writing.remove(address)
@@ -289,9 +279,7 @@ class MeshBleTransport(
         run {
             remote.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             remote.value = chunk
-            if (!gatt.writeCharacteristic(remote)) {
-                completeWrite(address, BluetoothGatt.GATT_FAILURE)
-            }
+            if (!gatt.writeCharacteristic(remote)) completeWrite(address, BluetoothGatt.GATT_FAILURE)
         }
     }
 
@@ -303,8 +291,13 @@ class MeshBleTransport(
             onState("BLE chunk write failed for $address (status $status)")
             return
         }
-        val next = queue?.let { synchronized(it) { if (it.isNotEmpty()) it.removeFirst(); it.isNotEmpty() } } ?: false
-        if (next) clients[address]?.let { writeNext(address, it) }
+        val hasNext = queue?.let {
+            synchronized(it) {
+                if (it.isNotEmpty()) it.removeFirst()
+                it.isNotEmpty()
+            }
+        } ?: false
+        if (hasNext) clients[address]?.let { writeNext(address, it) }
         else {
             writeQueues.remove(address)
             writing.remove(address)
@@ -322,6 +315,9 @@ class MeshBleTransport(
         val key = "$address|$transferId"
         val now = System.currentTimeMillis()
         assemblies.entries.removeAll { now - it.value.createdAt > ASSEMBLY_TTL_MS }
+        if (!assemblies.containsKey(key) && assemblies.size >= MAX_ASSEMBLIES) {
+            assemblies.entries.minByOrNull { it.value.createdAt }?.let { assemblies.remove(it.key) }
+        }
         val assembly = assemblies.compute(key) { _, current ->
             if (current == null || current.count != count) Assembly(count, arrayOfNulls(count))
             else current
@@ -379,6 +375,7 @@ class MeshBleTransport(
         private const val MAGIC: Short = 0x4d4e
         private const val MAX_CHUNKS = 64
         private const val MAX_QUEUED_CHUNKS = 256
+        private const val MAX_ASSEMBLIES = 32
         private const val ASSEMBLY_TTL_MS = 30_000L
     }
 }
