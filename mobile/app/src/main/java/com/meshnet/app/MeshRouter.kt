@@ -21,7 +21,9 @@ class MeshRouter(
     private val onEphemeralPayload: (String, String) -> Unit = { _, _ -> },
     private val sendRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> send(bytes) },
     private val sendEphemeralRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> sendEphemeralFrame(bytes) },
-    private val onRouteObserved: (List<String>) -> Unit = {}
+    private val resolveNextHops: (String) -> List<String> = { emptyList() },
+    private val sendToPeer: (ByteArray, String) -> Boolean = { _, _ -> false },
+    private val onRouteObserved: (List<String>, String?) -> Unit = { _, _ -> }
 ) {
     private val seen = LinkedHashSet<String>()
     private val displayed = LinkedHashSet<String>()
@@ -47,7 +49,18 @@ class MeshRouter(
     }
 
     @Synchronized
-    fun sendMessage(text: String): Boolean {
+    fun sendMessage(text: String): Boolean = sendMessageInternal(text, null)
+
+    /** Sends an authenticated unicast frame; unknown routes use bounded flooding. */
+    @Synchronized
+    fun sendMessageTo(destination: String, text: String): Boolean {
+        require(destination.matches(Regex("[A-Za-z0-9_-]{1,32}")) && destination != nodeId) {
+            "Invalid or local destination node ID"
+        }
+        return sendMessageInternal(text, destination)
+    }
+
+    private fun sendMessageInternal(text: String, destination: String?): Boolean {
         require(text.isNotBlank()) { "Message cannot be empty" }
         require(text.toByteArray(Charsets.UTF_8).size <= MAX_PLAINTEXT_BYTES) {
             "Message is too large for a single MeshNet frame"
@@ -56,18 +69,25 @@ class MeshRouter(
         val createdAt = System.currentTimeMillis()
         val frame = MeshFrame(
             origin = nodeId, ttl = MeshFrame.MAX_TTL, hops = listOf(nodeId),
-            nonce = "", ciphertext = "", createdAt = createdAt, id = id
+            nonce = "", ciphertext = "", createdAt = createdAt, id = id, destination = destination
         )
         val (nonce, ciphertext) = crypto.encrypt(text, MeshFrame.aad(frame))
         val encryptedFrame = frame.copy(nonce = nonce, ciphertext = ciphertext)
         remember(seen, id)
-        if (!send(encryptedFrame.encode())) {
+        val encoded = encryptedFrame.encode()
+        val accepted = if (destination == null) send(encoded) else {
+            val candidates = resolveNextHops(destination)
+            var routed = false
+            for (peer in candidates) if (sendToPeer(encoded, peer)) { routed = true; break }
+            routed || send(encoded)
+        }
+        if (!accepted) {
             seen.remove(id)
             onMessage("Outbox rejected message; it was not queued")
             return false
         }
         markReceived(id, createdAt)
-        onMessage("Message encrypted and queued; waiting for a group receipt")
+        onMessage(if (destination == null) "Message encrypted and queued; waiting for a group receipt" else "Directed message encrypted and queued for $destination")
         return true
     }
 
@@ -86,7 +106,12 @@ class MeshRouter(
 
         // Record only authenticated, non-looping packet paths that actually reached this node.
         if (viaPeer != null && frame.origin != nodeId && nodeId !in frame.hops) {
-            onRouteObserved(frame.hops + nodeId)
+            onRouteObserved(frame.hops + nodeId, viaPeer)
+        }
+
+        if (frame.destination != null && frame.destination != nodeId) {
+            if (rememberBestRoute(frame, viaPeer)) relayDirected(frame, plaintext, viaPeer)
+            return
         }
 
         if (frame.kind == MeshFrame.KIND_EPHEMERAL) {
@@ -123,7 +148,7 @@ class MeshRouter(
 
         if (frame.id in seen || hasReceived(frame.id)) {
             // Retry both paths: an earlier receipt or relay may have been queued while no peer was connected.
-            if (frame.origin != nodeId) sendReceipt(frame.id)
+            if (frame.origin != nodeId) sendReceipt(frame.id, frame.origin)
             if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
             return
         }
@@ -142,23 +167,25 @@ class MeshRouter(
         } else {
             remember(displayed, frame.id)
         }
-        sendReceipt(frame.id)
+        sendReceipt(frame.id, frame.origin)
         if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
 
         if (markReceived(frame.id, frame.createdAt)) return
         remember(seen, frame.id)
     }
 
-    private fun sendReceipt(messageId: String) {
+    private fun sendReceipt(messageId: String, destination: String) {
         val ackId = UUID.nameUUIDFromBytes(("meshnet-ack|" + messageId).toByteArray(Charsets.UTF_8)).toString()
         val createdAt = System.currentTimeMillis()
         val frame = MeshFrame(
             origin = nodeId, ttl = MeshFrame.MAX_TTL, hops = listOf(nodeId),
             nonce = "", ciphertext = "", createdAt = createdAt,
-            id = ackId, kind = MeshFrame.KIND_ACK, ackFor = messageId
+            id = ackId, kind = MeshFrame.KIND_ACK, ackFor = messageId, destination = destination
         )
         val (nonce, ciphertext) = crypto.encrypt("", MeshFrame.aad(frame))
-        if (send(frame.copy(nonce = nonce, ciphertext = ciphertext).encode())) {
+        val encoded = frame.copy(nonce = nonce, ciphertext = ciphertext).encode()
+        val routed = resolveNextHops(destination).any { peer -> sendToPeer(encoded, peer) }
+        if (routed || send(encoded)) {
             remember(seen, ackId)
             markReceived(ackId, createdAt)
         } else {
@@ -187,6 +214,20 @@ class MeshRouter(
             if (iterator.hasNext()) { iterator.next(); iterator.remove() } else break
         }
         return true
+    }
+
+    private fun relayDirected(frame: MeshFrame, plaintext: String, viaPeer: String?) {
+        if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
+        val nextHopFrame = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId)
+        val (nonce, ciphertext) = crypto.encrypt(plaintext, MeshFrame.aad(nextHopFrame))
+        val encoded = nextHopFrame.copy(nonce = nonce, ciphertext = ciphertext).encode()
+        val candidates = resolveNextHops(frame.destination.orEmpty()).filter { it != viaPeer }
+        var accepted = false
+        for (peer in candidates) {
+            if (sendToPeer(encoded, peer)) { accepted = true; break }
+        }
+        if (!accepted) accepted = sendRelay(encoded, viaPeer)
+        if (!accepted) onMessage("Directed relay deferred: no alternate route or transport accepted the frame")
     }
 
     private fun relayIfNeeded(frame: MeshFrame, plaintext: String, viaPeer: String?) {
