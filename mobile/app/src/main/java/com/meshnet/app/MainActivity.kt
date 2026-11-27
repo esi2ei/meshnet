@@ -389,6 +389,21 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface
+        fun copyOfflineWalletAddress(): Boolean =
+            runOnMainBlocking {
+                try {
+                    val address = offlineWalletStore.address()
+                    getSystemService(android.content.ClipboardManager::class.java)
+                        .setPrimaryClip(android.content.ClipData.newPlainText("MeshNet wallet address", address))
+                    toast("Offline wallet address copied")
+                    true
+                } catch (error: Exception) {
+                    toast(error.message ?: "Unable to copy offline wallet address")
+                    false
+                }
+            } ?: false
+
+        @JavascriptInterface
         fun getOfflineWalletAddress(): String = runCatching { offlineWalletStore.address() }.getOrElse { "" }
 
         @JavascriptInterface
