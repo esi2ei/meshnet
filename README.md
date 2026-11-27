@@ -1,9 +1,9 @@
 # MeshNet
 
-MeshNet is an offline-first peer-to-peer messaging and connectivity project with two distinct parts:
+MeshNet is an offline-first peer-to-peer messaging and connectivity prototype with two distinct parts:
 
-- **Web dashboard (src/)**: a React/Vite prototype. Its simulated nodes and topology are not connected to phone radios.
-- **Native Android (mobile/)**: a prototype with BLE/GATT, optional Wi-Fi Aware, and user-controlled Wi-Fi Direct transports, encrypted text and bounded 256 KiB file/voice-note frames, TTL relay with shortest-observed-route duplicate suppression, adaptive BLE queue backoff, a foreground service, a persistent SQLite outbox with group-level receipts, replay protection, and Android Keystore-protected group credentials.
+- **Web dashboard (`src/`)**: a React/Vite simulation. Its simulated nodes and topology are not connected to phone radios.
+- **Native Android (`mobile/`)**: source for BLE/GATT, optional Wi-Fi Aware, and user-controlled Wi-Fi Direct transports; AES-GCM encrypted text, group receipts, bounded resumable file transfer, voice notes, opt-in live group voice, TTL relay, adaptive BLE queue backoff, a foreground service, persistent SQLite queues, and Android Keystore-protected group and wallet authorization data.
 
 ## Web dashboard
 
@@ -23,13 +23,20 @@ Build locally without CI:
     cd mobile
     gradle assembleDebug
 
-## Development status
+## Development and security status
 
-This is a prototype, not a production release. BLE writes are not delivery acknowledgements. The current group receipt only confirms that at least one member sharing the group key received a message; it does not identify or authenticate a specific recipient. Receipt frames are best-effort and retired after a connected peer accepts them into its BLE write queue; messages remain queued until an authenticated group receipt arrives. The shared group key is not Signal Protocol and has no per-device identity or forward secrecy.
+This repository is a prototype, not a production release. Source implementation is ahead of validation: no Android build, instrumentation tests, Rust/Anchor build, deployment, independent audit, or physical-device interoperability validation has been performed for the current branch.
 
-Unbounded large-file streaming, live voice streaming, iOS, and the Android wallet client are not implemented. An Apache-2.0 cryptography candidate (vodozemac) has been selected but is not integrated. A first-pass non-custodial Solana escrow program source is present under solana/; it is not built, tested, deployed, audited, or connected to a wallet. No Android build, instrumentation run, or physical-device validation has been performed for the latest changes.
+Important boundaries:
 
-See [mobile/SECURITY_AND_ESCROW.md](mobile/SECURITY_AND_ESCROW.md) for licensing rationale, the escrow design, activation gates, and remaining work.
+- BLE writes are not application-delivery acknowledgements. The current receipt is group-level and only indicates that some member holding the shared group key received the message; it does not identify or authenticate a specific recipient.
+- The current shared AES-GCM group key is not Signal Protocol. There is no per-device identity authentication, forward secrecy, or secure multi-device key rotation. `vodozemac` is a selected Apache-2.0 candidate, not an integrated runtime dependency.
+- File transfer is bounded to 10 MiB per file with resumable checkpoints; it is not an unlimited file-transfer service.
+- Live group voice is an opt-in, best-effort source implementation using encrypted ephemeral frames. It has no individual recipient authorization or delivery guarantee and has not been validated for codec compatibility, echo, latency, battery use, or Android foreground-service behavior on physical devices.
+- The Android wallet code supports user-authorized Solana Mobile Wallet Adapter authorization/deauthorization and encrypted persistence of the authorization token. It does not construct, sign, or submit transactions.
+- A first-pass non-custodial Solana escrow program source exists under `solana/`. It is not built, tested, deployed, audited, or integrated with the Android wallet. Its program ID and initialization admin remain placeholders; it must not be used to accept real funds.
+
+See [mobile/README.md](mobile/README.md) and [mobile/SECURITY_AND_ESCROW.md](mobile/SECURITY_AND_ESCROW.md) for implementation details, known limitations, and activation gates.
 
 The browser dashboard is a simulation and is not evidence of live radio connectivity.
 
