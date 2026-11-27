@@ -218,6 +218,32 @@ class MainActivity : Activity() {
         synchronized(recentEvents) {
             recentEvents.takeLast(12).forEach { events.put(it) }
         }
+        val outgoingTransfers = JSONArray()
+        runCatching {
+            offlineWalletStore.outgoingHistory().takeLast(8).forEach { transfer ->
+                outgoingTransfers.put(
+                    JSONObject()
+                        .put("id", transfer.id)
+                        .put("recipient", transfer.recipient)
+                        .put("amountMinor", transfer.amountMinor)
+                        .put("createdAt", transfer.createdAt)
+                        .put("status", transfer.status)
+                )
+            }
+        }
+        val receivedReceipts = JSONArray()
+        runCatching {
+            offlineWalletStore.history().takeLast(8).forEach { receipt ->
+                receivedReceipts.put(
+                    JSONObject()
+                        .put("id", receipt.id)
+                        .put("sender", receipt.sender)
+                        .put("amountMinor", receipt.amountMinor)
+                        .put("createdAt", receipt.createdAt)
+                        .put("asset", receipt.asset)
+                )
+            }
+        }
         return JSONObject()
             .put("native", true)
             .put("platform", "android")
@@ -226,6 +252,8 @@ class MainActivity : Activity() {
             .put("walletBusy", walletBusy)
             .put("walletAddress", walletAddress ?: JSONObject.NULL)
             .put("offlineWalletAddress", runCatching { offlineWalletStore.address() }.getOrNull() ?: JSONObject.NULL)
+            .put("offlineWalletTransfers", outgoingTransfers)
+            .put("offlineWalletReceipts", receivedReceipts)
             .put("recentEvents", events)
             .toString()
     }
