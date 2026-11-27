@@ -103,6 +103,7 @@ class MeshFileTransfer(
         }
         val early=pending.remove(id)
         if(early!=null){for((index,pair) in early){pendingBytes-=pair.second.size;storeChunk(id,index,pair.first,pair.second)}}
+        incoming[id]?.let { finishIfComplete(id,it) }
         return true
     }
     private fun chunk(f:List<String>):Boolean {
@@ -128,15 +129,24 @@ class MeshFileTransfer(
             RandomAccessFile(s.file,"rw").use{it.seek((index*CHUNK_BYTES).toLong());it.write(data)}
             s.received.set(index);s.receivedBytes+=data.size
             persistMetadata(s)
-            if(s.received.cardinality()==s.chunks && s.receivedBytes==s.size){
-                val actual=MessageDigest.getInstance("SHA-256").digest(s.file.readBytes()).joinToString(""){"%02x".format(it)}
-                if(actual!=s.digest){s.file.delete();s.meta.delete();incoming.remove(id);onEvent("File integrity check failed: ${s.name}");return}
-                val dest=uniqueDestination(s.name)
-                if(s.file.renameTo(dest)){s.meta.delete();onEvent("File received and verified: ${dest.name} (${s.size} bytes)")} else onEvent("Verified file could not be moved")
-                incoming.remove(id)
-            }
+            finishIfComplete(id,s)
         }catch(_:Exception){onEvent("File chunk could not be stored")}
     }
+    private fun finishIfComplete(id:String,state:Incoming) {
+        if(state.received.cardinality()!=state.chunks || state.receivedBytes!=state.size)return
+        val actual=MessageDigest.getInstance("SHA-256").digest(state.file.readBytes()).joinToString(""){"%02x".format(it)}
+        if(actual!=state.digest){
+            state.file.delete();state.meta.delete();incoming.remove(id)
+            onEvent("File integrity check failed: ${state.name}")
+            return
+        }
+        val destination=uniqueDestination(state.name)
+        if(state.file.renameTo(destination)){
+            state.meta.delete();incoming.remove(id)
+            onEvent("File received and verified: ${destination.name} (${state.size} bytes)")
+        } else onEvent("Verified file could not be moved; transfer checkpoint retained for retry")
+    }
+
     private fun persistMetadata(state:Incoming) {
         val temp=File(root,"${state.file.name}.meta.tmp")
         val json=JSONObject()
