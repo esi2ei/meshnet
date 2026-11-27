@@ -95,10 +95,10 @@ class MeshForegroundService : Service() {
 
         if (router == null && !passphrase.isNullOrBlank()) {
             if (Build.VERSION.SDK_INT >= 29) {
-                startForeground(NOTIFICATION_ID, notification("Starting BLE mesh…"),
+                startForeground(NOTIFICATION_ID, notification("Starting local mesh…"),
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
             } else {
-                startForeground(NOTIFICATION_ID, notification("Starting BLE mesh…"))
+                startForeground(NOTIFICATION_ID, notification("Starting local mesh…"))
             }
             startMesh(passphrase)
         } else if (router == null) {
