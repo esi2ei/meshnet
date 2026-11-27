@@ -216,12 +216,12 @@ class MeshRouterReceiptTest {
         )
 
         assertTrue(nodeA.sendMessage("from A to B"))
-        val aMessage = aToB.map(MeshFrame::decode).first { it.kind == MeshFrame.KIND_MESSAGE }
+        val aMessage = aToB.map { MeshFrame.decode(it) }.first { it.kind == MeshFrame.KIND_MESSAGE }
         nodeB.receive(aMessage.encode())
         assertTrue(eventsB.any { it.contains("from A to B") })
 
         assertTrue(nodeB.sendMessage("from B to A"))
-        val bMessage = bToA.map(MeshFrame::decode).first { it.kind == MeshFrame.KIND_MESSAGE }
+        val bMessage = bToA.map { MeshFrame.decode(it) }.first { it.kind == MeshFrame.KIND_MESSAGE }
         nodeA.receive(bMessage.encode())
         assertTrue(eventsA.any { it.contains("from B to A") })
     }
