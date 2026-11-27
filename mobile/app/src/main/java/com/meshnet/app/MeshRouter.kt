@@ -6,8 +6,11 @@ import java.util.UUID
 class MeshRouter(
     private val nodeId: String,
     private val crypto: MeshCrypto,
+    /** Returns true when the frame is durably accepted by the local outbox. */
     private val send: (ByteArray) -> Boolean,
-    private val onMessage: (String) -> Unit
+    private val onMessage: (String) -> Unit,
+    /** Atomically persists the received frame ID; true means it was already seen. */
+    private val markReceived: (String, Long) -> Boolean
 ) {
     private val seen = LinkedHashSet<String>()
 
@@ -18,15 +21,20 @@ class MeshRouter(
             "Message is too large for a single BLE frame"
         }
         val id = UUID.randomUUID().toString()
-        val (nonce, ciphertext) = crypto.encrypt(text, aad(id, nodeId))
-        val frame = MeshFrame(id, nodeId, MeshFrame.MAX_TTL, listOf(nodeId), nonce, ciphertext)
+        val createdAt = System.currentTimeMillis()
+        val (nonce, ciphertext) = crypto.encrypt(text, aad(id, nodeId, createdAt))
+        val frame = MeshFrame(
+            id = id, origin = nodeId, ttl = MeshFrame.MAX_TTL,
+            hops = listOf(nodeId), nonce = nonce, ciphertext = ciphertext,
+            createdAt = createdAt
+        )
         remember(id)
         if (!send(frame.encode())) {
             seen.remove(id)
-            onMessage("No ready BLE route; message was not transmitted")
+            onMessage("Outbox rejected message; it was not queued")
             return
         }
-        onMessage("Me: $text (BLE write queued; delivery not yet acknowledged)")
+        onMessage("Message encrypted and stored in the durable outbox; delivery is unconfirmed")
     }
 
     @Synchronized
@@ -36,20 +44,18 @@ class MeshRouter(
             return
         }
         val plaintext = try {
-            crypto.decrypt(frame.nonce, frame.ciphertext, aad(frame.id, frame.origin))
+            crypto.decrypt(frame.nonce, frame.ciphertext, aad(frame.id, frame.origin, frame.createdAt))
         } catch (_: Exception) {
             onMessage("Rejected frame: authentication failed")
             return
         }
         if (!remember(frame.id)) return
-        try {
-            onMessage("${frame.origin}: $plaintext (hops: ${frame.hops.size - 1})")
-        } catch (_: Exception) {
-            onMessage("Unable to display authenticated frame")
-            return
-        }
+        if (markReceived(frame.id, frame.createdAt)) return
+        onMessage("${frame.origin}: $plaintext (hops: ${frame.hops.size - 1})")
         if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
-        send(frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId).encode())
+        if (!send(frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId).encode())) {
+            onMessage("Relay frame could not be stored in the local outbox")
+        }
     }
 
     private fun remember(id: String): Boolean {
@@ -58,8 +64,8 @@ class MeshRouter(
         return true
     }
 
-    private fun aad(id: String, origin: String) =
-        "meshnet-v1|$id|$origin".toByteArray(Charsets.UTF_8)
+    private fun aad(id: String, origin: String, createdAt: Long) =
+        "meshnet-v1|$id|$origin|$createdAt".toByteArray(Charsets.UTF_8)
 
     companion object {
         private const val MAX_SEEN_IDS = 2048
