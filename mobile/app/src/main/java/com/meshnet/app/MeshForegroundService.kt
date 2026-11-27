@@ -130,13 +130,7 @@ class MeshForegroundService : Service() {
             { _, payload -> router?.receive(payload) },
             { state ->
                 emit(state)
-                when {
-                    state.contains("channel ready") -> {
-                        if (!replayActive) beginOutboxReplay() else pumpOutboxReplay()
-                    }
-                    state.contains("write queue drained") || state.contains("write queue available") ->
-                        pumpOutboxReplay()
-                }
+                handleTransportState(state)
             }
         )
         try {
@@ -147,6 +141,17 @@ class MeshForegroundService : Service() {
             stopMesh()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
+        }
+    }
+
+    @Synchronized
+    private fun handleTransportState(state: String) {
+        when {
+            state.contains("channel ready") -> {
+                if (!replayActive) beginOutboxReplay() else pumpOutboxReplay()
+            }
+            state.contains("write queue drained") || state.contains("write queue available") ->
+                pumpOutboxReplay()
         }
     }
 
