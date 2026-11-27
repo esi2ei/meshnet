@@ -184,6 +184,29 @@ class MeshFrameTest {
     }
 
     @Test
+    fun destinationNodeIdIsAuthenticatedByFrameAad() {
+        val crypto = MeshCrypto("a sufficiently long group passphrase".toCharArray())
+        val frame = MeshFrame(
+            id = "directed_auth_01",
+            origin = "node_01",
+            ttl = MeshFrame.MAX_TTL,
+            hops = listOf("node_01"),
+            nonce = "",
+            ciphertext = "",
+            destination = "node_02"
+        )
+        val (nonce, ciphertext) = crypto.encrypt("private payload", MeshFrame.aad(frame))
+        val changedDestination = frame.copy(
+            nonce = nonce,
+            ciphertext = ciphertext,
+            destination = "node_03"
+        )
+        assertThrows(Exception::class.java) {
+            crypto.decrypt(changedDestination.nonce, changedDestination.ciphertext, MeshFrame.aad(changedDestination))
+        }
+    }
+
+    @Test
     fun rejectsRouteLoop() {
         val frame = MeshFrame(
             id = "message_02",
