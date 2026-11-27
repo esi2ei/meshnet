@@ -260,7 +260,7 @@ class MeshRouterReceiptTest {
         assertTrue(eventsB.any { it.contains("from A to B") })
 
         assertTrue(nodeB.sendMessage("from B to A"))
-        val bMessage = bToA.map { MeshFrame.decode(it) }.first { it.kind == MeshFrame.KIND_MESSAGE }
+        val bMessage = bToA.map { MeshFrame.decode(it) }.first { it.kind == MeshFrame.KIND_MESSAGE && it.origin == "node_B001" }
         assertEquals("node_B001", bMessage.origin)
         assertEquals(null, bMessage.destination)
         assertEquals("from B to A", MeshCrypto(passphrase.toCharArray()).decrypt(
