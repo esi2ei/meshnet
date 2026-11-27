@@ -317,6 +317,20 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface
+        fun sendDirectMessage(destinationNodeId: String, message: String): Boolean =
+            runOnMainBlocking {
+                try {
+                    val accepted = meshService?.sendDirectMessage(destinationNodeId.trim(), message)
+                        ?: throw IllegalStateException("Start the mesh before sending a directed message")
+                    append(if (accepted) "Directed message accepted into encrypted outbox" else "Directed message was not accepted")
+                    accepted
+                } catch (error: Exception) {
+                    append(error.message ?: "Unable to queue directed message")
+                    false
+                }
+            } ?: false
+
+        @JavascriptInterface
         fun sendMessage(message: String): Boolean =
             runOnMainBlocking {
                 try {
