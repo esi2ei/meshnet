@@ -19,15 +19,19 @@ class MeshCrypto(passphrase: CharArray) {
     init {
         require(passphrase.size >= 24) { "Use an out-of-band passphrase of at least 24 characters" }
         val spec = PBEKeySpec(passphrase, SALT, 210_000, 256)
-        val bytes = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-            .generateSecret(spec).encoded
+        val bytes = try {
+            SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                .generateSecret(spec).encoded
+        } finally {
+            spec.clearPassword()
+            passphrase.fill('\u0000')
+        }
         key = SecretKeySpec(bytes, "AES")
-        spec.clearPassword()
-        passphrase.fill('\u0000')
+        bytes.fill(0)
     }
 
     fun encrypt(plainText: String, aad: ByteArray): Pair<String, String> {
-        val nonce = ByteArray(12).also(random::nextBytes)
+        val nonce = ByteArray(NONCE_BYTES).also(random::nextBytes)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, nonce))
         cipher.updateAAD(aad)
@@ -37,12 +41,10 @@ class MeshCrypto(passphrase: CharArray) {
     }
 
     fun decrypt(nonce: String, ciphertext: String, aad: ByteArray): String {
+        val nonceBytes = Base64.decode(nonce, Base64.NO_WRAP)
+        require(nonceBytes.size == NONCE_BYTES) { "Invalid AES-GCM nonce length" }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(
-            Cipher.DECRYPT_MODE,
-            key,
-            GCMParameterSpec(128, Base64.decode(nonce, Base64.NO_WRAP))
-        )
+        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, nonceBytes))
         cipher.updateAAD(aad)
         return cipher.doFinal(Base64.decode(ciphertext, Base64.NO_WRAP)).toString(Charsets.UTF_8)
     }
@@ -50,5 +52,6 @@ class MeshCrypto(passphrase: CharArray) {
     companion object {
         private val random = SecureRandom()
         private val SALT = "MeshNet-native-group-v1".toByteArray(Charsets.UTF_8)
+        private const val NONCE_BYTES = 12
     }
 }
