@@ -441,12 +441,9 @@ class MeshForegroundService : Service() {
             },
             onEphemeralPayload = { origin, plaintext -> liveVoiceCall?.accept(origin, plaintext) },
             sendRelay = { frame, ingress ->
-                if (!outbox.enqueue(frame)) {
-                    emit("Relay frame could not be stored in the durable outbox")
-                    false
-                } else {
-                    sendMeshFrameToOthers(frame, ingress)
-                }
+                val accepted = sendMeshFrameToOthers(frame, ingress)
+                if (!accepted) emit("Relay frame remains queued; no eligible transport accepted it")
+                accepted
             },
             sendEphemeralRelay = { frame, ingress -> sendMeshFrameToOthers(frame, ingress, durable = false) },
             resolveNextHops = routeRegistry::nextHopsFor,
