@@ -5,6 +5,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MeshIpPacketRouterTest {
+    @Test fun validatesDnsResponseTransactionIdAndResponseFlag() {
+        val query = ByteArray(12).apply {
+            this[0] = 0x12
+            this[1] = 0x34
+            this[2] = 0x01
+            this[5] = 0x01
+        }
+        val response = ByteArray(12).apply {
+            this[0] = 0x12
+            this[1] = 0x34
+            this[2] = 0x81.toByte()
+            this[3] = 0x80.toByte()
+            this[5] = 0x01
+        }
+        assertTrue(isMatchingDnsResponse(query, response))
+        assertFalse(isMatchingDnsResponse(query, response.copyOf().apply { this[1] = 0x35 }))
+        assertFalse(isMatchingDnsResponse(query, response.copyOf().apply { this[2] = 0x01 }))
+        assertFalse(isMatchingDnsResponse(query, response.copyOfRange(0, 8)))
+    }
+
     @Test fun nodeAddressIsStableAndInsideTheOverlayPrefix() {
         val node = "AAAAAAAAAAAAAAAAAAAAAA"
         assertEquals(MeshIpAddress.forNodeId(node), MeshIpAddress.forNodeId(node))
