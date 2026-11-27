@@ -16,9 +16,12 @@ import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 
 class MeshFileTransferTest {
+    private class SendResult {
+        @Volatile var succeeded: Boolean? = null
+    }
+
     private val transfers = mutableListOf<MeshFileTransfer>()
     private lateinit var context: Context
     private lateinit var source: File
@@ -233,15 +236,15 @@ class MeshFileTransferTest {
             if (message.startsWith("~F2M|")) manifestQueued.countDown()
             true
         }, { events.add(it) }))
-        val result = AtomicReference<Boolean?>()
-        val worker = Thread({ result.set(sender.send(Uri.fromFile(source))) }, "mesh-file-cancel-test")
+        val result = SendResult()
+        val worker = Thread({ result.succeeded = sender.send(Uri.fromFile(source)) }, "mesh-file-cancel-test")
         worker.start()
 
         assertTrue("Sender did not queue its manifest", manifestQueued.await(5, TimeUnit.SECONDS))
         assertTrue(sender.cancelOutgoing())
         worker.join(5_000)
-        assertTrue("Sender worker did not stop after cancellation", !worker.isAlive)
-        assertFalse(result.get() == true)
+        assertEquals("Sender worker must terminate after cancellation", Thread.State.TERMINATED, worker.state)
+        assertFalse(result.succeeded == true)
         assertTrue(sent.any { it.startsWith("~F2X|") })
         assertTrue(events.any { it.contains("cancelled on this device") })
     }
