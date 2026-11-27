@@ -39,23 +39,28 @@ export default function SystemInfo({ logs, onClearLogs }: SystemInfoProps) {
         </div>
         <div className="p-4 space-y-4 text-xs text-slate-400">
           <div className="flex items-center gap-2 text-amber-300 font-semibold">
-            <AlertTriangle className="w-4 h-4" /> Verified implementation boundaries
-          </div>
-          <p className="leading-relaxed">The native Android target contains BLE advertising/scanning, GATT peer connections, AES-GCM group-encrypted text frames, TTL relay, a persistent SQLite outbox, persistent replay-ID storage, and a user-started connected-device foreground service.</p>
-          <div className="flex items-center gap-2 text-cyan-300 font-semibold">
-            <Radio className="w-4 h-4" /> Not yet implemented
+            <AlertTriangle className="w-4 h-4" /> Implemented in source — validation pending
           </div>
           <ul className="list-disc list-inside space-y-1">
-            <li>Per-device identity, Double Ratchet sessions, forward secrecy and secure key rotation</li>
-            <li>Large-file/voice transfer, resumable chunks and congestion control</li>
-            <li>Wi-Fi Aware, Wi-Fi Direct and hotspot metering</li>
-            <li>Production USDC escrow and wallet integration</li>
+            <li>Android BLE advertising/scanning, GATT transport, AES-GCM group-encrypted frames, TTL relay, persistent SQLite outbox and replay cache</li>
+            <li>Optional Wi-Fi Aware discovery/data paths and user-triggered Wi-Fi Direct transport</li>
+            <li>Bounded 10 MiB resumable file transfer with checkpoints, cancellation, SHA-256 verification and inbox quotas</li>
+            <li>Voice notes and opt-in best-effort live group voice using encrypted ephemeral frames</li>
+            <li>Android Keystore-protected group credentials and user-authorized Solana Devnet wallet authorization</li>
+          </ul>
+          <div className="flex items-center gap-2 text-cyan-300 font-semibold">
+            <Radio className="w-4 h-4" /> Not implemented / not production-ready
+          </div>
+          <ul className="list-disc list-inside space-y-1">
+            <li>Authenticated per-device identity, Double Ratchet sessions, forward secrecy and secure group-key rotation</li>
+            <li>Authenticated membership roster, per-recipient delivery ledger and destination-aware routing based on measured radio metrics</li>
+            <li>Wallet transaction construction, signing or submission; escrow deployment, independent audit and transaction integration</li>
             <li>iOS runtime (deferred)</li>
           </ul>
           <div className="flex items-center gap-2 text-red-300 font-semibold">
-            <ShieldAlert className="w-4 h-4" /> Security warning
+            <ShieldAlert className="w-4 h-4" /> Validation and security warning
           </div>
-          <p className="leading-relaxed">The browser is a simulation. The Android target is an unvalidated prototype; no local Android build, instrumentation run, or physical-device validation has been completed for this branch. Do not use it for sensitive or financial traffic before independent security review.</p>
+          <p className="leading-relaxed">The browser is a simulation. Android, Wi-Fi, file and voice source implementations have not passed a local build, instrumentation suite or physical-device interoperability test for this branch. The escrow source has not been built, tested, deployed or audited. Do not use this prototype for sensitive or financial traffic before independent security review and device testing.</p>
         </div>
       </div>
     </div>
