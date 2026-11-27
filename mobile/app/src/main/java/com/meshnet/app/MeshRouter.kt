@@ -95,7 +95,10 @@ class MeshRouter(
             id = ackId, kind = MeshFrame.KIND_ACK, ackFor = messageId
         )
         val (nonce, ciphertext) = crypto.encrypt("", MeshFrame.aad(frame))
-        if (!send(frame.copy(nonce = nonce, ciphertext = ciphertext).encode())) {
+        if (send(frame.copy(nonce = nonce, ciphertext = ciphertext).encode())) {
+            remember(seen, ackId)
+            markReceived(ackId, createdAt)
+        } else {
             onMessage("Receipt for $messageId could not be queued; it will retry when the frame is received again")
         }
     }
