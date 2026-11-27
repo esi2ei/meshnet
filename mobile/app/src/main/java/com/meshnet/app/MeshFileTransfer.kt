@@ -60,6 +60,10 @@ class MeshFileTransfer(
         return true
     }
 
+    fun latestVoiceNote():File? = root.listFiles()
+        ?.filter { it.isFile && it.extension.equals("m4a", ignoreCase = true) }
+        ?.maxByOrNull { it.lastModified() }
+
     @Synchronized fun accept(message:String):Boolean {
         if(!message.startsWith("~F1")) return false
         val f=message.split('|')
