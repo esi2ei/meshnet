@@ -1,43 +1,44 @@
 # MeshNet
 
-MeshNet is an offline-first peer-to-peer messaging and connectivity prototype with two distinct parts:
+MeshNet is an offline-first peer-to-peer messaging and connectivity prototype. The Android app packages the React/Vite dashboard inside the APK and connects its local UI to native Android radio and file APIs.
 
-- **Web dashboard (`src/`)**: a React/Vite simulation. Its simulated nodes and topology are not connected to phone radios.
-- **Native Android (`mobile/`)**: source for BLE/GATT, optional Wi-Fi Aware, and user-controlled Wi-Fi Direct transports; AES-GCM encrypted text, group receipts, bounded resumable file transfer, voice notes, opt-in live group voice, TTL relay, adaptive BLE queue backoff, a foreground service, persistent SQLite queues, and Android Keystore-protected group and wallet authorization data.
+## App architecture
 
-## Web dashboard
+- **One dashboard UI:** `src/` contains the React/Vite application. Android builds it and bundles the resulting static files into `mobile/app/src/main/assets` at build time (generated under Gradle's build directory); the APK does not need a hosted website.
+- **Native Android runtime:** `mobile/` provides BLE/GATT, optional Wi-Fi Aware, user-controlled Wi-Fi Direct, AES-GCM group-encrypted messages, bounded resumable file transfer, voice notes, opt-in live group voice, TTL relay, persistent SQLite queues, and Android Keystore-protected local credentials.
+- **Honest simulation boundary:** the draggable topology map is an educational simulator, not a radio scan or a representation of nearby phones. The device-runtime panel is the part connected to real Android services.
 
-Requirements: Node.js 20+.
+## Offline-first behavior
+
+The installed APK loads only local `file:///android_asset/web/` assets. The Vite build uses relative asset URLs, remote fonts and avatar downloads have been removed, external WebView navigation is blocked, and the dashboard's Content Security Policy denies network connections. Bluetooth, local Wi-Fi peer transport, local message queues, file transfer and voice features do not require a cloud server.
+
+Optional online integrations are disabled by default and can be enabled in the device-runtime settings. At this stage the only online-facing flow exposed there is explicit Solana Devnet wallet authorization through a compatible wallet app. This is not a payment system: the app does not create, sign or submit transactions. Enabling this setting does not turn on cloud messaging, analytics, telemetry or automatic uploads.
+
+## Web development
+
+Requirements: Node.js 22+ (Node 22 and 24 are checked in CI).
 
     npm install
     npm run dev
 
-The dashboard does not require a Gemini API key for its core UI. Do not put private API keys in client-side environment variables.
+The browser dashboard remains useful for exploring the simulated topology, but a normal browser does not have permission to control Android Bluetooth or Wi-Fi hardware.
 
-## Native Android
+## Native Android build
 
-Requirements: JDK 17 and Android SDK Platform 36. See [mobile/README.md](mobile/README.md) for the supported Gradle/AGP/Kotlin versions and external release-signing requirements.
+Requirements: JDK 17, Android SDK Platform 36, Gradle 8.11.1, and Node.js/npm. The Gradle `preBuild` task runs `npm run build` and packages the generated dashboard assets automatically.
 
-Build locally without CI:
-
+    npm install
     cd mobile
     gradle assembleDebug
 
-## Development and security status
+The debug APK is written to `mobile/app/build/outputs/apk/debug/app-debug.apk`. See [mobile/README.md](mobile/README.md) for Windows helper instructions, instrumentation tests, release signing and known limitations.
 
-This repository is a prototype, not a production release. Source implementation is ahead of validation: no Android build, instrumentation tests, Rust/Anchor build, deployment, independent audit, or physical-device interoperability validation has been performed for the current branch.
+## Public-repository and security notes
 
-Important boundaries:
+- Never commit wallet secrets, group passphrases, API keys, keystores, signing passwords, or deployment keypairs. Release signing credentials must be stored outside the checkout and supplied through private CI secrets or a local environment.
+- Debug APKs are test artifacts, not production releases. CI verifies their signature and runs emulator instrumentation tests, but an emulator cannot validate physical Bluetooth/Wi-Fi interoperability.
+- The prototype is not yet a production secure messenger: group AES-GCM is not Signal Protocol, there is no authenticated per-device identity, forward secrecy or secure group-key rotation, and group receipts do not identify a named recipient.
+- The Solana escrow program is not built, tested, deployed, audited or integrated with Android transactions. Do not use this prototype to accept or transfer real funds.
+- Review [SECURITY.md](SECURITY.md) before reporting security issues, and see [mobile/SECURITY_AND_ESCROW.md](mobile/SECURITY_AND_ESCROW.md) for technical boundaries.
 
-- BLE writes are not application-delivery acknowledgements. The current receipt is group-level and only indicates that some member holding the shared group key received the message; it does not identify or authenticate a specific recipient.
-- The current shared AES-GCM group key is not Signal Protocol. There is no per-device identity authentication, forward secrecy, or secure multi-device key rotation. `vodozemac` is a selected Apache-2.0 candidate, not an integrated runtime dependency.
-- File transfer is bounded to 10 MiB per file with resumable checkpoints, a 100 MiB completed-inbox quota, local cancellation, and user-mediated export; it is not an unlimited file-transfer service.
-- Live group voice is an opt-in, best-effort source implementation using encrypted ephemeral frames. It has no individual recipient authorization or delivery guarantee and has not been validated for codec compatibility, echo, latency, battery use, or Android foreground-service behavior on physical devices.
-- The Android wallet code supports user-authorized Solana Mobile Wallet Adapter authorization/deauthorization and encrypted persistence of the authorization token. It does not construct, sign, or submit transactions.
-- A first-pass non-custodial Solana escrow program source exists under `solana/`. Its build now fails closed unless actual program and initialization-admin public keys are supplied through environment variables. It is not built, tested, deployed, audited, or integrated with the Android wallet; it must not be used to accept real funds.
-
-See [mobile/README.md](mobile/README.md) and [mobile/SECURITY_AND_ESCROW.md](mobile/SECURITY_AND_ESCROW.md) for implementation details, known limitations, and activation gates.
-
-The browser dashboard is a simulation and is not evidence of live radio connectivity.
-
-GitHub Actions runs the web checks and, for `main`, this designated validation branch, pull requests to `main`, or manual dispatch, builds the Android debug APK, runs instrumentation tests on an API 36 emulator, and uploads the APK as a workflow artifact. The emulator does not validate real Bluetooth/Wi-Fi radios or replace physical-device testing.
+GitHub Actions typechecks and builds the web app, packages the dashboard into the Android debug APK, verifies the APK signature, and runs instrumentation tests on an API 36 emulator. Workflow artifacts are available from the Actions run page.
