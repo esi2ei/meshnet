@@ -36,6 +36,14 @@ class MeshRouteRegistryTest {
         registry.observe(listOf("origin_01", "local_01"), 100L)
 
         assertTrue(registry.snapshot(100L + 30L * 60L * 1000L + 1L).isEmpty())
+
+        val bounded = MeshRouteRegistry()
+        (1..65).forEach { index ->
+            bounded.observe(listOf("origin_$index", "local_01"), index.toLong())
+        }
+        val retained = bounded.snapshot(1_000L)
+        assertEquals(64, retained.size)
+        assertFalse(retained.any { it.nodes.first() == "origin_1" })
     }
 
     @Test
