@@ -1,9 +1,14 @@
-# MeshNet native Android prototype
+# MeshNet Android app
 
-The native Android target uses real Android BLE advertising, scanning, and GATT. The React/Vite dashboard remains a separate browser simulation and is not connected to phone radios.
+The Android APK now presents the same React/Vite dashboard as the web project. Gradle builds the dashboard and packages it into the APK under `web/`; the app opens it from `file:///android_asset/web/index.html`. A restricted JavaScript bridge connects the bundled UI to native Android BLE, Wi-Fi, messaging, file and voice APIs. The draggable topology graphic remains a simulator and is explicitly separate from actual phone-radio status.
+
+The packaged dashboard is offline-first: relative asset URLs, local system fonts, no remote avatar images, blocked external navigation, and a Content Security Policy that denies network requests from the WebView. Optional online integrations are disabled by default; enabling them permits only the explicitly user-started Solana Devnet wallet-adapter flow currently implemented. No cloud messaging, telemetry, automatic uploads, or payment transactions are provided.
 
 ## Implemented
 
+- Bundled React/Vite dashboard hosted from APK assets, with a local-only WebView origin and a narrow `@JavascriptInterface` bridge. The bridge exposes only the user actions needed by the dashboard; non-local WebView navigation and content access are denied.
+- Native device controls in the original dashboard: start/stop BLE mesh, encrypted text queueing, file selection and export, voice-note recording/playback, opt-in live voice, Wi-Fi Aware and Wi-Fi Direct actions, and optional Devnet wallet authorization.
+- Persisted online-integration switch, defaulting to off. BLE and local peer-to-peer features work without enabling it. WebView content has no network connection permission through its Content Security Policy.
 - BLE service UUID advertising, filtered scanning, GATT server/client connections, and reconnect discovery.
 - User-controlled Wi-Fi Direct group creation, peer discovery, explicit MAC-address connection, and length-prefixed TCP frame transport; optional Wi-Fi Aware publish/subscribe discovery with PSK-protected TCP data-path negotiation on supported hardware. BLE remains active when Wi-Fi Direct is unavailable or its optional permission is denied; Wi-Fi Aware is the default high-throughput peer transport when available.
 - Adaptive per-peer BLE congestion handling: queue admission tightens after write failures, exponential backoff is applied, and durable outbox replay resumes when the backoff expires.
@@ -20,7 +25,7 @@ The native Android target uses real Android BLE advertising, scanning, and GATT.
 
 ## Build locally (no CI)
 
-Requirements: JDK 17, Android SDK Platform 36, Android Gradle Plugin 8.9.1, Kotlin Gradle Plugin 2.2.21, and Gradle 8.11.1 or a compatible newer Gradle installation. From this directory:
+Requirements: Node.js/npm 22+, JDK 17, Android SDK Platform 36, Android Gradle Plugin 8.9.1, Kotlin Gradle Plugin 2.2.21, and Gradle 8.11.1 or a compatible newer Gradle installation. First install web dependencies from the repository root; the Android Gradle preBuild task then runs the Vite production build and bundles its output:
 
 Google Play has required new apps and updates to target Android 16 (API 36) or higher since August 31, 2026. This branch is configured for API 36; confirm API-level behavior and device compatibility in your manual test pass.
 
@@ -34,7 +39,7 @@ Instrumented protocol and SQLite tests are included under `app/src/androidTest`.
 
     gradle connectedDebugAndroidTest
 
-These commands are local developer instructions and do not invoke GitHub Actions. The PowerShell helper accepts `-RunConnectedTests` to run the instrumentation suite after creating the debug APK. A successful debug APK build does not certify physical-device interoperability or production security.
+The Gradle build runs the web production build as part of preBuild; these commands do not invoke GitHub Actions. The PowerShell helper accepts `-RunConnectedTests` to run the instrumentation suite after creating the debug APK. A successful debug APK build does not certify physical-device interoperability or production security.
 
 Install the debug APK on at least two BLE-capable Android phones. On each phone, enter the same high-entropy passphrase (at least 24 characters), grant Bluetooth and notification permissions, and start the mesh. A blank passphrase field reuses the locally saved credential. Use “Forget saved group credentials” to delete it from that device.
 
