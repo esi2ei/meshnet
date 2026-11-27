@@ -48,6 +48,13 @@ class MeshFileTransferTest {
         assertTrue(events.any { it.contains("received and verified") })
     }
 
+    @Test fun preflightsOutboxAndDoesNotQueuePartialFile() {
+        val frames = mutableListOf<String>()
+        val sender = MeshFileTransfer(context, { frames.add(it); true }, {}, canQueueBatch = { false })
+        assertFalse(sender.send(Uri.fromFile(source)))
+        assertTrue(frames.isEmpty())
+    }
+
     @Test fun rejectsFilesLargerThanBoundedTransferLimit() {
         source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES + 1))
         val sender = MeshFileTransfer(context, { true }, {})
