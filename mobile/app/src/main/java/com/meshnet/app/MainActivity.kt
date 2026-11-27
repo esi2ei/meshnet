@@ -162,8 +162,10 @@ class MainActivity : Activity() {
                 override fun shouldInterceptRequest(
                     view: WebView?,
                     url: String?
-                ): android.webkit.WebResourceResponse? =
-                    assetLoader.shouldInterceptRequest(Uri.parse(url ?: return null))
+                ): android.webkit.WebResourceResponse? {
+                    val requestUrl = url ?: return null
+                    return assetLoader.shouldInterceptRequest(Uri.parse(requestUrl))
+                }
 
                 override fun shouldOverrideUrlLoading(
                     view: WebView?,
