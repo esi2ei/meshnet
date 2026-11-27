@@ -36,7 +36,7 @@ The debug APK is written to `mobile/app/build/outputs/apk/debug/app-debug.apk`. 
 ## Public-repository and security notes
 
 - Never commit wallet secrets, group passphrases, API keys, keystores, signing passwords, or deployment keypairs. Release signing credentials must be stored outside the checkout and supplied through private CI secrets or a local environment.
-- Debug APKs are test artifacts, not production releases. CI verifies their signature and runs emulator instrumentation tests, but an emulator cannot validate physical Bluetooth/Wi-Fi interoperability.
+- Debug APKs are test artifacts, not production releases. The manual-only CI workflow can verify their signature and run emulator instrumentation tests when explicitly dispatched; an emulator cannot validate physical Bluetooth/Wi-Fi interoperability.
 - The prototype is not yet a production secure messenger: group AES-GCM is not Signal Protocol, there is no authenticated per-device identity, forward secrecy or secure group-key rotation, and group receipts do not identify a named recipient.
 - The Solana escrow program is not built, tested, deployed, audited or integrated with Android transactions. Do not use this prototype to accept or transfer real funds.
 - Review [SECURITY.md](SECURITY.md) before reporting security issues, and see [mobile/SECURITY_AND_ESCROW.md](mobile/SECURITY_AND_ESCROW.md) for technical boundaries.
