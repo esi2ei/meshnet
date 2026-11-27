@@ -83,7 +83,7 @@ class MeshRouter(
     }
 
     private fun sendReceipt(messageId: String) {
-        val ackId = UUID.randomUUID().toString()
+        val ackId = UUID.nameUUIDFromBytes(("meshnet-ack|" + messageId).toByteArray(Charsets.UTF_8)).toString()
         val createdAt = System.currentTimeMillis()
         val frame = MeshFrame(
             origin = nodeId, ttl = MeshFrame.MAX_TTL, hops = listOf(nodeId),
