@@ -385,6 +385,8 @@ class MeshFileTransfer(
                 if (rolledBack) {
                     state.handle = RandomAccessFile(state.file, "rw")
                 } else {
+                    // Let the next manifest recover the durable .done.tmp record and final file.
+                    incoming.remove(id, state)
                     onEvent("File delivered to ${destination.name}, but completion metadata could not be committed; no ACK was sent")
                 }
                 onEvent("Completion marker could not be committed; sender may retry this file")

@@ -60,6 +60,17 @@ class MeshFileTransferTest {
             it.isFile && it.extension !in setOf("part", "meta", "done", "tmp")
         } ?: 0
         assertEquals("A repeated manifest must not create a second copy", before, after)
+
+        // Simulate process death after the final file rename but before .done was published.
+        val pendingMarker = File(receivedDir, "transfer_0001.done.tmp")
+        assertTrue(marker.renameTo(pendingMarker))
+        val restarted = track(MeshFileTransfer(context, { true }, {}))
+        assertTrue(restarted.accept(manifest))
+        assertTrue("Pending completion record should be recovered", marker.isFile)
+        val recoveredCount = receivedDir.listFiles()?.count {
+            it.isFile && it.extension !in setOf("part", "meta", "done", "tmp")
+        } ?: 0
+        assertEquals("Recovery must not duplicate the final file", before, recoveredCount)
     }
 
     @Test fun preservesM4aExtensionForReceivedVoiceNotePlayback() {
