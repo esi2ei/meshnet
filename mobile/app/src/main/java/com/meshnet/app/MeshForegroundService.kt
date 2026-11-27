@@ -194,6 +194,12 @@ class MeshForegroundService : Service() {
                     Charsets.UTF_8
                 )
                 if (isAcknowledgement) {
+                    val acknowledgementJson = org.json.JSONObject(payload)
+                    if (acknowledgementJson.optString("sender") != offlineWallet.address()) {
+                        pendingOfflinePayments.remove(transferId)
+                        persistPendingOfflinePayments()
+                        return
+                    }
                     val acknowledged = offlineWallet.acceptAcknowledgement(payload)
                     emit("Recipient acknowledgement verified · ${acknowledged.amountMinor} minor units · ${acknowledged.recipient.take(12)}…")
                 } else {
