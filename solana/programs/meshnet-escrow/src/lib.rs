@@ -38,6 +38,7 @@ pub mod meshnet_escrow {
         let now = Clock::get()?.unix_timestamp;
         validate_order_terms(amount, now, expires_at)?;
         require!(ctx.accounts.provider.key() != ctx.accounts.buyer.key(), EscrowError::InvalidProvider);
+        require!(ctx.accounts.mint.decimals == 6, EscrowError::InvalidMintDecimals);
 
         let order = &mut ctx.accounts.order;
         order.order_id = order_id;
@@ -421,6 +422,7 @@ pub struct OrderSettled { pub order: Pubkey, pub status: OrderStatus, pub amount
 #[error_code]
 pub enum EscrowError {
     #[msg("Invalid USDC mint")] InvalidMint,
+    #[msg("USDC mint must use six decimals")] InvalidMintDecimals,
     #[msg("Invalid arbitrator")] InvalidArbitrator,
     #[msg("Amount must be greater than zero")] InvalidAmount,
     #[msg("Expiry must be in the future")] InvalidExpiry,
