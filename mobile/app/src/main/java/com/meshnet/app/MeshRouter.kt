@@ -19,7 +19,7 @@ class MeshRouter(
     private val displayed = LinkedHashSet<String>()
 
     @Synchronized
-    fun sendMessage(text: String) {
+    fun sendMessage(text: String): Boolean {
         require(text.isNotBlank()) { "Message cannot be empty" }
         require(text.toByteArray(Charsets.UTF_8).size <= MAX_PLAINTEXT_BYTES) {
             "Message is too large for a single BLE frame"
@@ -36,9 +36,10 @@ class MeshRouter(
         if (!send(encryptedFrame.encode())) {
             seen.remove(id)
             onMessage("Outbox rejected message; it was not queued")
-            return
+            return false
         }
         onMessage("Message encrypted and queued; waiting for a group receipt")
+        return true
     }
 
     @Synchronized
