@@ -31,6 +31,7 @@ type NativeBridge = {
   connectWallet: () => void;
   disconnectWallet: () => void;
   getOfflineWalletAddress: () => string;
+  copyOfflineWalletAddress: () => boolean;
   sendOfflinePayment: (recipientAddress: string, amountMinor: number) => boolean;
   forgetGroupCredentials: () => void;
   setOnlineIntegrationsEnabled: (enabled: boolean) => void;
@@ -206,6 +207,7 @@ export default function PhoneWorkspace() {
       <div className="space-y-3 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><Wallet className="h-4 w-4 text-cyan-400" /> Offline wallet-to-wallet transfer</div>
         <p className="break-all text-[11px] text-slate-400">This device address: {runtime.offlineWalletAddress || (native ? "Creating local key…" : "Available in the Android APK")}</p>
+        <button className={actionClass} disabled={!runtime.native || !runtime.offlineWalletAddress} onClick={() => native?.copyOfflineWalletAddress()}>Copy my wallet address</button>
         <label className="block text-xs text-slate-400" htmlFor="offline-wallet-recipient">Recipient MeshNet wallet address (64 hex characters)</label>
         <input id="offline-wallet-recipient" value={offlineRecipient} onChange={(event) => setOfflineRecipient(event.target.value)}
           placeholder="Recipient local wallet address" className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-cyan-400" />
