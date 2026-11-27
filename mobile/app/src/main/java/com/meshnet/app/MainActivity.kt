@@ -46,8 +46,9 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        val intent = Intent(this, MeshForegroundService::class.java)
-        bound = bindService(intent, connection, BIND_AUTO_CREATE)
+        bound = bindService(
+            Intent(this, MeshForegroundService::class.java), connection, BIND_AUTO_CREATE
+        )
     }
 
     private fun render() {
@@ -62,12 +63,12 @@ class MainActivity : Activity() {
         status = TextView(this).apply { text = "Stopped" }
         root.addView(status)
         keyInput = EditText(this).apply {
-            hint = "Shared group passphrase (24+ characters)"
+            hint = "Group passphrase (24+ chars); leave blank to reuse saved key"
             inputType = 0x00000081
         }
         root.addView(keyInput)
         root.addView(Button(this).apply {
-            text = "Start BLE mesh"
+            text = "Start / resume BLE mesh"
             setOnClickListener { requestAndStart() }
         })
         root.addView(Button(this).apply {
@@ -77,6 +78,15 @@ class MainActivity : Activity() {
                     action = MeshForegroundService.ACTION_STOP
                 })
                 status.text = "Stopping"
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Forget saved group credentials"
+            setOnClickListener {
+                stopService(Intent(this@MainActivity, MeshForegroundService::class.java).apply {
+                    action = MeshForegroundService.ACTION_FORGET_CREDENTIALS
+                })
+                status.text = "Deleting saved credentials"
             }
         })
         messageInput = EditText(this).apply { hint = "Message (max 120 UTF-8 bytes)" }
@@ -100,7 +110,7 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
         ))
         root.addView(TextView(this).apply {
-            text = "Messages are stored in a bounded local outbox and retried while this service runs. There is no end-to-end delivery acknowledgement. Shared group AES-GCM is a prototype, not Signal or forward-secret."
+            text = "Outbox and replay cache persist locally. BLE writes are fragmented to fit negotiated MTU. There is no end-to-end delivery acknowledgement. Shared group AES-GCM is a prototype, not Signal or forward-secret."
             textSize = 11f
         })
         setContentView(root)
