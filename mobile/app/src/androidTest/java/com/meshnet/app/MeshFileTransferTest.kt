@@ -55,6 +55,30 @@ class MeshFileTransferTest {
         assertTrue(frames.isEmpty())
     }
 
+    @Test fun resumesPersistedPartialTransferAfterReceiverAndSenderRecreation() {
+        val firstFrames = mutableListOf<String>()
+        val firstSender = MeshFileTransfer(context, { firstFrames.add(it); true }, {})
+        val firstReceiver = MeshFileTransfer(context, { true }, {})
+        assertTrue(firstSender.send(Uri.fromFile(source)))
+        firstReceiver.accept(firstFrames.first { it.startsWith("~F1M|") })
+        val firstChunks = firstFrames.filter { it.startsWith("~F1C|") }
+        firstChunks.take(firstChunks.size / 2).forEach { firstReceiver.accept(it) }
+
+        val retryFrames = mutableListOf<String>()
+        val restartedSender = MeshFileTransfer(context, { retryFrames.add(it); true }, {})
+        val restartedReceiver = MeshFileTransfer(context, { true }, {})
+        assertTrue(restartedSender.send(Uri.fromFile(source)))
+        assertEquals(
+            firstFrames.first { it.startsWith("~F1M|") }.split('|')[1],
+            retryFrames.first { it.startsWith("~F1M|") }.split('|')[1]
+        )
+        retryFrames.forEach { restartedReceiver.accept(it) }
+
+        val saved = receivedDir.listFiles()?.firstOrNull { it.extension != "part" && it.extension != "meta" }
+        assertTrue(saved != null)
+        assertArrayEquals(source.readBytes(), saved!!.readBytes())
+    }
+
     @Test fun rejectsFilesLargerThanBoundedTransferLimit() {
         source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES + 1))
         val sender = MeshFileTransfer(context, { true }, {})
