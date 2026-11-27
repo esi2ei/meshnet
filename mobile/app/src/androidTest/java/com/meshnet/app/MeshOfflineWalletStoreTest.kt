@@ -12,13 +12,15 @@ import java.util.UUID
 class MeshOfflineWalletStoreTest {
     private lateinit var context: Context
     private lateinit var sender: MeshOfflineWalletStore
+    private lateinit var senderId: String
     private lateinit var recipient: MeshOfflineWalletStore
 
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         val suffix = UUID.randomUUID().toString().replace("-", "")
-        sender = MeshOfflineWalletStore(context, "sender-$suffix")
+        senderId = "sender-$suffix"
+        sender = MeshOfflineWalletStore(context, senderId)
         recipient = MeshOfflineWalletStore(context, "recipient-$suffix")
     }
 
@@ -58,10 +60,7 @@ class MeshOfflineWalletStoreTest {
     fun walletAddressIsStableAcrossStoreInstances() {
         val address = sender.address()
         assertTrue(address.matches(Regex("[0-9a-f]{64}")))
-        assertEquals(address, MeshOfflineWalletStore(context, senderWalletId()).address())
+        assertEquals(address, MeshOfflineWalletStore(context, senderId).address())
     }
 
-    private fun senderWalletId(): String =
-        context.getSharedPreferences("meshnet-offline-wallet-test", Context.MODE_PRIVATE)
-            .getString("unused", null) ?: "primary"
 }
