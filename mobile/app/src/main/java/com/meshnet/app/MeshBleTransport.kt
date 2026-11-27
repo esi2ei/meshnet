@@ -52,6 +52,11 @@ class MeshBleTransport(
     )
 
     private val serverCallback = object : BluetoothGattServerCallback() {
+        override fun onServiceAdded(status: Int, service: BluetoothGattService) {
+            if (status == BluetoothGatt.GATT_SUCCESS && running) startRadio()
+            else onState("GATT service registration failed: $status")
+        }
+
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 onPeer(device.address, true)
@@ -126,8 +131,13 @@ class MeshBleTransport(
                 gatt.close()
             } else if (newState == BluetoothProfile.STATE_CONNECTED) {
                 onPeer(address, true)
-                gatt.discoverServices()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) gatt.requestMtu(517)
+                else gatt.discoverServices()
             }
+        }
+
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            gatt.discoverServices()
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
@@ -161,7 +171,13 @@ class MeshBleTransport(
         service.addCharacteristic(characteristic)
         check(server?.addService(service) == true) { "Unable to register MeshNet GATT service" }
 
-        val advertiser = bt.bluetoothLeAdvertiser ?: error("BLE advertising is unsupported on this device")
+        check(bt.bluetoothLeAdvertiser != null) { "BLE advertising is unsupported on this device" }
+        check(bt.bluetoothLeScanner != null) { "BLE scanning is unsupported on this device" }
+        onState("Registering MeshNet GATT service")
+    }
+
+    private fun startRadio() {
+        val bt = adapter ?: return
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
@@ -172,12 +188,11 @@ class MeshBleTransport(
             .setIncludeDeviceName(false)
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
-        advertiser.startAdvertising(settings, data, advertiseCallback)
+        bt.bluetoothLeAdvertiser?.startAdvertising(settings, data, advertiseCallback)
 
-        val scanner = bt.bluetoothLeScanner ?: error("BLE scanning is unsupported on this device")
         val filters = listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(SERVICE_UUID)).build())
         val scanSettings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
-        scanner.startScan(filters, scanSettings, scanCallback)
+        bt.bluetoothLeScanner?.startScan(filters, scanSettings, scanCallback)
         onState("BLE discovery started")
     }
 
