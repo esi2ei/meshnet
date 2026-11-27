@@ -2,9 +2,13 @@ package com.meshnet.app
 
 import android.Manifest
 import android.app.Activity
+import android.content.ComponentName
+import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
@@ -12,20 +16,38 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import java.util.UUID
 
 class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var log: TextView
     private lateinit var keyInput: EditText
     private lateinit var messageInput: EditText
-    private var transport: MeshBleTransport? = null
-    private var router: MeshRouter? = null
-    private val nodeId = UUID.randomUUID().toString().take(8)
+    private var meshService: MeshForegroundService? = null
+    private var bound = false
+
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            meshService = (binder as? MeshForegroundService.LocalBinder)?.service()
+            meshService?.setListener(::append)
+            append("Connected to MeshNet foreground service")
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            meshService?.setListener(null)
+            meshService = null
+            append("MeshNet service disconnected")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         render()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val intent = Intent(this, MeshForegroundService::class.java)
+        bound = bindService(intent, connection, BIND_AUTO_CREATE)
     }
 
     private fun render() {
@@ -37,7 +59,7 @@ class MainActivity : Activity() {
             text = "MeshNet · Native Android"
             textSize = 24f
         })
-        status = TextView(this).apply { text = "Stopped · Node $nodeId" }
+        status = TextView(this).apply { text = "Stopped" }
         root.addView(status)
         keyInput = EditText(this).apply {
             hint = "Shared group passphrase (24+ characters)"
@@ -48,16 +70,26 @@ class MainActivity : Activity() {
             text = "Start BLE mesh"
             setOnClickListener { requestAndStart() }
         })
-        messageInput = EditText(this).apply { hint = "Message (max 280 UTF-8 bytes)" }
+        root.addView(Button(this).apply {
+            text = "Stop BLE mesh"
+            setOnClickListener {
+                stopService(Intent(this@MainActivity, MeshForegroundService::class.java).apply {
+                    action = MeshForegroundService.ACTION_STOP
+                })
+                status.text = "Stopping"
+            }
+        })
+        messageInput = EditText(this).apply { hint = "Message (max 120 UTF-8 bytes)" }
         root.addView(messageInput)
         root.addView(Button(this).apply {
-            text = "Send encrypted message"
+            text = "Queue encrypted message"
             setOnClickListener {
                 try {
-                    router?.sendMessage(messageInput.text.toString())
+                    meshService?.sendMessage(messageInput.text.toString())
+                        ?: throw IllegalStateException("Mesh service is not connected")
                     messageInput.text.clear()
                 } catch (error: Exception) {
-                    toast(error.message ?: "Unable to send")
+                    toast(error.message ?: "Unable to queue message")
                 }
             }
         })
@@ -68,7 +100,7 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
         ))
         root.addView(TextView(this).apply {
-            text = "Prototype limitation: all devices must share the same out-of-band passphrase. This is group AES-GCM encryption, not Signal, not forward-secret, and not production-audited."
+            text = "Messages are stored in a bounded local outbox and retried while this service runs. There is no end-to-end delivery acknowledgement. Shared group AES-GCM is a prototype, not Signal or forward-secret."
             textSize = 11f
         })
         setContentView(root)
@@ -89,7 +121,7 @@ class MainActivity : Activity() {
             requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS)
             return
         }
-        startMesh()
+        startMeshService()
     }
 
     override fun onRequestPermissionsResult(
@@ -98,35 +130,27 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_PERMISSIONS &&
             grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-            startMesh()
+            startMeshService()
         } else if (requestCode == REQUEST_PERMISSIONS) {
             toast("Bluetooth permissions are required for mesh discovery")
         }
     }
 
-    private fun startMesh() {
-        if (transport != null) return
-        val crypto = try { MeshCrypto(keyInput.text.toString().toCharArray()) } catch (error: Exception) {
-            toast(error.message ?: "Invalid passphrase")
-            return
+    private fun startMeshService() {
+        val intent = Intent(this, MeshForegroundService::class.java).apply {
+            action = MeshForegroundService.ACTION_START
+            putExtra(MeshForegroundService.EXTRA_PASSPHRASE, keyInput.text.toString())
         }
-        router = MeshRouter(nodeId, crypto, { bytes ->
-            transport?.sendToPeers(bytes) ?: false
-        }, { line -> append(line) })
-        transport = MeshBleTransport(
-            this,
-            { address, connected -> append("${if (connected) "Connected" else "Disconnected"}: $address") },
-            { _, payload -> router?.receive(payload) },
-            { message -> append(message) }
-        )
         try {
-            transport?.start()
-            status.text = "BLE mesh starting · Node $nodeId"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
+            else startService(intent)
+            if (!bound) bound = bindService(
+                Intent(this, MeshForegroundService::class.java), connection, BIND_AUTO_CREATE
+            )
+            status.text = "Starting foreground BLE service…"
+            keyInput.text.clear()
         } catch (error: Exception) {
-            transport?.stop()
-            transport = null
-            router = null
-            toast(error.message ?: "Unable to start BLE")
+            toast(error.message ?: "Unable to start foreground service")
         }
     }
 
@@ -137,12 +161,17 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    private fun toast(message: String) =
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
-    override fun onDestroy() {
-        transport?.stop()
-        transport = null
-        super.onDestroy()
+    override fun onStop() {
+        meshService?.setListener(null)
+        if (bound) {
+            unbindService(connection)
+            bound = false
+        }
+        meshService = null
+        super.onStop()
     }
 
     companion object { private const val REQUEST_PERMISSIONS = 4102 }
