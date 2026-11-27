@@ -54,7 +54,6 @@ class MeshForegroundService : Service() {
                 stopSelf(startId)
                 return START_NOT_STICKY
             }
-            // A user-supplied replacement key must be able to recover from a lost/reset Keystore key.
             secretStore.clear()
             null
         }
@@ -113,7 +112,12 @@ class MeshForegroundService : Service() {
                     emit("Outbox is full or frame is invalid; message was not queued")
                     false
                 } else {
-                    transport?.sendToPeers(frame)
+                    // A receipt has no ACK-of-ACK. Once a connected peer accepts it into
+                    // its ordered BLE write queue, retain only the ability to regenerate it
+                    // when the original message is seen again.
+                    if (transport?.sendToPeers(frame) == true) {
+                        outbox.retireAcknowledgement(frame)
+                    }
                     true
                 }
             },
@@ -172,6 +176,7 @@ class MeshForegroundService : Service() {
             // A full per-peer BLE queue pauses this pass. Queue-drained callbacks resume it.
             if (!link.sendToPeers(frame)) return
             outbox.noteReplay(frame)
+            outbox.retireAcknowledgement(frame)
             replayIndex++
         }
         val queued = replayFrames.size
