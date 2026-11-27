@@ -112,63 +112,90 @@ class MeshForegroundService : Service() {
 
     @Synchronized
     fun sendOfflinePayment(recipientAddress: String, amountMinor: Long): Boolean {
-        val activeRouter = router ?: throw IllegalStateException("Start the offline mesh before sending a wallet transfer")
+        router ?: throw IllegalStateException("Start the offline mesh before sending a wallet transfer")
         val voucher = offlineWallet.createPayment(recipientAddress, amountMinor)
+        val transferId = org.json.JSONObject(voucher).getString("id")
+        offlineWallet.recordOutgoing(voucher)
+        val queued = sendOfflineWalletEnvelope(OFFLINE_PAYMENT_PREFIX, transferId, voucher)
+        if (queued) emit("Signed offline transfer queued · waiting for a signed recipient acknowledgement")
+        return queued
+    }
+
+    private fun sendOfflineWalletEnvelope(prefix: String, transferId: String, payload: String): Boolean {
+        val activeRouter = router ?: return false
         val encoded = android.util.Base64.encodeToString(
-            voucher.toByteArray(Charsets.UTF_8),
+            payload.toByteArray(Charsets.UTF_8),
             android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING
         )
-        val transferId = java.util.UUID.randomUUID().toString()
         val chunks = encoded.chunked(OFFLINE_PAYMENT_CHUNK_SIZE)
-        require(chunks.size <= MAX_OFFLINE_PAYMENT_CHUNKS) { "Offline payment envelope is too large" }
+        require(chunks.size in 1..MAX_OFFLINE_PAYMENT_CHUNKS) { "Offline wallet envelope is too large" }
         for ((index, chunk) in chunks.withIndex()) {
-            val message = "$OFFLINE_PAYMENT_PREFIX|$transferId|$index|${chunks.size}|$chunk"
+            val message = "$prefix|$transferId|$index|${chunks.size}|$chunk"
             if (message.toByteArray(Charsets.UTF_8).size > 120 || !activeRouter.sendMessage(message)) {
-                emit("Offline wallet transfer queued only partially; resend it when the mesh is ready")
+                emit("Offline wallet envelope queued only partially; it remains unconfirmed")
                 return false
             }
         }
-        emit("Signed offline wallet transfer queued · provisional local-unit receipt")
         return true
     }
 
     private fun handleRouterMessage(message: String) {
-        if (!message.startsWith("$OFFLINE_PAYMENT_PREFIX|")) {
+        if (!message.startsWith("$OFFLINE_PAYMENT_PREFIX|") && !message.startsWith("$OFFLINE_ACK_PREFIX|")) {
             emit(message)
             return
         }
         try {
             val fields = message.split('|', limit = 5)
-            require(fields.size == 5 && fields[0] == OFFLINE_PAYMENT_PREFIX) { "Malformed offline wallet packet" }
+            require(fields.size == 5 && fields[0] in setOf(OFFLINE_PAYMENT_PREFIX, OFFLINE_ACK_PREFIX)) {
+                "Malformed offline wallet packet"
+            }
+            val isAcknowledgement = fields[0] == OFFLINE_ACK_PREFIX
             val transferId = fields[1]
-            require(transferId.length <= 64) { "Invalid offline wallet transfer ID" }
+            require(transferId.length in 1..64) { "Invalid offline wallet transfer ID" }
             val index = fields[2].toInt()
             val count = fields[3].toInt()
-            require(count in 1..MAX_OFFLINE_PAYMENT_CHUNKS && index in 0 until count) { "Invalid offline wallet chunk index" }
+            require(count in 1..MAX_OFFLINE_PAYMENT_CHUNKS && index in 0 until count) {
+                "Invalid offline wallet chunk index"
+            }
             require(fields[4].length <= OFFLINE_PAYMENT_CHUNK_SIZE) { "Offline wallet chunk is too large" }
             val state = pendingOfflinePayments[transferId]
             val chunks = if (state == null) {
-                require(pendingOfflinePayments.size < MAX_PENDING_OFFLINE_PAYMENTS) { "Too many pending offline wallet transfers" }
+                require(pendingOfflinePayments.size < MAX_PENDING_OFFLINE_PAYMENTS) {
+                    "Too many pending offline wallet transfers"
+                }
                 mutableMapOf<Int, String>().also { pendingOfflinePayments[transferId] = count to it }
             } else {
                 require(state.first == count) { "Offline wallet chunk count changed" }
                 state.second
             }
+            val previous = chunks[index]
+            require(previous == null || previous == fields[4]) { "Conflicting duplicate wallet chunk" }
             chunks[index] = fields[4]
             if (chunks.size == count) {
-                val encoded = (0 until count).joinToString("") { chunks[it] ?: error("Offline wallet transfer is incomplete") }
+                val encoded = (0 until count).joinToString("") {
+                    chunks[it] ?: error("Offline wallet transfer is incomplete")
+                }
                 pendingOfflinePayments.remove(transferId)
-                val voucher = String(
+                val payload = String(
                     android.util.Base64.decode(encoded, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP),
                     Charsets.UTF_8
                 )
-                val json = org.json.JSONObject(voucher)
-                if (json.optString("recipient") != offlineWallet.address()) return
-                val receipt = offlineWallet.acceptPayment(voucher)
-                emit("Offline wallet receipt verified · ${receipt.amountMinor} minor units · ${receipt.sender.take(12)}…")
+                if (isAcknowledgement) {
+                    val acknowledged = offlineWallet.acceptAcknowledgement(payload)
+                    emit("Recipient acknowledgement verified · ${acknowledged.amountMinor} minor units · ${acknowledged.recipient.take(12)}…")
+                } else {
+                    val json = org.json.JSONObject(payload)
+                    if (json.optString("recipient") != offlineWallet.address()) return
+                    val receipt = offlineWallet.acceptPayment(payload)
+                    emit("Offline wallet receipt verified and saved · ${receipt.amountMinor} minor units · ${receipt.sender.take(12)}…")
+                    val acknowledgement = offlineWallet.createAcknowledgement(receipt)
+                    if (sendOfflineWalletEnvelope(OFFLINE_ACK_PREFIX, receipt.id, acknowledgement)) {
+                        emit("Signed recipient acknowledgement queued")
+                    }
+                }
             }
         } catch (error: Exception) {
-            emit("Rejected offline wallet transfer: ${error.message ?: "invalid packet"}")
+            emit("Rejected offline wallet envelope: ${error.message ?: "invalid packet"}")
         }
     }
 
@@ -289,7 +316,7 @@ class MeshForegroundService : Service() {
             markReceived = outbox::markReceived,
             acknowledge = outbox::acknowledge,
             onPayload = { plaintext ->
-                if (plaintext.startsWith("$OFFLINE_PAYMENT_PREFIX|")) {
+                if (plaintext.startsWith("$OFFLINE_PAYMENT_PREFIX|") || plaintext.startsWith("$OFFLINE_ACK_PREFIX|")) {
                     handleRouterMessage(plaintext)
                     true
                 } else fileTransfer?.accept(plaintext) == true
@@ -489,6 +516,7 @@ class MeshForegroundService : Service() {
         private const val CHANNEL_ID = "meshnet_connection"
         private const val NOTIFICATION_ID = 73
         private const val OFFLINE_PAYMENT_PREFIX = "MESHOP1"
+        private const val OFFLINE_ACK_PREFIX = "MESHACK1"
         private const val OFFLINE_PAYMENT_CHUNK_SIZE = 48
         private const val MAX_OFFLINE_PAYMENT_CHUNKS = 32
         private const val MAX_PENDING_OFFLINE_PAYMENTS = 16
