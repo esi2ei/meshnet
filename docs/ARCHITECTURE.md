@@ -55,7 +55,7 @@ A peer is inserted into `MeshPeerRegistry` only after a transport establishes it
 
 The peer registry key combines transport and remote address so the same IP/address observed on two transports remains distinct. Disconnect callbacks remove only the matching transport peer. Stopping the mesh clears the registry.
 
-The router separately reports a route observation only after a frame is decoded and authenticated, and only when the current node is not already in the frame's hop history. The observed path is the authenticated hop list plus this receiving node. `MeshRouteRegistry` validates node IDs and loop-free paths, caps history at 64 paths, and expires observations after 30 minutes. The dashboard renders those observed frame paths in a separate multi-hop graph. It does not merge them with the direct-link graph or claim that a previously observed hop is currently online.
+The router separately reports a route observation only after a frame is decoded and authenticated, and only when the current node is not already in the frame's hop history. The observed path is the group-key-authenticated hop list plus this receiving node. `MeshRouteRegistry` validates node IDs and loop-free paths, caps history at 64 paths, and expires observations after 30 minutes. The dashboard renders those observed frame paths in a separate multi-hop graph. It does not merge them with the direct-link graph or claim that a previously observed hop is currently online.
 
 Current topology sources:
 - BLE/GATT: native GATT connection-state callbacks.
