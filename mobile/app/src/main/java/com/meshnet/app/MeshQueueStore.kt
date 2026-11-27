@@ -74,6 +74,7 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
                 created_at INTEGER NOT NULL
             )""".trimIndent()
         )
+        db.execSQL("CREATE INDEX IF NOT EXISTS directed_targets_created_at ON directed_targets(created_at)")
     }
 
     private fun createReceived(db: SQLiteDatabase) {
@@ -155,13 +156,18 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     @Synchronized
     fun recordDestination(messageId: String, destination: String) {
         if (messageId.isBlank() || !destination.matches(Regex("[A-Za-z0-9_-]{1,32}"))) return
+        val db = writableDatabase
+        val now = System.currentTimeMillis()
+        db.delete("directed_targets", "created_at < ?", arrayOf((now - MAX_AGE_MS).toString()))
         val values = ContentValues().apply {
             put("message_id", messageId)
             put("destination", destination)
-            put("created_at", System.currentTimeMillis())
+            put("created_at", now)
         }
-        writableDatabase.insertWithOnConflict(
-            "directed_targets", null, values, SQLiteDatabase.CONFLICT_REPLACE
+        db.insertWithOnConflict("directed_targets", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+        db.execSQL(
+            "DELETE FROM directed_targets WHERE message_id IN (SELECT message_id FROM directed_targets ORDER BY created_at ASC LIMIT MAX(0, (SELECT COUNT(*) FROM directed_targets) - ?))",
+            arrayOf(MAX_ENTRIES)
         )
     }
 
@@ -176,7 +182,9 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     @Synchronized
     fun receiptMatches(messageId: String, receiptOrigin: String): Boolean {
         if (messageId.isBlank() || receiptOrigin.isBlank()) return false
-        val recordedDestination = writableDatabase.rawQuery(
+        val db = writableDatabase
+        db.delete("directed_targets", "created_at < ?", arrayOf((System.currentTimeMillis() - MAX_AGE_MS).toString()))
+        val recordedDestination = db.rawQuery(
             "SELECT destination FROM directed_targets WHERE message_id = ? LIMIT 1",
             arrayOf(messageId)
         ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
