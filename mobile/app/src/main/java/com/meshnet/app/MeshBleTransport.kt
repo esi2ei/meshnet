@@ -160,12 +160,14 @@ class MeshBleTransport(
                 closeClient(address, gatt)
                 return
             }
-            if (!running || !pendingClients.remove(address, gatt)) {
-                closeClient(address, gatt)
-                return
+            synchronized(gatt) {
+                if (!running || !pendingClients.remove(address, gatt)) {
+                    closeClient(address, gatt)
+                    return
+                }
+                clients[address] = gatt
+                onPeer(address, true)
             }
-            clients[address] = gatt
-            onPeer(address, true)
             onState("Mesh GATT channel ready: $address (MTU ${negotiatedMtu[address] ?: DEFAULT_MTU})")
         }
 
@@ -245,15 +247,17 @@ class MeshBleTransport(
     }
 
     private fun closeClient(address: String, gatt: BluetoothGatt) {
-        val activeRemoved = clients.remove(address, gatt)
-        pendingClients.remove(address, gatt)
-        seen.remove(address)
-        negotiatedMtu.remove(address)
-        writeQueues.remove(address)
-        writing.remove(address)
-        if (activeRemoved) onPeer(address, false)
-        runCatching { gatt.disconnect() }
-        runCatching { gatt.close() }
+        synchronized(gatt) {
+            val activeRemoved = clients.remove(address, gatt)
+            pendingClients.remove(address, gatt)
+            seen.remove(address)
+            negotiatedMtu.remove(address)
+            writeQueues.remove(address)
+            writing.remove(address)
+            if (activeRemoved) onPeer(address, false)
+            runCatching { gatt.disconnect() }
+            runCatching { gatt.close() }
+        }
     }
 
     private fun connect(device: BluetoothDevice) {
