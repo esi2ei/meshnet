@@ -3,13 +3,31 @@ package com.meshnet.app
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import android.content.Context
+import android.net.Uri
+import androidx.webkit.WebViewAssetLoader
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class BundledDashboardAssetsTest {
+    @Test
+    fun dashboardIsServedThroughLocalWebViewAssetLoaderOrigin() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val loader = WebViewAssetLoader.Builder()
+            .setDomain("appassets.androidplatform.net")
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
+            .build()
+
+        val response = loader.shouldInterceptRequest(
+            Uri.parse("https://appassets.androidplatform.net/assets/web/index.html")
+        )
+        assertNotNull("The virtual appassets origin must resolve directly from APK assets", response)
+        assertTrue("The local HTML response must have an HTML MIME type", response!!.mimeType.contains("html"))
+    }
+
     @Test
     fun dashboardIsPackagedLocallyAndHasNoRemoteRuntimeAssets() {
         val context = ApplicationProvider.getApplicationContext<Context>()
