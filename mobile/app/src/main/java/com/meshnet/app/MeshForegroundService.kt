@@ -376,7 +376,7 @@ class MeshForegroundService : Service() {
                     false
                 } else {
                     // A receipt has no ACK-of-ACK. Once a connected peer accepts it into
-                    // its ordered BLE write queue, retain only the ability to regenerate it
+                    // an available local transport write queue, retain only the ability to regenerate it
                     // when the original message is seen again.
                     val bleAccepted = transport?.sendToPeers(frame) == true
                     val wifiAccepted = wifiTransport?.sendToPeers(frame) == true
