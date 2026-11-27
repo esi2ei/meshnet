@@ -29,6 +29,7 @@ type NativeBridge = {
   resumeWifiAware: () => void;
   connectWallet: () => void;
   disconnectWallet: () => void;
+  forgetGroupCredentials: () => void;
   setOnlineIntegrationsEnabled: (enabled: boolean) => void;
 };
 
@@ -142,6 +143,10 @@ export default function PhoneWorkspace() {
           </button>
           <button className={actionClass} disabled={!runtime.native || !runtime.running} onClick={() => native?.stopMesh()}>
             <Power className="h-4 w-4" /> Stop mesh
+          </button>
+          <button className={actionClass + ' col-span-2'} disabled={!runtime.native}
+            onClick={() => { if (window.confirm('Delete the saved group passphrase and local queued mesh data from this phone?')) native?.forgetGroupCredentials(); }}>
+            Forget saved group credentials and queue
           </button>
         </div>
         <p className="text-[11px] leading-relaxed text-slate-500">The passphrase is sent directly to Android and is not saved in the web dashboard or browser storage. Enter the same high-entropy secret on every participating phone.</p>
