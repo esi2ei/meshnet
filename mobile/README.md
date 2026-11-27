@@ -19,6 +19,12 @@ Requirements: JDK 17, Android SDK Platform 35, and Gradle 8.9 or a compatible Gr
 
     gradle assembleDebug
 
+Instrumented protocol and SQLite tests are included under `app/src/androidTest`. Run them locally on a connected Android device or emulator with:
+
+    gradle connectedDebugAndroidTest
+
+These commands are local developer instructions; no GitHub Actions workflow is triggered by feature-branch pushes.
+
 Install the debug APK on at least two BLE-capable Android phones. On each phone, enter the same high-entropy passphrase (at least 24 characters), grant Bluetooth and notification permissions, and start the mesh. A blank passphrase field reuses the locally saved credential. Use “Forget saved group credentials” to delete it from that device.
 
 For a multi-hop check, use three phones with each device within BLE range of at least one neighbor, then move the origin and destination out of direct range while keeping the relay in range. Verify the receiver log shows the message and hop count.
