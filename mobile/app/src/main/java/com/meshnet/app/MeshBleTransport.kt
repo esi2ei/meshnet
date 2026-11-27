@@ -301,7 +301,7 @@ class MeshBleTransport(
         if (status != BluetoothGatt.GATT_SUCCESS) {
             queue?.let { synchronized(it) { it.clear() } }
             writing.remove(address)
-            onState("BLE chunk write failed for $address (status $status)")
+            onState("BLE write queue available: $address (previous chunk failed with status $status)")
             return
         }
         val hasNext = queue?.let {
@@ -314,6 +314,7 @@ class MeshBleTransport(
         else {
             writeQueues.remove(address)
             writing.remove(address)
+            onState("BLE write queue drained: $address")
         }
     }
 
