@@ -138,7 +138,7 @@ class MainActivity : Activity() {
             settings.javaScriptCanOpenWindowsAutomatically = false
             settings.setSupportMultipleWindows(false)
             isVerticalScrollBarEnabled = true
-            overScrollMode = ViewGroup.OVER_SCROLL_IF_CONTENT_SCROLLS
+            overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
             addJavascriptInterface(MeshNetBridge(), "MeshNetNative")
             webViewClient = object : WebViewClient() {
                 private fun isBundledAsset(url: String): Boolean {
@@ -175,18 +175,16 @@ class MainActivity : Activity() {
         }
         webView = localWebView
         localWebView.setOnApplyWindowInsetsListener { view, insets ->
-            val safeInsets = if (Build.VERSION.SDK_INT >= 30) {
-                insets.getInsets(
+            if (Build.VERSION.SDK_INT >= 30) {
+                val safeInsets = insets.getInsets(
                     WindowInsets.Type.systemBars() or
                         WindowInsets.Type.displayCutout() or
                         WindowInsets.Type.ime()
                 )
+                view.setPadding(safeInsets.left, safeInsets.top, safeInsets.right, safeInsets.bottom)
             } else {
-                android.graphics.Insets.of(
-                    0, insets.systemWindowInsetTop, 0, insets.systemWindowInsetBottom
-                )
+                view.setPadding(0, insets.systemWindowInsetTop, 0, insets.systemWindowInsetBottom)
             }
-            view.setPadding(safeInsets.left, safeInsets.top, safeInsets.right, safeInsets.bottom)
             insets
         }
         setContentView(localWebView)
