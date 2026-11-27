@@ -95,8 +95,13 @@ class MeshForegroundService : Service() {
     }
 
     private fun startMesh(passphrase: String) {
-        // Use the full 128-bit random UUID (without separators) as the mesh origin identifier.
-        nodeId = java.util.UUID.randomUUID().toString().replace("-", "")
+        // Encode the full 128-bit random UUID as compact base64url to keep route headers bounded.
+        val nodeUuid = java.util.UUID.randomUUID()
+        val nodeBytes = java.nio.ByteBuffer.allocate(16)
+            .putLong(nodeUuid.mostSignificantBits)
+            .putLong(nodeUuid.leastSignificantBits)
+            .array()
+        nodeId = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(nodeBytes)
         val crypto = try {
             MeshCrypto(passphrase.toCharArray())
         } catch (error: Exception) {
