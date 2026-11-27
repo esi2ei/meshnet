@@ -158,7 +158,8 @@ class MeshFrameTest {
             hops = hops,
             nonce = "A".repeat(16),
             ciphertext = "A".repeat(184),
-            createdAt = System.currentTimeMillis()
+            createdAt = System.currentTimeMillis(),
+            destination = "destination_node_000000000"
         )
 
         val encoded = frame.encode()
