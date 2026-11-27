@@ -261,6 +261,12 @@ class MeshRouterReceiptTest {
 
         assertTrue(nodeB.sendMessage("from B to A"))
         val bMessage = bToA.map { MeshFrame.decode(it) }.first { it.kind == MeshFrame.KIND_MESSAGE }
+        assertEquals("node_B001", bMessage.origin)
+        assertEquals(null, bMessage.destination)
+        assertEquals("from B to A", MeshCrypto(passphrase.toCharArray()).decrypt(
+            bMessage.nonce, bMessage.ciphertext, MeshFrame.aad(bMessage)
+        ))
+        assertTrue("B-to-A frame ID unexpectedly already received: ${bMessage.id}", bMessage.id !in seenA)
         nodeA.receive(bMessage.encode())
         assertTrue("B-to-A delivery failed; node A events: $eventsA", eventsA.any { it.contains("from B to A") })
     }
