@@ -216,8 +216,8 @@ class MeshBleTransport(
         var advertisingStarted = false
         var scanningStarted = false
         try {
-            bt.bluetoothLeAdvertiser?.startAdvertising(settings, data, advertiseCallback)
-                ?: error("BLE advertiser is unavailable")
+            val advertiser = bt.bluetoothLeAdvertiser ?: error("BLE advertiser is unavailable")
+            advertiser.startAdvertising(settings, data, advertiseCallback)
             advertisingStarted = true
         } catch (error: Exception) {
             onState("BLE advertising failed: ${error.message}")
@@ -225,8 +225,8 @@ class MeshBleTransport(
         try {
             val filters = listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(SERVICE_UUID)).build())
             val scanSettings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
-            bt.bluetoothLeScanner?.startScan(filters, scanSettings, scanCallback)
-                ?: error("BLE scanner is unavailable")
+            val scanner = bt.bluetoothLeScanner ?: error("BLE scanner is unavailable")
+            scanner.startScan(filters, scanSettings, scanCallback)
             scanningStarted = true
         } catch (error: Exception) {
             onState("BLE scanning failed: ${error.message}")
