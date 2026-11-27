@@ -1,9 +1,9 @@
 # MeshNet
 
-MeshNet is being developed as an offline-first peer-to-peer messaging and connectivity project. The repository currently contains two distinct parts:
+MeshNet is an offline-first peer-to-peer messaging and connectivity project with two distinct parts:
 
-- Web dashboard (src/): a React/Vite UI prototype and code workspace. Its simulated nodes and topology are not connected to phone radios and must not be treated as live network status.
-- Native Android prototype (mobile/): the first BLE/GATT implementation, with encrypted text frames and TTL-based relay. See mobile/README.md for setup and limitations.
+- **Web dashboard (src/)**: a React/Vite UI prototype. Its simulated nodes and topology are not connected to phone radios.
+- **Native Android (mobile/)**: an early BLE/GATT implementation with encrypted text frames, TTL relay, a user-started connected-device foreground service, and a bounded persistent SQLite outbox.
 
 ## Web dashboard
 
@@ -18,8 +18,15 @@ The dashboard does not require a Gemini API key for its core UI. Do not put priv
 
 Requirements: JDK 17 and Android SDK Platform 35. See mobile/README.md.
 
-## Development status
+Build locally (without CI):
 
-The Android BLE prototype is an initial transport milestone, not a production release. Group-key bootstrap, durable offline queue, background execution, large-file transfer, Wi-Fi transports, iOS, and payment/escrow remain outstanding. The browser dashboard remains a simulator and is not proof of real radio connectivity.
+    cd mobile
+    gradle assembleDebug
 
-No automated CI workflow is run for feature-branch pushes. The workflow is limited to main pushes, pull requests targeting main, and manual dispatch.
+## Development status and limitations
+
+This remains a prototype, not a production release. The persistent outbox has no end-to-end delivery acknowledgements and retains frames for bounded retry/expiry. The shared passphrase is not Signal Protocol and provides neither per-device identity nor forward secrecy. Large file/voice transfer, fragmentation/resume, Wi-Fi transports, iOS, and real payment/escrow are not implemented. No physical-device validation or local Android build has been performed as part of this change.
+
+The browser dashboard is a simulation and is not evidence of live radio connectivity.
+
+Feature-branch pushes do not run GitHub Actions. Workflows remain available for main pushes, pull requests targeting main, and manual dispatch.
