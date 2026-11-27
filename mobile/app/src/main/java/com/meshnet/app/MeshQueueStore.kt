@@ -93,6 +93,15 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     }
 
     @Synchronized
+    fun canAcceptBatch(count: Int): Boolean {
+        if (count < 0 || count > MAX_ENTRIES) return false
+        val current = writableDatabase.rawQuery("SELECT COUNT(*) FROM outbox", null).use {
+            if (it.moveToFirst()) it.getInt(0) else MAX_ENTRIES
+        }
+        return current + count <= MAX_ENTRIES
+    }
+
+    @Synchronized
     fun pending(limit: Int = MAX_ENTRIES): List<ByteArray> {
         val now = System.currentTimeMillis()
         val db = writableDatabase
