@@ -101,11 +101,17 @@ internal class MeshOfflineLibrary(context: Context) {
         runCatching{
             val json=JSONObject(index.readText());val locals=json.optJSONArray("local")?:JSONArray()
             for(i in 0 until locals.length()){
-                val e=locals.getJSONObject(i);val id=e.getString("id")
-                if(!id.matches(Regex("[a-f0-9]{64}")))continue
-                val file=fileFor(id)
-                val item=Item(id,safeName(e.getString("name")),e.getLong("size"),e.getLong("createdAt"),true,null)
-                if(file.isFile&&file.length()==item.size&&runCatching{digest(file)}.getOrNull()==id)local[id]=item
+                runCatching {
+                    val e=locals.getJSONObject(i);val id=e.getString("id")
+                    if(id.matches(Regex("[a-f0-9]{64}"))) {
+                        val file=fileFor(id)
+                        val size=e.getLong("size")
+                        val item=Item(id,safeName(e.getString("name")),size,e.getLong("createdAt"),true,null)
+                        if(size in 1..MAX_FILE_BYTES.toLong() && file.isFile &&
+                            file.length()==item.size && runCatching{digest(file)}.getOrNull()==id
+                        ) local[id]=item
+                    }
+                }
             }
             val remotes=json.optJSONArray("remote")?:JSONArray()
             for(i in 0 until remotes.length()){
