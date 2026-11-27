@@ -95,7 +95,8 @@ class MeshForegroundService : Service() {
     }
 
     private fun startMesh(passphrase: String) {
-        nodeId = java.util.UUID.randomUUID().toString().take(8)
+        // Use the full 128-bit random UUID (without separators) as the mesh origin identifier.
+        nodeId = java.util.UUID.randomUUID().toString().replace("-", "")
         val crypto = try {
             MeshCrypto(passphrase.toCharArray())
         } catch (error: Exception) {
