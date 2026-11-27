@@ -41,6 +41,7 @@ class MeshForegroundService : Service() {
     private var replayFrames: List<ByteArray> = emptyList()
     private var replayIndex = 0
     private var replayActive = false
+    private var wifiDirectFallbackAttempted = false
 
     override fun onCreate() {
         super.onCreate()
@@ -446,7 +447,8 @@ class MeshForegroundService : Service() {
             )
             runCatching { wifiAwareTransport?.start() }
                 .onFailure { emit("Wi-Fi Aware unavailable; other transports remain active: ${it.message}") }
-            emit("Mesh service started · BLE ${if (transport != null) "ready" else "unavailable"} · Node $nodeId; Wi-Fi Direct can be started when supported")
+            if (transport == null) startWifiDirectFallback("BLE could not initialize")
+            emit("Mesh service started · BLE ${if (transport != null) "initialized" else "unavailable"} · Node $nodeId; local Wi-Fi fallback is available when supported")
         } catch (error: Exception) {
             emit(error.message ?: "Unable to start BLE")
             stopMesh()
@@ -457,6 +459,12 @@ class MeshForegroundService : Service() {
 
     @Synchronized
     private fun handleTransportState(state: String) {
+        if (state.contains("BLE advertising failed") ||
+            state.contains("BLE scanning failed") ||
+            state.contains("GATT service registration failed") ||
+            state.contains("missing radio role")) {
+            startWifiDirectFallback(state)
+        }
         when {
             state.contains("channel ready") -> {
                 if (!replayActive) beginOutboxReplay() else pumpOutboxReplay()
@@ -465,6 +473,16 @@ class MeshForegroundService : Service() {
             state.contains("write queue drained") || state.contains("write queue available") ->
                 pumpOutboxReplay()
         }
+    }
+
+    @Synchronized
+    private fun startWifiDirectFallback(reason: String) {
+        if (wifiDirectFallbackAttempted) return
+        val wifi = wifiTransport ?: return
+        wifiDirectFallbackAttempted = true
+        runCatching { wifi.start() }
+            .onSuccess { emit("Wi-Fi Direct fallback discovery started after: $reason") }
+            .onFailure { emit("Wi-Fi Direct fallback unavailable: ${it.message}; Wi-Fi Aware/BLE may still be used") }
     }
 
     @Synchronized
@@ -518,6 +536,7 @@ class MeshForegroundService : Service() {
         replayFrames = emptyList()
         replayIndex = 0
         replayActive = false
+        wifiDirectFallbackAttempted = false
     }
 
     private fun restorePendingOfflinePayments() {
