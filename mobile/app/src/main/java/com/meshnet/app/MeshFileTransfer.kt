@@ -499,16 +499,6 @@ class MeshFileTransfer(
         state.handle = null
     }
 
-    private fun persistMetadata(state: Incoming) {
-        val json = JSONObject()
-            .put("name", state.name)
-            .put("size", state.size)
-            .put("chunks", state.chunks)
-            .put("digest", state.digest)
-            .put("received", Base64.encodeToString(state.received.toByteArray(), Base64.NO_WRAP))
-        persistMetadata(state.meta, json)
-    }
-
     @Synchronized
     private fun transferIdFor(digest: String, name: String): String {
         val key = MessageDigest.getInstance("SHA-256")

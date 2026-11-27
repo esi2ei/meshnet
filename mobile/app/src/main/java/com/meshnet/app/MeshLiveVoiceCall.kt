@@ -43,6 +43,7 @@ class MeshLiveVoiceCall(
     private val speakers = ConcurrentHashMap<String, SpeakerStream>()
     @Volatile private var callId: String? = null
     @Volatile private var incomingId: String? = null
+    @Volatile private var incomingAtMs: Long = 0L
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var player: AudioTrack? = null
     @Volatile private var encoder: MediaCodec? = null
@@ -59,7 +60,10 @@ class MeshLiveVoiceCall(
         check(!active.get()) { "A live voice call is already active" }
         val id = UUID.randomUUID().toString().replace("-", "").take(12)
         startMedia(id)
-        sendEphemeral("~V1S|$id")
+        if (!sendEphemeral("~V1S|$id")) {
+            stopMedia()
+            throw IllegalStateException("Live call invitation could not reach a connected peer")
+        }
         onEvent("Live group voice started · $id. Other group members must explicitly join.")
         return id
     }
@@ -67,9 +71,19 @@ class MeshLiveVoiceCall(
     fun joinIncoming(): String {
         check(!active.get()) { "A live voice call is already active" }
         val id = incomingId ?: throw IllegalStateException("No incoming live voice invitation is available")
+        if (SystemClock.elapsedRealtime() - incomingAtMs > INVITATION_TTL_MS) {
+            incomingId = null
+            incomingAtMs = 0L
+            throw IllegalStateException("The incoming live voice invitation has expired")
+        }
         startMedia(id)
-        sendEphemeral("~V1J|$id")
-        onEvent("Joined live group voice call $id")
+        if (!sendEphemeral("~V1J|$id")) {
+            stopMedia()
+            incomingId = id
+            incomingAtMs = SystemClock.elapsedRealtime()
+            throw IllegalStateException("Live call join request could not reach a connected peer")
+        }
+        onEvent("Joined live voice call $id")
         return id
     }
 
@@ -87,15 +101,23 @@ class MeshLiveVoiceCall(
         val id = fields[1]
         when (fields[0]) {
             "~V1S" -> {
+                if (origin == localNodeId || !origin.matches(Regex("[A-Za-z0-9_-]{1,32}"))) return true
                 incomingId = id
+                incomingAtMs = SystemClock.elapsedRealtime()
                 onEvent("Incoming live voice call $id · tap Join to enable microphone and audio")
             }
             "~V1J" -> if (callId == id && active.get()) {
                 onEvent("A group member joined live voice call $id")
             }
-            "~V1E" -> if (callId == id && active.get()) {
-                stopMedia()
-                onEvent("Live group voice call $id ended by another participant")
+            "~V1E" -> {
+                if (incomingId == id) {
+                    incomingId = null
+                    incomingAtMs = 0L
+                }
+                if (callId == id && active.get()) {
+                    stopMedia()
+                    onEvent("Live group voice call $id ended by another participant")
+                }
             }
             "~V1P" -> {
                 if (fields.size != 4 || !active.get() || callId != id) return true
@@ -172,6 +194,7 @@ class MeshLiveVoiceCall(
                 callId = id
                 outputSequence = 0L
                 incomingId = null
+                incomingAtMs = 0L
                 speakers.clear()
                 recorder = localRecorder
                 player = localPlayer
@@ -268,8 +291,14 @@ class MeshLiveVoiceCall(
             val tick = SystemClock.elapsedRealtime()
             val contributors = mutableListOf<ByteArray>()
             speakers.entries.toList().forEach { (origin, stream) ->
-                val pcm = decodeNext(origin, stream, tick)
-                if (pcm != null) contributors.add(pcm)
+                if (stream.packets.isEmpty() && stream.lastRealPacketAt > 0L &&
+                    tick - stream.lastRealPacketAt > SPEAKER_IDLE_TTL_MS
+                ) {
+                    if (speakers.remove(origin, stream)) releaseSpeakerDecoder(stream)
+                } else {
+                    val pcm = decodeNext(origin, stream, tick)
+                    if (pcm != null) contributors.add(pcm)
+                }
             }
             mixPcm(contributors, mixed)
             try {
@@ -343,6 +372,13 @@ class MeshLiveVoiceCall(
         return drainDecoder(codec)
     }
 
+    private fun releaseSpeakerDecoder(stream: SpeakerStream) {
+        runCatching { stream.decoder?.stop() }
+        runCatching { stream.decoder?.release() }
+        stream.decoder = null
+        stream.packets.clear()
+    }
+
     private fun drainDecoder(codec: MediaCodec): ByteArray? {
         val info = MediaCodec.BufferInfo()
         var pcm: ByteArray? = null
@@ -406,6 +442,8 @@ class MeshLiveVoiceCall(
             captureThread = null
             playbackThread = null
             callId = null
+            incomingId = null
+            incomingAtMs = 0L
             speakers.clear()
             audioManager.mode = priorAudioMode
             audioManager.isSpeakerphoneOn = priorSpeaker
@@ -424,6 +462,8 @@ class MeshLiveVoiceCall(
         private const val STARTUP_PACKETS = 3
         private const val STARTUP_WAIT_MS = 120L
         private const val JITTER_WAIT_MS = 80L
+        private const val SPEAKER_IDLE_TTL_MS = 15_000L
+        private const val INVITATION_TTL_MS = 5 * 60_000L
         private const val FRAME_DURATION_US = 20_000L
         private const val FRAME_DURATION_MS = 20L
         private const val CODEC_TIMEOUT_US = 10_000L
