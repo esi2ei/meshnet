@@ -204,8 +204,8 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             .joinToString("") { "%02x".format(it) }
 
     companion object {
-        private const val MAX_ENTRIES = 500
-        private const val MAX_RECEIVED_IDS = 4096
+        private const val MAX_ENTRIES = 6000
+        private const val MAX_RECEIVED_IDS = 8192
         private const val MAX_AGE_MS = 24L * 60L * 60L * 1000L
     }
 }

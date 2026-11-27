@@ -54,7 +54,7 @@ Do not accept or display real deposits until all of these are available and revi
 
 | Area | Current state | Safe next step |
 |---|---|---|
-| Large files | Resumable 16 KiB file-transfer prototype is implemented; large-file streaming and transfer windows are not | Expand chunk windows with durable quotas, progress/cancel controls, and large-file streaming |
+| Large files | Resumable 256 KiB bounded file-transfer prototype is implemented; unbounded streaming and transfer windows are not | Add streaming file I/O, bounded sliding windows, durable sender checkpoints, progress/cancel controls, and backpressure |
 | Voice | User-controlled 7-second AAC voice notes are transferred as encrypted files; live voice streaming is not implemented | Add encrypted low-latency streaming, jitter buffering, and explicit session controls |
 | Wi-Fi Aware / Wi-Fi Direct | Wi-Fi Direct group/discovery/TCP prototype is implemented; Wi-Fi Aware is not | Add Wi-Fi Aware capability negotiation and transport interoperability |
 | Congestion/adaptive routing | Per-peer BLE queue backoff and retry are implemented; multi-hop route scoring is not | Add per-peer route metrics, expiry-aware scheduling, and loop-safe next-hop selection |

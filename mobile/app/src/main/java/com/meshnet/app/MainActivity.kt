@@ -138,7 +138,7 @@ class MainActivity : Activity() {
             setOnClickListener { playLatestVoiceNote() }
         })
         root.addView(Button(this).apply {
-            text = "Send small file (max 16 KiB)"
+            text = "Send file (max 256 KiB)"
             setOnClickListener {
                 val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)

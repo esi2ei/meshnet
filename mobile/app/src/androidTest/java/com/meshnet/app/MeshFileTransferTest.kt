@@ -92,7 +92,7 @@ class MeshFileTransferTest {
         assertArrayEquals(source.readBytes(), saved!!.readBytes())
     }
 
-    @Test fun rejectsFilesLargerThanBoundedTransferLimit() {
+    @Test fun rejectsFilesLargerThan256KiBTransferLimit() {
         source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES + 1))
         val sender = MeshFileTransfer(context, { true }, {})
         var rejected = false

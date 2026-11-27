@@ -202,5 +202,5 @@ class MeshFileTransfer(
                 ?.use{c->if(c.moveToFirst())c.getString(0)?:"mesh-file.bin" else "mesh-file.bin"}?:"mesh-file.bin"
         } catch(_:Exception) { "mesh-file.bin" }
     }
-    companion object{const val MAX_FILE_BYTES=16*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=20;private const val MAX_ACTIVE=4;private const val MAX_PENDING_BYTES=MAX_FILE_BYTES*MAX_ACTIVE;private const val PARTIAL_TTL_MS=24L*60L*60L*1000L;private const val OUTGOING_ID_TTL_MS=90L*24L*60L*60L*1000L}
+    companion object{const val MAX_FILE_BYTES=256*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=20;private const val MAX_ACTIVE=4;private const val MAX_PENDING_BYTES=MAX_FILE_BYTES*MAX_ACTIVE;private const val PARTIAL_TTL_MS=24L*60L*60L*1000L;private const val OUTGOING_ID_TTL_MS=90L*24L*60L*60L*1000L}
 }
