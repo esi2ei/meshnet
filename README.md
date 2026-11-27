@@ -16,7 +16,7 @@ Optional online integrations are disabled by default and can be enabled in the d
 
 ## Web development
 
-Requirements: Node.js 22+ (Node 22 and 24 are checked in CI).
+Requirements: Node.js 22+. The GitHub Actions workflow is currently manual-only; no CI is run automatically while this branch is being completed.
 
     npm install
     npm run dev
