@@ -108,6 +108,82 @@ class MeshIpPacketRouterTest {
         return packet
     }
 
+    @Test fun conflictingDuplicateFragmentDiscardsItsAssembly() {
+        val senderId = "source_node_12345678"
+        val receiverId = "target_node_12345678"
+        val senderIp = MeshIpAddress.forNodeId(senderId)
+        val receiverIp = MeshIpAddress.forNodeId(receiverId)
+        val frames = mutableListOf<String>()
+        val delivered = mutableListOf<ByteArray>()
+        val sender = MeshIpPacketRouter(senderId, senderIp, { _, message -> frames.add(message); true }) {}
+        val receiver = MeshIpPacketRouter(receiverId, receiverIp, { _, _ -> true }) { delivered.add(it) }
+        sender.accept(receiverId, receiver.announcement())
+        receiver.accept(senderId, sender.announcement())
+        assertTrue(sender.send(ipv4Packet(senderIp, receiverIp, 400)))
+
+        val first = frames.first().split('|', limit = 5)
+        val alteredBytes = Base64.decode(first[4], Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        alteredBytes[0] = (alteredBytes[0].toInt() xor 0x01).toByte()
+        val alteredChunk = Base64.encodeToString(
+            alteredBytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        )
+        val conflicting = "${first[0]}|${first[1]}|${first[2]}|${first[3]}|$alteredChunk"
+
+        receiver.accept(senderId, frames.first())
+        receiver.accept(senderId, conflicting)
+        frames.drop(1).forEach { receiver.accept(senderId, it) }
+
+        assertTrue(delivered.isEmpty())
+    }
+
+    @Test fun expiresIncompleteIpPacketAssembliesUsingMonotonicClock() {
+        val senderId = "source_node_12345678"
+        val receiverId = "target_node_12345678"
+        val senderIp = MeshIpAddress.forNodeId(senderId)
+        val receiverIp = MeshIpAddress.forNodeId(receiverId)
+        val frames = mutableListOf<String>()
+        val delivered = mutableListOf<ByteArray>()
+        var now = 1_000L
+        val sender = MeshIpPacketRouter(senderId, senderIp, { _, message -> frames.add(message); true }) {}
+        val receiver = MeshIpPacketRouter(
+            receiverId, receiverIp, { _, _ -> true },
+            nowMillis = { now },
+            deliverPacket = { delivered.add(it) }
+        )
+        sender.accept(receiverId, receiver.announcement())
+        receiver.accept(senderId, sender.announcement())
+        assertTrue(sender.send(ipv4Packet(senderIp, receiverIp, 400)))
+
+        receiver.accept(senderId, frames.first())
+        now += 15_001L
+        frames.drop(1).forEach { receiver.accept(senderId, it) }
+        assertTrue(delivered.isEmpty())
+
+        frames.forEach { receiver.accept(senderId, it) }
+        assertEquals(1, delivered.size)
+    }
+
+    @Test fun doesNotForwardDnsResponsesOrUnsupportedOpcodesAsQueries() {
+        val node = "AAAAAAAAAAAAAAAAAAAAAA"
+        val localIp = MeshIpAddress.forNodeId(node)
+        var forwarded = 0
+        val delivered = mutableListOf<ByteArray>()
+        val router = MeshIpPacketRouter(
+            node, localIp, { _, _ -> true },
+            forwardDnsQuery = { forwarded++; ByteArray(12) },
+            deliverPacket = { delivered.add(it) }
+        )
+        val responseShapedPacket = dnsQueryPacket(localIp, MeshIpPacketRouter.DNS_SERVICE_IP, "example.com")
+            .apply { this[30] = 0x81.toByte() }
+        val unsupportedOpcodePacket = dnsQueryPacket(localIp, MeshIpPacketRouter.DNS_SERVICE_IP, "example.com")
+            .apply { this[30] = 0x09.toByte() }
+
+        assertTrue(router.send(responseShapedPacket))
+        assertTrue(router.send(unsupportedOpcodePacket))
+        assertEquals(0, forwarded)
+        assertTrue(delivered.isEmpty())
+    }
+
     @Test fun resolvesMeshDnsNamesToOverlayIpv4Addresses() {
         val localNode = "AAAAAAAAAAAAAAAAAAAAAA"
         val remoteNode = "BAAAAAAAAAAAAAAAAAAAAA"
