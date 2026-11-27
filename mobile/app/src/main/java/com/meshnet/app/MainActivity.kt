@@ -309,8 +309,9 @@ class MainActivity : Activity() {
 
     /**
      * Connects to a user-selected MWA-compatible wallet on Solana Devnet.
-     * Authorization data is deliberately held only in memory. No payment transaction is
-     * constructed or sent: the escrow program is still a non-deployed, unaudited draft.
+     * The authorization token is persisted only as ciphertext with an Android Keystore key.
+     * It is used for wallet deauthorization; no payment transaction is constructed or sent,
+     * because the escrow program is still a non-deployed, unaudited draft.
      */
     private fun connectSolanaWalletDevnet() {
         if (walletAuthToken != null) {

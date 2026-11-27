@@ -42,6 +42,19 @@ For Wi-Fi Direct, start the mesh on both devices. On one device choose **Create 
 
 For a multi-hop BLE check, use three phones with each device within BLE range of at least one neighbor, then move the origin and destination out of direct range while keeping the relay in range. Verify the receiver log shows the message and hop count.
 
+
+
+## GitHub Actions validation and APK artifact
+
+The repository workflow runs on pushes to `main` and `fix/meshnet-ci-vite-20261127`, pull requests to `main`, and manual dispatch. The Android job:
+
+1. Builds the unsigned-by-owner, debug-signed APK with JDK 17, Gradle 8.11.1, and Android SDK Platform 36.
+2. Verifies the APK signature and prints its SHA-256 checksum.
+3. Runs the instrumentation suite on an Android 16 (API 36) Google APIs emulator.
+4. Uploads `app/build/outputs/apk/debug/app-debug.apk` as `meshnet-debug-apk-<commit-sha>` for 14 days.
+
+Download the APK from the successful workflow run's **Artifacts** section. This is a debug APK for installation and testing, not a Play Store release. GitHub's emulator cannot validate BLE/Wi-Fi interoperability on physical radios, OEM behavior, battery use, or live audio quality. A production release still requires the separate security, signing, legal, and device-validation gates below.
+
 ## Release validation
 
 See [RELEASE_TEST_PLAN.md](RELEASE_TEST_PLAN.md) for the manual build, instrumentation, multi-phone BLE/Wi-Fi, file, voice, wallet, and release-signing checklist. Passing tests alone does not close the separately documented cryptography, routing, payment, or escrow production blockers.

@@ -2,7 +2,9 @@ name: MeshNet CI
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
+      - fix/meshnet-ci-vite-20261127
   pull_request:
     branches: ["main"]
   workflow_dispatch:
@@ -40,3 +42,80 @@ jobs:
 
       - name: Build production bundle
         run: npm run build
+
+  android:
+    name: Android debug APK and instrumentation tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android 16 SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.11.1"
+          build-root-directory: mobile
+
+      - name: Build debug APK
+        working-directory: mobile
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Verify debug APK signature and checksum
+        if: success()
+        run: |
+          APK="mobile/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          sha256sum "$APK"
+
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Android instrumentation tests on API 36 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7_pro
+          working-directory: mobile
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest
+
+      - name: Upload debug APK artifact
+        if: ${{ always() && hashFiles('mobile/app/build/outputs/apk/debug/app-debug.apk') != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: meshnet-debug-apk-${{ github.sha }}
+          path: mobile/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Android test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: meshnet-android-test-reports-${{ github.sha }}
+          path: |
+            mobile/app/build/reports/androidTests/connected/
+            mobile/app/build/outputs/androidTest-results/connected/
+          if-no-files-found: ignore
+          retention-days: 14

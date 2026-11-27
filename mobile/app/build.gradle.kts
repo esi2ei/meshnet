@@ -32,6 +32,14 @@ val validateMeshnetReleaseSigning = tasks.register("validateMeshnetReleaseSignin
         if (!keystorePath.isFile) {
             throw GradleException("MESHNET_RELEASE_STORE_FILE does not point to an existing keystore file.")
         }
+        val checkoutRoot = rootProject.projectDir.canonicalFile.parentFile
+            ?: rootProject.projectDir.canonicalFile
+        val canonicalKeystore = keystorePath.canonicalFile
+        if (canonicalKeystore.toPath().startsWith(checkoutRoot.toPath())) {
+            throw GradleException(
+                "Release keystore must be stored outside the repository checkout; use a private path or secrets manager."
+            )
+        }
     }
 }
 

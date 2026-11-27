@@ -1,6 +1,6 @@
 # MeshNet release validation plan
 
-This is a manual validation checklist for the Android prototype. It is not a claim that the current branch has passed these checks. The branch has source-level implementations and regression test sources, but no Android build, instrumentation run, Solana build, deployment, security audit, or physical-phone validation has been performed here. CI is intentionally not run.
+This is a release checklist for the Android prototype. GitHub Actions is configured to build the debug APK and run the instrumentation suite on an API 36 emulator for the designated validation branch. Until a successful run is recorded, do not assume those automated checks have passed. Emulator success does not establish real-phone Bluetooth/Wi-Fi interoperability, Solana contract readiness, independent security audit, or production fitness.
 
 ## 1. Release blockers that tests alone cannot close
 
@@ -16,7 +16,11 @@ Before calling MeshNet production-ready, resolve or explicitly remove these prod
 
 A messaging-only prototype release is a different scope from a secure production messenger or a service-payment marketplace. Do not describe the first as the latter.
 
-## 2. Local toolchain and build
+## 2. Automated CI and APK artifact
+
+The `MeshNet CI` workflow builds the Android debug APK, verifies its debug signature, runs `connectedDebugAndroidTest` on an API 36 emulator, and uploads the APK as a 14-day workflow artifact. A green run verifies build and instrumented regression coverage in the emulator only; it is not a physical-radio or security-audit result.
+
+## 3. Local toolchain and build
 
 Use JDK 17, Android SDK Platform 36, Android Gradle Plugin 8.9.1, Kotlin Gradle Plugin 2.2.21, and Gradle 8.11.1 or a compatible newer Gradle.
 
@@ -35,7 +39,7 @@ Run the local instrumentation suite on a connected Android phone or emulator:
 
 The tests under `app/src/androidTest` cover protocol/frame validation, queue persistence, receipt handling, encrypted credential storage, file-transfer resume/integrity/cancellation/quota/export behavior, and wallet authorization storage. Review any failures and fix them before proceeding. Do not substitute a successful build for device interoperability checks.
 
-## 3. Two-phone BLE and messaging
+## 4. Two-phone BLE and messaging
 
 On two Android 10+ BLE phones:
 
@@ -48,14 +52,14 @@ On two Android 10+ BLE phones:
 
 Remember: these checks do not establish authenticated per-device identities or all-member delivery guarantees.
 
-## 4. Multi-hop and alternate transports
+## 5. Multi-hop and alternate transports
 
 - **Three-phone BLE relay:** arrange phone A ↔ B ↔ C with A and C out of direct range. Send in both directions, then move phones and verify TTL/hop behavior and duplicate suppression. Repeat with a peer disconnecting during fragmentation.
 - **Wi-Fi Direct:** create a group on one phone, discover it on the second, connect using the discovered device address, transfer frames both ways, stop/recreate the group, and repeat after app restart.
 - **Wi-Fi Aware:** use at least two devices confirmed to support Aware. Test discovery, PSK negotiation, TCP connection, simultaneous send/receive, peer loss, re-discovery, and switching to/from Wi-Fi Direct. Repeat with Aware unavailable and confirm BLE remains usable.
 - **Radio coexistence:** run BLE while Wi-Fi Aware is active, then switch transports. Record device models, OS builds, RSSI/link state where available, and observed throughput/latency.
 
-## 5. File transfer
+## 6. File transfer
 
 Test with files of 1 byte, a few hundred bytes, exactly/around a chunk boundary, and the 10 MiB maximum:
 
@@ -68,7 +72,7 @@ Test with files of 1 byte, a few hundred bytes, exactly/around a chunk boundary,
 - Test a provider that grants persistent document URI permission and one that does not; reselect when access has been revoked.
 - Confirm progress and average-throughput readings are monotonic/plausible; they describe acknowledged payload bytes, not guaranteed remote user consumption.
 
-## 6. Voice and foreground-service behavior
+## 7. Voice and foreground-service behavior
 
 - Record/play a voice note (up to seven seconds), transfer it, stop the mesh service, and play the received note from the private inbox.
 - Start a live group call explicitly. Join from another phone only after the invitation appears. Verify microphone permission is requested only after explicit start/join; reject an invitation without activating the microphone.
@@ -76,14 +80,14 @@ Test with files of 1 byte, a few hundred bytes, exactly/around a chunk boundary,
 - Confirm microphone foreground-service promotion is permitted only from the visible user-initiated flow on the supported Android versions. Check that stop/revoke paths restore audio mode and release resources.
 - Record the exact device model, OEM build, AMR-NB codec availability, measured latency, and observed failures.
 
-## 7. Wallet and escrow safety
+## 8. Wallet and escrow safety
 
 - Test MWA authorize, process recreation, restore, deauthorize, and local credential cleanup with a compatible Devnet wallet.
 - Verify the displayed address against the wallet. Confirm the app does not imply that a payment was made or that funds are held in escrow.
 - Do not use real USDC or advertise payment/escrow functionality until the program has a reproducible build, actual program/admin key ownership, Devnet deployment, adversarial tests, external audit, upgrade-authority policy, emergency plan, and client transaction verification.
 - Keep program keypairs, wallet files, seed phrases, and signing passwords outside the repository.
 
-## 8. Release signing and package verification
+## 9. Release signing and package verification
 
 Create the release keystore in a private location outside this repository. Configure these environment variables locally or via a secrets manager:
 
@@ -98,6 +102,6 @@ Then build the Play/store package locally:
 
 The Gradle release gate must fail when signing data is missing or the keystore path is not an existing absolute path. Verify the resulting AAB's signer certificate and preserve the keystore/password backup securely. Never commit the keystore or secrets. Increment `versionCode` and set the final `versionName` only after the product owner chooses the release version.
 
-## 9. Final release decision
+## 10. Final release decision
 
 Release only after the required tests are green, all manual results are recorded, store/legal disclosures are complete, and every production blocker above is either implemented and independently reviewed or explicitly removed from the app's advertised scope. A passing test suite does not replace a cryptographic review, a smart-contract audit, or real-device interoperability validation.

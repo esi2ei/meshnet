@@ -70,7 +70,7 @@ Do not accept or display real deposits until all of these are available and revi
 
 ## 4. Validation policy for this branch
 
-- Do not run GitHub Actions / CI unless explicitly requested.
+- Run the GitHub Actions workflow when explicitly requested. The Android workflow produces a debug APK and emulator instrumentation result, but never substitutes for physical-device interoperability testing or independent security review.
 - A successful source edit or commit is not evidence that Android compiles or that a radio/contract works.
 - Before production, run local Android build + instrumentation tests, device interoperability tests, protocol review, and independent smart-contract audit as applicable.
 - Never fabricate wallet balances, transaction IDs, escrow states, radio metrics, delivery receipts, or test results.

@@ -40,4 +40,4 @@ See [mobile/README.md](mobile/README.md) and [mobile/SECURITY_AND_ESCROW.md](mob
 
 The browser dashboard is a simulation and is not evidence of live radio connectivity.
 
-Feature-branch pushes do not run GitHub Actions. Do not run CI for this branch unless explicitly requested.
+GitHub Actions runs the web checks and, for `main`, this designated validation branch, pull requests to `main`, or manual dispatch, builds the Android debug APK, runs instrumentation tests on an API 36 emulator, and uploads the APK as a workflow artifact. The emulator does not validate real Bluetooth/Wi-Fi radios or replace physical-device testing.

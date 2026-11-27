@@ -276,7 +276,7 @@ class MeshBleTransport(
             var queuedForPeer = false
             synchronized(queue) {
                 val failureCount = synchronized(health) { health.failures }
-                val adaptiveLimit = (MAX_QUEUED_CHUNKS shr failureCount.coerceIn(0, 3)).coerceAtLeast(32)
+                val adaptiveLimit = adaptiveQueueLimit(failureCount, count)
                 if (queue.size + count > adaptiveLimit) {
                     onState("BLE write queue is full for peer $address")
                     return@synchronized
@@ -455,5 +455,16 @@ class MeshBleTransport(
         private const val MAX_QUEUED_CHUNKS = 256
         private const val MAX_ASSEMBLIES = 32
         private const val ASSEMBLY_TTL_MS = 30_000L
+
+        /**
+         * Keep backoff pressure on the total queue while always allowing one whole frame.
+         * At the default ATT MTU a maximum-size frame requires 64 chunks; clamping the
+         * admission limit to 32 after repeated failures otherwise permanently starves it.
+         */
+        internal fun adaptiveQueueLimit(failures: Int, frameChunkCount: Int): Int {
+            require(frameChunkCount in 1..MAX_CHUNKS) { "Invalid BLE frame chunk count" }
+            return (MAX_QUEUED_CHUNKS shr failures.coerceIn(0, 3))
+                .coerceAtLeast(frameChunkCount)
+        }
     }
 }
