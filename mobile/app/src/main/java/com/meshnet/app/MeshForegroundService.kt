@@ -10,10 +10,6 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 
-/**
- * User-started connected-device foreground service. The group credential is persisted only
- * after encryption with a non-exportable Android Keystore key.
- */
 class MeshForegroundService : Service() {
     inner class LocalBinder : Binder() {
         fun service(): MeshForegroundService = this@MeshForegroundService
@@ -35,9 +31,10 @@ class MeshForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP || intent?.action == ACTION_FORGET_CREDENTIALS) {
+        val action = intent?.action
+        if (action == ACTION_STOP || action == ACTION_FORGET_CREDENTIALS) {
             stopMesh()
-            if (intent.action == ACTION_FORGET_CREDENTIALS) {
+            if (action == ACTION_FORGET_CREDENTIALS) {
                 secretStore.clear()
                 emit("Saved group credentials deleted from this device")
             }
@@ -70,7 +67,6 @@ class MeshForegroundService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
-
     fun setListener(callback: ((String) -> Unit)?) { listener = callback }
     fun isRunning(): Boolean = transport != null
 
