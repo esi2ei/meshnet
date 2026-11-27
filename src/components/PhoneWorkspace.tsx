@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, Bluetooth, FileUp, FileDown, LockKeyhole, Mic, MicOff, Network, Power, Radio, Settings2, ShieldCheck, Wifi, Wallet } from 'lucide-react';
+import { Activity, Bluetooth, FileUp, FileDown, Mic, MicOff, Network, Power, Radio, Settings2, ShieldCheck, Wifi, Wallet } from 'lucide-react';
 
 type NativeRuntimeStatus = {
   native: boolean;
@@ -145,7 +145,7 @@ export default function PhoneWorkspace() {
             <Power className="h-4 w-4" /> Stop mesh
           </button>
           <button className={actionClass + ' col-span-2'} disabled={!runtime.native}
-            onClick={() => { if (window.confirm('Delete the saved group passphrase and local queued mesh data from this phone?')) native?.forgetGroupCredentials(); }}>
+            onClick={() => native?.forgetGroupCredentials()}>
             Forget saved group credentials and queue
           </button>
         </div>
