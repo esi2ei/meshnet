@@ -31,12 +31,17 @@ class MeshRouter(
             onMessage("Rejected malformed frame: ${error.message}")
             return
         }
-        if (!remember(frame.id)) return
-        try {
-            val plaintext = crypto.decrypt(frame.nonce, frame.ciphertext, aad(frame.id, frame.origin))
-            onMessage("${frame.origin}: $plaintext (hops: ${frame.hops.size - 1})")
+        val plaintext = try {
+            crypto.decrypt(frame.nonce, frame.ciphertext, aad(frame.id, frame.origin))
         } catch (_: Exception) {
             onMessage("Rejected frame: authentication failed")
+            return
+        }
+        if (!remember(frame.id)) return
+        try {
+            onMessage("${frame.origin}: $plaintext (hops: ${frame.hops.size - 1})")
+        } catch (_: Exception) {
+            onMessage("Unable to display authenticated frame")
             return
         }
         if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
