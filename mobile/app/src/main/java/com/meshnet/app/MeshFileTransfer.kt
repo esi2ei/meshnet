@@ -13,6 +13,8 @@ import java.util.concurrent.ConcurrentHashMap
 class MeshFileTransfer(private val context: Context, private val sendMessage: (String) -> Boolean, private val onEvent: (String) -> Unit) {
     private data class Incoming(val name:String,val size:Int,val chunks:Int,val digest:String,val file:File,val received:BitSet=BitSet(),var receivedBytes:Int=0)
     private val incoming=ConcurrentHashMap<String,Incoming>()
+    private val pending=ConcurrentHashMap<String,MutableMap<Int,Pair<Int,ByteArray>>>()
+    private var pendingBytes=0
     private val root=File(context.filesDir,"meshnet-received").apply{mkdirs()}
 
     @Synchronized fun send(uri:Uri):Boolean {
@@ -55,26 +57,40 @@ class MeshFileTransfer(private val context: Context, private val sendMessage: (S
         val partial=File(root,"$id.part")
         try{RandomAccessFile(partial,"rw").use{it.setLength(size.toLong())};incoming[id]=Incoming(name,size,count,hash,partial);onEvent("Incoming file: $name ($size bytes)")}
         catch(_:Exception){partial.delete();onEvent("Unable to create private transfer file")}
+        val early=pending.remove(id)
+        if(early!=null){for((index,pair) in early){pendingBytes-=pair.second.size;storeChunk(id,index,pair.first,pair.second)}}
         return true
     }
     private fun chunk(f:List<String>):Boolean {
         if(f.size!=5)return true
-        val id=f[1];val s=incoming[id]?:return true;val index=f[2].toIntOrNull()?:return true;val count=f[3].toIntOrNull()?:return true
-        if(count!=s.chunks || index !in 0 until s.chunks || s.received[index])return true
+        val id=f[1];val index=f[2].toIntOrNull()?:return true;val count=f[3].toIntOrNull()?:return true
         val data=try{Base64.decode(f[4],Base64.URL_SAFE or Base64.NO_WRAP)}catch(_:Exception){return true}
-        if(data.size!=minOf(CHUNK_BYTES,s.size-index*CHUNK_BYTES))return true
+        val s=incoming[id]
+        if(s==null){
+            if(count !in 1..MAX_CHUNKS || index !in 0 until count || data.size !in 1..CHUNK_BYTES ||
+                pendingBytes+data.size>MAX_PENDING_BYTES || pending.size>=MAX_ACTIVE)return true
+            val chunks=pending.getOrPut(id){linkedMapOf()}
+            if(!chunks.containsKey(index)){chunks[index]=count to data;pendingBytes+=data.size}
+            return true
+        }
+        storeChunk(id,index,count,data)
+        return true
+    }
+    private fun storeChunk(id:String,index:Int,count:Int,data:ByteArray){
+        val s=incoming[id]?:return
+        if(count!=s.chunks || index !in 0 until s.chunks || s.received[index] ||
+            data.size!=minOf(CHUNK_BYTES,s.size-index*CHUNK_BYTES))return
         try{
             RandomAccessFile(s.file,"rw").use{it.seek((index*CHUNK_BYTES).toLong());it.write(data)}
             s.received.set(index);s.receivedBytes+=data.size
             if(s.received.cardinality()==s.chunks && s.receivedBytes==s.size){
                 val actual=MessageDigest.getInstance("SHA-256").digest(s.file.readBytes()).take(16).joinToString(""){"%02x".format(it)}
-                if(actual!=s.digest){s.file.delete();incoming.remove(id);onEvent("File integrity check failed: ${s.name}");return true}
+                if(actual!=s.digest){s.file.delete();incoming.remove(id);onEvent("File integrity check failed: ${s.name}");return}
                 val dest=uniqueDestination(s.name)
                 if(s.file.renameTo(dest))onEvent("File received and verified: ${dest.name} (${s.size} bytes)") else onEvent("Verified file could not be moved")
                 incoming.remove(id)
             }
         }catch(_:Exception){onEvent("File chunk could not be stored")}
-        return true
     }
     private fun uniqueDestination(name:String):File{
         var f=File(root,name);var n=1
@@ -84,5 +100,5 @@ class MeshFileTransfer(private val context: Context, private val sendMessage: (S
     private fun queryName(uri:Uri):String=try{
         context.contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use{c->if(c.moveToFirst())c.getString(0)?:"mesh-file.bin" else "mesh-file.bin"}?:"mesh-file.bin"
     }catch(_:Exception){"mesh-file.bin"}
-    companion object{const val MAX_FILE_BYTES=16*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=48;private const val MAX_ACTIVE=4}
+    companion object{const val MAX_FILE_BYTES=16*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=48;private const val MAX_ACTIVE=4;private const val MAX_PENDING_BYTES=MAX_FILE_BYTES*MAX_ACTIVE}
 }
