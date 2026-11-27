@@ -69,7 +69,7 @@ class MeshRouterReceiptTest {
             hasReceived = { it in relaySeen },
             markReceived = { id, _ -> !relaySeen.add(id) },
             acknowledge = { 0 },
-            onRouteObserved = { relayRoutes.add(it) }
+            onRouteObserved = { path, _ -> relayRoutes.add(path) }
         )
         val destination = MeshRouter(
             nodeId = "dest_0001",
@@ -79,7 +79,7 @@ class MeshRouterReceiptTest {
             hasReceived = { it in destinationSeen },
             markReceived = { id, _ -> !destinationSeen.add(id) },
             acknowledge = { 0 },
-            onRouteObserved = { destinationRoutes.add(it) }
+            onRouteObserved = { path, _ -> destinationRoutes.add(path) }
         )
 
         sender.sendMessage("route-bound hello")
@@ -128,7 +128,7 @@ class MeshRouterReceiptTest {
             hasReceived = { it in receiverSeen },
             markReceived = { id, _ -> !receiverSeen.add(id) },
             acknowledge = { 0 },
-            onRouteObserved = { observedRoutes.add(it) }
+            onRouteObserved = { path, _ -> observedRoutes.add(path) }
         )
 
         assertTrue(sender.sendMessage("not for this group"))
