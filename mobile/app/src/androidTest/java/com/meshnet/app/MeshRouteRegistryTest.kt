@@ -79,4 +79,15 @@ class MeshRouteRegistryTest {
         assertTrue(registry.nextHopsFor("origin_01", 100L + 30L * 60L * 1000L + 1L).isEmpty())
     }
 
+    @Test
+    fun disconnectingPeerRemovesOnlyThatNextHopCandidate() {
+        val registry = MeshRouteRegistry()
+        registry.observe(listOf("origin_01", "local_01"), 100L, "BLE/aa:bb")
+        registry.observe(listOf("origin_01", "relay_01", "local_01"), 200L, "P2P/192.0.2.2")
+
+        registry.removePeer("P2P/192.0.2.2")
+
+        assertEquals(listOf("BLE/aa:bb"), registry.nextHopsFor("origin_01", 200L))
+    }
+
 }
