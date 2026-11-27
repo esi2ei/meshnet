@@ -21,6 +21,8 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.ParcelUuid
+import android.os.Handler
+import android.os.Looper
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
 import java.util.UUID
@@ -38,6 +40,7 @@ class MeshBleTransport(
     private val onState: (String) -> Unit
 ) {
     private val appContext = context.applicationContext
+    private val retryHandler = Handler(Looper.getMainLooper())
     private val manager = appContext.getSystemService(BluetoothManager::class.java)
     private val adapter: BluetoothAdapter? get() = manager?.adapter
     private var server: BluetoothGattServer? = null
@@ -327,7 +330,9 @@ class MeshBleTransport(
                 health.backoffUntil - System.currentTimeMillis()
             }
             onState("BLE peer write failed: $address status=$status; adaptive backoff ${delay}ms")
-            onState("BLE write queue available: $address")
+            retryHandler.postDelayed({
+                if (running) onState("BLE write queue available: $address after adaptive backoff")
+            }, delay)
             return
         }
         peerHealth.computeIfAbsent(address) { PeerHealth() }.let { health ->
@@ -411,6 +416,7 @@ class MeshBleTransport(
     fun stop() {
         if (!running) return
         running = false
+        retryHandler.removeCallbacksAndMessages(null)
         runCatching { adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
         runCatching { adapter?.bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback) }
         clients.values.forEach { gatt ->
