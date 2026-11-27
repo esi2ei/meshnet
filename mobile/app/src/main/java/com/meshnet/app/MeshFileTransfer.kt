@@ -97,8 +97,12 @@ class MeshFileTransfer(private val context: Context, private val sendMessage: (S
         while(f.exists()){val dot=name.lastIndexOf('.');f=if(dot>0)File(root,name.substring(0,dot)+"-$n"+name.substring(dot))else File(root,"$name-$n");n++}
         return f
     }
-    private fun queryName(uri:Uri):String=try{
-        context.contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use{c->if(c.moveToFirst())c.getString(0)?:"mesh-file.bin" else "mesh-file.bin"}?:"mesh-file.bin"
-    }catch(_:Exception){"mesh-file.bin"}
+    private fun queryName(uri:Uri):String {
+        if (uri.scheme == "file") return uri.lastPathSegment ?: "voice-note.m4a"
+        return try {
+            context.contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)
+                ?.use{c->if(c.moveToFirst())c.getString(0)?:"mesh-file.bin" else "mesh-file.bin"}?:"mesh-file.bin"
+        } catch(_:Exception) { "mesh-file.bin" }
+    }
     companion object{const val MAX_FILE_BYTES=16*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=32;private const val MAX_ACTIVE=4;private const val MAX_PENDING_BYTES=MAX_FILE_BYTES*MAX_ACTIVE}
 }
