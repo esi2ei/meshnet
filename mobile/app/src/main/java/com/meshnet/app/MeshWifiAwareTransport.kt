@@ -294,6 +294,7 @@ class MeshWifiAwareTransport(
                 val socket = network.socketFactory.createSocket()
                 socket.connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MS)
                 if (!registerSocket(socket)) {
+                    connectionStarted.set(false)
                     onState("Wi-Fi Aware peer rejected: connection limit reached or duplicate peer")
                     return@Thread
                 }
