@@ -3,7 +3,7 @@
 MeshNet is an offline-first peer-to-peer messaging and connectivity project with two distinct parts:
 
 - **Web dashboard (src/)**: a React/Vite prototype. Its simulated nodes and topology are not connected to phone radios.
-- **Native Android (mobile/)**: an early BLE/GATT prototype with encrypted text frames, TTL relay, MTU-aware frame fragmentation, a foreground service, a persistent SQLite outbox, persistent replay protection, and Android Keystore-protected group credentials.
+- **Native Android (mobile/)**: an early BLE/GATT prototype with encrypted text frames, TTL relay, MTU-aware frame fragmentation, a foreground service, a persistent SQLite outbox with group-level receipts, persistent replay protection, and Android Keystore-protected group credentials.
 
 ## Web dashboard
 
@@ -25,7 +25,7 @@ Build locally without CI:
 
 ## Development status
 
-This is still a prototype, not a production release. BLE writes and local queue acceptance are not end-to-end delivery acknowledgements. The shared group key is not Signal Protocol and has no per-device identity or forward secrecy. Large-file/voice transfer, Wi-Fi transports, iOS, and payment/escrow are not implemented. No Android build or physical-device validation has been performed for the latest changes.
+This is still a prototype, not a production release. BLE writes are not delivery acknowledgements. The current group receipt only confirms that at least one member sharing the group key received a message; it does not identify or authenticate a specific recipient. The shared group key is not Signal Protocol and has no per-device identity or forward secrecy. Large-file/voice transfer, Wi-Fi transports, iOS, and payment/escrow are not implemented. No Android build or physical-device validation has been performed for the latest changes.
 
 The browser dashboard is a simulation and is not evidence of live radio connectivity.
 
