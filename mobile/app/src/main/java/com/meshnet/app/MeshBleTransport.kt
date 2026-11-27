@@ -22,13 +22,15 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Build
 import android.os.ParcelUuid
+import java.nio.ByteBuffer
+import java.util.ArrayDeque
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Real Android BLE discovery + GATT transport. Each phone advertises a GATT server
- * and connects as a GATT client to discovered peers. The application layer owns
- * encryption, deduplication and TTL-based relay.
+ * BLE discovery + GATT transport with application-level frame fragmentation.
+ * GATT writes are serialized per peer; a full MeshFrame is reassembled before it reaches
+ * the router. This transport is best-effort and does not imply remote application delivery.
  */
 @SuppressLint("MissingPermission")
 class MeshBleTransport(
@@ -43,12 +45,23 @@ class MeshBleTransport(
     private var server: BluetoothGattServer? = null
     private val clients = ConcurrentHashMap<String, BluetoothGatt>()
     private val seen = ConcurrentHashMap.newKeySet<String>()
-    private var running = false
+    private val negotiatedMtu = ConcurrentHashMap<String, Int>()
+    private val writeQueues = ConcurrentHashMap<String, ArrayDeque<ByteArray>>()
+    private val writing = ConcurrentHashMap.newKeySet<String>()
+    private val assemblies = ConcurrentHashMap<String, Assembly>()
+    @Volatile private var running = false
+
+    private data class Assembly(
+        val count: Int,
+        val chunks: Array<ByteArray?>,
+        var totalBytes: Int = 0,
+        val createdAt: Long = System.currentTimeMillis()
+    )
 
     private val characteristic = BluetoothGattCharacteristic(
         CHARACTERISTIC_UUID,
-        BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE or
-            BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+        BluetoothGattCharacteristic.PROPERTY_WRITE or
+            BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
         BluetoothGattCharacteristic.PERMISSION_WRITE
     )
 
@@ -59,12 +72,13 @@ class MeshBleTransport(
         }
 
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
+            if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 onPeer(device.address, true)
                 onState("GATT peer connected: ${device.address}")
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
                 onPeer(device.address, false)
-                onState("GATT peer disconnected: ${device.address}")
+                onState("GATT peer disconnected: ${device.address} (status $status)")
+                assemblies.keys.removeAll { it.startsWith("${device.address}|") }
             }
         }
 
@@ -77,26 +91,14 @@ class MeshBleTransport(
             offset: Int,
             value: ByteArray
         ) {
+            val valid = characteristic.uuid == CHARACTERISTIC_UUID &&
+                !preparedWrite && offset == 0 && acceptChunk(device.address, value)
             if (responseNeeded) {
-                server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
-            }
-            if (characteristic.uuid == CHARACTERISTIC_UUID && offset == 0) {
-                onPayload(device.address, value.copyOf())
-            }
-        }
-
-        override fun onDescriptorWriteRequest(
-            device: BluetoothDevice,
-            requestId: Int,
-            descriptor: BluetoothGattDescriptor,
-            preparedWrite: Boolean,
-            responseNeeded: Boolean,
-            offset: Int,
-            value: ByteArray
-        ) {
-            if (descriptor.uuid == CCCD_UUID) {
-                descriptor.value = value
-                if (responseNeeded) server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+                server?.sendResponse(
+                    device, requestId,
+                    if (valid) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_INVALID_ATTRIBUTE_LENGTH,
+                    offset, null
+                )
             }
         }
     }
@@ -104,6 +106,7 @@ class MeshBleTransport(
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
+            if (device.address == adapter?.address) return
             if (seen.add(device.address)) {
                 onState("Discovered BLE peer: ${device.address}")
                 connect(device)
@@ -128,46 +131,46 @@ class MeshBleTransport(
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS || newState == BluetoothProfile.STATE_DISCONNECTED) {
                 clients.remove(address)
+                negotiatedMtu.remove(address)
                 seen.remove(address)
+                writeQueues.remove(address)
+                writing.remove(address)
                 onPeer(address, false)
                 gatt.close()
             } else if (newState == BluetoothProfile.STATE_CONNECTED) {
                 onPeer(address, true)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    if (!gatt.requestMtu(517)) gatt.discoverServices()
-                } else gatt.discoverServices()
+                if (!gatt.requestMtu(MAX_MTU)) gatt.discoverServices()
             }
         }
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            negotiatedMtu[address] = if (status == BluetoothGatt.GATT_SUCCESS) mtu else DEFAULT_MTU
             gatt.discoverServices()
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) return
-            val service = gatt.getService(SERVICE_UUID)
-            val remote = service?.getCharacteristic(CHARACTERISTIC_UUID)
-            if (remote == null) {
-                onState("Peer is missing the MeshNet GATT characteristic: $address")
-                gatt.disconnect()
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                onState("GATT service discovery failed: $address")
                 return
             }
-            if ((remote.properties and BluetoothGattCharacteristic.PROPERTY_WRITE) == 0) {
-                onState("Peer does not expose a writable MeshNet channel: $address")
+            val remote = gatt.getService(SERVICE_UUID)?.getCharacteristic(CHARACTERISTIC_UUID)
+            if (remote == null ||
+                (remote.properties and BluetoothGattCharacteristic.PROPERTY_WRITE) == 0) {
+                onState("Peer is missing a writable MeshNet GATT channel: $address")
                 gatt.disconnect()
                 return
             }
             clients[address] = gatt
-            onState("Mesh GATT channel ready: $address")
-        }
-
-        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
-            if (characteristic.uuid == CHARACTERISTIC_UUID) onPayload(address, value.copyOf())
+            onState("Mesh GATT channel ready: $address (MTU ${negotiatedMtu[address] ?: DEFAULT_MTU})")
         }
 
         @Suppress("DEPRECATION")
-        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            if (characteristic.uuid == CHARACTERISTIC_UUID) onPayload(address, characteristic.value ?: return)
+        override fun onCharacteristicWrite(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            completeWrite(address, status)
         }
     }
 
@@ -175,17 +178,20 @@ class MeshBleTransport(
         if (running) return
         val bt = adapter ?: error("This device has no Bluetooth adapter")
         check(bt.isEnabled) { "Bluetooth is disabled" }
+        check(bt.bluetoothLeAdvertiser != null) { "BLE advertising is unsupported on this device" }
+        check(bt.bluetoothLeScanner != null) { "BLE scanning is unsupported on this device" }
         running = true
-
         server = manager?.openGattServer(appContext, serverCallback)
             ?: error("Unable to open BLE GATT server")
         val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
-        characteristic.addDescriptor(BluetoothGattDescriptor(CCCD_UUID, BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE))
+        characteristic.addDescriptor(
+            BluetoothGattDescriptor(
+                CCCD_UUID,
+                BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE
+            )
+        )
         service.addCharacteristic(characteristic)
         check(server?.addService(service) == true) { "Unable to register MeshNet GATT service" }
-
-        check(bt.bluetoothLeAdvertiser != null) { "BLE advertising is unsupported on this device" }
-        check(bt.bluetoothLeScanner != null) { "BLE scanning is unsupported on this device" }
         onState("Registering MeshNet GATT service")
     }
 
@@ -202,7 +208,6 @@ class MeshBleTransport(
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
         bt.bluetoothLeAdvertiser?.startAdvertising(settings, data, advertiseCallback)
-
         val filters = listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(SERVICE_UUID)).build())
         val scanSettings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         bt.bluetoothLeScanner?.startScan(filters, scanSettings, scanCallback)
@@ -211,31 +216,139 @@ class MeshBleTransport(
 
     private fun connect(device: BluetoothDevice) {
         if (clients.containsKey(device.address)) return
-        val gatt = device.connectGatt(appContext, false, clientCallback(device), BluetoothDevice.TRANSPORT_LE)
-        if (gatt != null) clients[device.address] = gatt
+        try {
+            val gatt = device.connectGatt(appContext, false, clientCallback(device.address), BluetoothDevice.TRANSPORT_LE)
+            if (gatt != null) clients[device.address] = gatt
+            else {
+                seen.remove(device.address)
+                onState("Unable to create GATT connection: ${device.address}")
+            }
+        } catch (error: Exception) {
+            seen.remove(device.address)
+            onState("GATT connection failed: ${error.message}")
+        }
     }
 
     fun sendToPeers(payload: ByteArray): Boolean {
-        if (clients.isEmpty()) {
-            onState("No connected BLE peers; message was not transmitted")
+        if (payload.isEmpty() || payload.size > MeshFrame.MAX_FRAME_BYTES) {
+            onState("Rejected oversized MeshNet frame")
             return false
         }
-        var accepted = false
+        var queued = false
         clients.entries.toList().forEach { (address, gatt) ->
-            val remote = gatt.getService(SERVICE_UUID)?.getCharacteristic(CHARACTERISTIC_UUID)
-            if (remote == null) {
-                onState("Peer is not ready: $address")
+            val mtu = (negotiatedMtu[address] ?: DEFAULT_MTU).coerceIn(DEFAULT_MTU, MAX_MTU)
+            val dataSize = mtu - ATT_OVERHEAD - HEADER_BYTES
+            val count = (payload.size + dataSize - 1) / dataSize
+            if (count !in 1..MAX_CHUNKS) {
+                onState("Frame cannot be fragmented for peer $address")
                 return@forEach
             }
-            @Suppress("DEPRECATION")
-            run {
-                remote.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                remote.value = payload
-                if (gatt.writeCharacteristic(remote)) accepted = true
-                else onState("Write could not be queued: $address")
+            val transferId = java.security.SecureRandom().nextInt()
+            val queue = writeQueues.computeIfAbsent(address) { ArrayDeque() }
+            synchronized(queue) {
+                if (queue.size + count > MAX_QUEUED_CHUNKS) {
+                    onState("BLE write queue is full for peer $address")
+                    return@synchronized
+                }
+                for (index in 0 until count) {
+                    val start = index * dataSize
+                    val end = minOf(payload.size, start + dataSize)
+                    val chunk = ByteBuffer.allocate(HEADER_BYTES + end - start)
+                        .putShort(MAGIC)
+                        .putInt(transferId)
+                        .putShort(index.toShort())
+                        .putShort(count.toShort())
+                        .put(payload, start, end - start)
+                        .array()
+                    queue.addLast(chunk)
+                }
+                queued = true
+            }
+            if (queued && writing.add(address)) writeNext(address, gatt)
+        }
+        if (!queued) onState("No BLE peer accepted the frame for transmission")
+        return queued
+    }
+
+    private fun writeNext(address: String, gatt: BluetoothGatt) {
+        val queue = writeQueues[address] ?: run {
+            writing.remove(address)
+            return
+        }
+        val chunk = synchronized(queue) { queue.peekFirst() }
+        if (chunk == null) {
+            writing.remove(address)
+            return
+        }
+        val remote = gatt.getService(SERVICE_UUID)?.getCharacteristic(CHARACTERISTIC_UUID)
+        if (remote == null) {
+            completeWrite(address, BluetoothGatt.GATT_FAILURE)
+            return
+        }
+        @Suppress("DEPRECATION")
+        run {
+            remote.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            remote.value = chunk
+            if (!gatt.writeCharacteristic(remote)) {
+                completeWrite(address, BluetoothGatt.GATT_FAILURE)
             }
         }
-        return accepted
+    }
+
+    private fun completeWrite(address: String, status: Int) {
+        val queue = writeQueues[address]
+        if (status != BluetoothGatt.GATT_SUCCESS) {
+            queue?.let { synchronized(it) { it.clear() } }
+            writing.remove(address)
+            onState("BLE chunk write failed for $address (status $status)")
+            return
+        }
+        val next = queue?.let { synchronized(it) { if (it.isNotEmpty()) it.removeFirst(); it.isNotEmpty() } } ?: false
+        if (next) clients[address]?.let { writeNext(address, it) }
+        else {
+            writeQueues.remove(address)
+            writing.remove(address)
+        }
+    }
+
+    private fun acceptChunk(address: String, bytes: ByteArray): Boolean {
+        if (bytes.size <= HEADER_BYTES) return false
+        val buffer = ByteBuffer.wrap(bytes)
+        if (buffer.short != MAGIC) return false
+        val transferId = buffer.int
+        val index = buffer.short.toInt() and 0xffff
+        val count = buffer.short.toInt() and 0xffff
+        if (count !in 1..MAX_CHUNKS || index !in 0 until count) return false
+        val key = "$address|$transferId"
+        val now = System.currentTimeMillis()
+        assemblies.entries.removeAll { now - it.value.createdAt > ASSEMBLY_TTL_MS }
+        val assembly = assemblies.compute(key) { _, current ->
+            if (current == null || current.count != count) Assembly(count, arrayOfNulls(count))
+            else current
+        } ?: return false
+        synchronized(assembly) {
+            if (assembly.chunks[index] != null) return true
+            val chunk = ByteArray(buffer.remaining())
+            buffer.get(chunk)
+            assembly.totalBytes += chunk.size
+            if (assembly.totalBytes > MeshFrame.MAX_FRAME_BYTES) {
+                assemblies.remove(key)
+                return false
+            }
+            assembly.chunks[index] = chunk
+            if (assembly.chunks.all { it != null }) {
+                val complete = ByteArray(assembly.totalBytes)
+                var offset = 0
+                assembly.chunks.forEach { part ->
+                    val bytesPart = part ?: return false
+                    bytesPart.copyInto(complete, offset)
+                    offset += bytesPart.size
+                }
+                assemblies.remove(key)
+                onPayload(address, complete)
+            }
+        }
+        return true
     }
 
     fun stop() {
@@ -245,6 +358,10 @@ class MeshBleTransport(
         adapter?.bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback)
         clients.values.forEach { it.disconnect(); it.close() }
         clients.clear()
+        negotiatedMtu.clear()
+        writeQueues.clear()
+        writing.clear()
+        assemblies.clear()
         server?.close()
         server = null
         seen.clear()
@@ -255,5 +372,13 @@ class MeshBleTransport(
         val SERVICE_UUID: UUID = UUID.fromString("0000abcd-0000-1000-8000-00805f9b34fb")
         val CHARACTERISTIC_UUID: UUID = UUID.fromString("0000abce-0000-1000-8000-00805f9b34fb")
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        private const val DEFAULT_MTU = 23
+        private const val MAX_MTU = 517
+        private const val ATT_OVERHEAD = 3
+        private const val HEADER_BYTES = 10
+        private const val MAGIC: Short = 0x4d4e
+        private const val MAX_CHUNKS = 64
+        private const val MAX_QUEUED_CHUNKS = 256
+        private const val ASSEMBLY_TTL_MS = 30_000L
     }
 }
