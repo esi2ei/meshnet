@@ -108,6 +108,21 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
         )
     }
 
+    /**
+     * ACKs have no ACK-of-ACK protocol. Retire an ACK after at least one connected peer's
+     * BLE queue accepts it; a later duplicate message can regenerate the same logical receipt.
+     * MESSAGE frames remain durable until an authenticated group receipt arrives.
+     */
+    @Synchronized
+    fun retireAcknowledgement(frame: ByteArray): Boolean {
+        val decoded = try { MeshFrame.decode(frame) } catch (_: Exception) { return false }
+        if (decoded.kind != MeshFrame.KIND_ACK) return false
+        return writableDatabase.delete(
+            "outbox", "frame_id = ? AND frame_kind = ?",
+            arrayOf(digest(frame), MeshFrame.KIND_ACK)
+        ) > 0
+    }
+
     @Synchronized
     fun noteReplay(frame: ByteArray) {
         writableDatabase.execSQL(
