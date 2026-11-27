@@ -173,6 +173,11 @@ class MeshForegroundService : Service() {
         if (!replayActive) return
         while (replayIndex < replayFrames.size) {
             val frame = replayFrames[replayIndex]
+            // A receipt may have retired this message after the replay snapshot was created.
+            if (!outbox.containsFrame(frame)) {
+                replayIndex++
+                continue
+            }
             // A full per-peer BLE queue pauses this pass. Queue-drained callbacks resume it.
             if (!link.sendToPeers(frame)) return
             outbox.noteReplay(frame)
