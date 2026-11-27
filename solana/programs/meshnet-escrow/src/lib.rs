@@ -461,5 +461,5 @@ pub enum EscrowError {
     #[msg("Wrong arbitrator signer")] WrongArbitrator,
     #[msg("Order is already settled")] AlreadySettled,
     #[msg("Order has not expired")] NotExpired,
-    #[msg("Vault balance differs from immutable order amount")] VaultBalanceMismatch,
+    #[msg("Vault balance is below the immutable order amount")] VaultBalanceMismatch,
 }
