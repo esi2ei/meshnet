@@ -29,6 +29,7 @@ class MainActivity : Activity() {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             meshService = (binder as? MeshForegroundService.LocalBinder)?.service()
             meshService?.setListener(::append)
+            status.text = if (meshService?.isRunning() == true) "BLE mesh running" else "Service connected · mesh stopped"
             append("Connected to MeshNet foreground service")
         }
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -126,11 +127,17 @@ class MainActivity : Activity() {
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_PERMISSIONS && grantResults.isNotEmpty() &&
-            grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-            startMeshService()
-        } else if (requestCode == REQUEST_PERMISSIONS) {
-            toast("Bluetooth and notification permissions are required for full background operation")
+        if (requestCode == REQUEST_PERMISSIONS) {
+            val bluetoothGranted = permissions.indices
+                .filter { permissions[it] != Manifest.permission.POST_NOTIFICATIONS }
+                .all { grantResults.getOrNull(it) == PackageManager.PERMISSION_GRANTED }
+            if (bluetoothGranted) {
+                if (permissions.indices.any {
+                    permissions[it] == Manifest.permission.POST_NOTIFICATIONS &&
+                        grantResults.getOrNull(it) != PackageManager.PERMISSION_GRANTED
+                }) toast("Notification permission denied; Android may show the foreground notification only in system task controls")
+                startMeshService()
+            } else toast("Bluetooth permissions are required for mesh discovery")
         }
     }
 
