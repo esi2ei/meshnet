@@ -50,7 +50,7 @@ class MeshRouter(
     fun sendMessage(text: String): Boolean {
         require(text.isNotBlank()) { "Message cannot be empty" }
         require(text.toByteArray(Charsets.UTF_8).size <= MAX_PLAINTEXT_BYTES) {
-            "Message is too large for a single BLE frame"
+            "Message is too large for a single MeshNet frame"
         }
         val id = UUID.randomUUID().toString()
         val createdAt = System.currentTimeMillis()
