@@ -49,17 +49,14 @@ class MeshIpPacketRouterTest {
         assertTrue(delivered.isEmpty())
     }
 
-    @Test fun conflictingNodeAddressesAreNotRouted() {
+    @Test fun rejectsAddressAnnouncementThatDoesNotMatchItsDeviceIdentity() {
         val local = "local_node_12345678"
-        val a = "remote_node_12345678"
-        val b = "remote_node_87654321"
+        val remote = "remote_node_12345678"
         val localIp = MeshIpAddress.forNodeId(local)
-        val shared = MeshIpAddress.forNodeId(a)
         val router = MeshIpPacketRouter(local, localIp, { _, _ -> true }) {}
-        router.accept(a, "~IP1A|$shared")
-        router.accept(b, "~IP1A|$shared")
+        router.accept(remote, "~IP1A|100.64.0.77")
         assertEquals(0, router.knownNodeCount())
-        assertFalse(router.send(ipv4Packet(localIp, shared, 8)))
+        assertNull(router.addressForNode(remote))
     }
 
     @Test fun localPacketsAreLoopedBackIntoTheTunStack() {
@@ -98,14 +95,15 @@ class MeshIpPacketRouterTest {
         val remoteIp = MeshIpAddress.forNodeId(remoteNode)
         val responses = mutableListOf<ByteArray>()
         val router = MeshIpPacketRouter(
-            localNode, localIp, { _, _ -> true }, { responses.add(it) },
+            localNode, localIp, { _, _ -> true },
             resolveName = { name ->
                 when (name) {
                     MeshIpAddress.dnsNameForNodeId(localNode) -> localIp
                     MeshIpAddress.dnsNameForNodeId(remoteNode) -> remoteIp
                     else -> null
                 }
-            }
+            },
+            deliverPacket = { responses.add(it) }
         )
         val query = dnsQueryPacket(localIp, MeshIpPacketRouter.DNS_SERVICE_IP, MeshIpAddress.dnsNameForNodeId(remoteNode))
         assertTrue(router.send(query))
@@ -180,9 +178,10 @@ class MeshIpPacketRouterTest {
         }
         val responses = mutableListOf<ByteArray>()
         val router = MeshIpPacketRouter(
-            node, localIp, { _, _ -> true }, { responses.add(it) },
+            node, localIp, { _, _ -> true },
             resolveName = { null },
-            forwardDnsQuery = { query -> forwardedQuery = query.copyOf(); upstreamAnswer }
+            forwardDnsQuery = { query -> forwardedQuery = query.copyOf(); upstreamAnswer },
+            deliverPacket = { responses.add(it) }
         )
         val queryPacket = dnsQueryPacket(localIp, MeshIpPacketRouter.DNS_SERVICE_IP, "example.com")
         assertTrue(router.send(queryPacket))
@@ -199,7 +198,7 @@ class MeshIpPacketRouterTest {
         val node = "AAAAAAAAAAAAAAAAAAAAAA"
         val localIp = MeshIpAddress.forNodeId(node)
         val responses = mutableListOf<ByteArray>()
-        val router = MeshIpPacketRouter(node, localIp, { _, _ -> true }, { responses.add(it) })
+        val router = MeshIpPacketRouter(node, localIp, { _, _ -> true }) { responses.add(it) }
         assertTrue(router.send(dnsQueryPacket(localIp, MeshIpPacketRouter.DNS_SERVICE_IP, "example.com")))
         val dns = responses.single().copyOfRange(28, responses.single().size)
         val flags = u16(dns, 2)

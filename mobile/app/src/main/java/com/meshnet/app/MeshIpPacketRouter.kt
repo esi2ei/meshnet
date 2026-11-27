@@ -57,9 +57,9 @@ internal class MeshIpPacketRouter(
     private val localNodeId: String,
     val localIp: String,
     private val sendToNode: (String, String) -> Boolean,
-    private val deliverPacket: (ByteArray) -> Unit,
     private val resolveName: (String) -> String? = { null },
-    private val forwardDnsQuery: (ByteArray) -> ByteArray? = { null }
+    private val forwardDnsQuery: (ByteArray) -> ByteArray? = { null },
+    private val deliverPacket: (ByteArray) -> Unit
 ) {
     private data class Assembly(val count: Int, val parts: Array<ByteArray?>, var bytes: Int, val createdAt: Long)
     private val nodesByIp = linkedMapOf<String, String>()
