@@ -737,6 +737,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         walletScenario?.let { scenario -> runCatching { scenario.close() } }
         walletScenario = null
+        runCatching { receivedFileAccess.close() }
         super.onDestroy()
     }
 

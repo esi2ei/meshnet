@@ -192,10 +192,10 @@ class MeshFileTransfer(
     fun latestVoiceNote(): File? = receivedFiles()
         .filter { it.extension.equals("m4a", ignoreCase = true) }
         .firstOrNull()
+        ?.let { file -> runCatching { verifyCompletedFile(file.name) }.getOrNull() }
 
     fun exportReceivedFile(fileName: String, destination: Uri) {
-        val source = receivedFiles().firstOrNull { it.name == fileName }
-            ?: throw IllegalArgumentException("The selected received file is no longer available")
+        val source = verifyCompletedFile(fileName)
         val output = context.contentResolver.openOutputStream(destination, "w")
             ?: throw IllegalStateException("Unable to open the selected destination")
         output.use { target ->
@@ -556,6 +556,27 @@ class MeshFileTransfer(
         sendAck(id, chunks)
         onEvent("Recovered completed file: ${destination.name} ($size bytes)")
         return true
+    }
+
+    /**
+     * Re-check the stored SHA-256 before exposing a completed file outside the private inbox.
+     * A size-matching but modified file must never be played or exported as a verified transfer.
+     */
+    private fun verifyCompletedFile(fileName: String): File {
+        val (marker, file) = completedRecords().firstOrNull { it.second.name == fileName }
+            ?: throw IllegalArgumentException("The selected received file is no longer available")
+        val record = runCatching { JSONObject(marker.readText()) }.getOrNull()
+            ?: throw IllegalStateException("Received-file completion record is unreadable")
+        val expectedDigest = record.optString("digest")
+        if (!expectedDigest.matches(Regex("[A-Za-z0-9_-]{43}")) ||
+            runCatching { digestFile(file) }.getOrNull() != expectedDigest
+        ) {
+            file.delete()
+            marker.delete()
+            onEvent("Discarded modified or corrupted received file: ${file.name}")
+            throw IllegalStateException("The received file failed its integrity check")
+        }
+        return file
     }
 
     private fun completedRecords(): List<Pair<File, File>> {

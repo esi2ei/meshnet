@@ -175,6 +175,26 @@ class MeshFileTransferTest {
         exported.delete()
     }
 
+    @Test fun refusesToExportReceivedFileWhoseContentsChangedAfterVerification() {
+        val receiver = track(MeshFileTransfer(context, { true }, {}))
+        val (manifest, chunks) = protocolMessages(source, "tamper_0001")
+        receiver.accept(manifest)
+        chunks.forEach { receiver.accept(it) }
+        val received = receiver.receivedFiles().single()
+        received.writeBytes(ByteArray(received.length().toInt()) { 0x5a })
+
+        val exported = File(context.cacheDir, "mesh-tampered-export.bin")
+        var rejected = false
+        try {
+            receiver.exportReceivedFile(received.name, Uri.fromFile(exported))
+        } catch (_: IllegalStateException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+        assertFalse(exported.exists())
+        assertFalse(File(receivedDir, "tamper_0001.done").exists())
+    }
+
     @Test fun retainsCompletedInboxMarkersBeyondPartialCheckpointTtl() {
         val receiver = track(MeshFileTransfer(context, { true }, {}))
         val (manifest, chunks) = protocolMessages(source, "retain_0001")
