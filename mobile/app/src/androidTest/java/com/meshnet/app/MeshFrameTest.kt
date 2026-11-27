@@ -56,6 +56,24 @@ class MeshFrameTest {
     }
 
     @Test
+    fun rejectsLegacyProtocolVersion() {
+        val frame = MeshFrame(
+            id = "message_legacy",
+            origin = "node_01",
+            ttl = MeshFrame.MAX_TTL,
+            hops = listOf("node_01"),
+            nonce = "nonce",
+            ciphertext = "ciphertext"
+        )
+        val legacyBytes = frame.encode().toString(Charsets.UTF_8)
+            .replace("\\"v\\":2", "\\"v\\":1")
+            .toByteArray(Charsets.UTF_8)
+        assertThrows(IllegalArgumentException::class.java) {
+            MeshFrame.decode(legacyBytes)
+        }
+    }
+
+    @Test
     fun rejectsRouteLoop() {
         val frame = MeshFrame(
             id = "message_02",
