@@ -143,8 +143,8 @@ export default function MeshSimulator({
       <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between pointer-events-auto">
         <div className="flex items-center gap-1.5 px-2.5 bg-slate-900/90 border border-slate-800 rounded-lg py-1 backdrop-blur text-[10px] text-slate-300">
           <Radar className="w-3.5 h-3.5 text-cyan-400 animate-spin" style={{ animationDuration: '4s' }} />
-          <span className="font-semibold text-slate-200 uppercase tracking-widest font-mono">Mesh Scan Area</span>
-          <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-ping" />
+          <span className="font-semibold text-slate-200 uppercase tracking-widest font-mono">Simulated RF Map</span>
+          <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
         </div>
 
         <div className="flex items-center gap-1.5">
