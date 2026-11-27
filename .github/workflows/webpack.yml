@@ -1,12 +1,7 @@
 name: MeshNet CI
 
 on:
-  push:
-    branches:
-      - main
-      - fix/meshnet-ci-vite-20261127
-  pull_request:
-    branches: ["main"]
+  # Intentionally manual-only while the owner completes local/device validation.
   workflow_dispatch:
 
 permissions:
