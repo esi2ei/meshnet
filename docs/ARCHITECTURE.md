@@ -15,6 +15,7 @@ MainActivity + WebViewAssetLoader
         v
 MeshForegroundService
   |-- MeshPeerRegistry       live, established transport connections
+  |-- MeshRouteRegistry      bounded, authenticated route observations
   |-- MeshBleTransport       BLE/GATT
   |-- MeshWifiDirectTransport user-started Wi-Fi Direct
   |-- MeshWifiAwareTransport optional Wi-Fi Aware
@@ -36,7 +37,7 @@ The APK serves Vite output from its own assets through AndroidX WebViewAssetLoad
 |---|---|
 | `src/App.tsx` | Dashboard composition and native runtime polling |
 | `src/components/PhoneWorkspace.tsx` | User-facing native service controls |
-| `src/components/MeshSimulator.tsx` | Live topology view; only established direct links |
+| `src/components/MeshSimulator.tsx` | Direct radio links and observed multi-hop frame routes |
 | `src/components/SystemInfo.tsx` | Native service and transport event history |
 | `src/components/CodeExporter.tsx` | Read-only local source browser populated at Vite build time |
 | `mobile/app/src/main/java/com/meshnet/app/` | Android activity, foreground service, transports, protocol and storage |
@@ -52,7 +53,9 @@ The APK serves Vite output from its own assets through AndroidX WebViewAssetLoad
 
 A peer is inserted into `MeshPeerRegistry` only after a transport establishes its data socket or GATT connection callback fires. Discovery results, Wi-Fi P2P scan results, Aware service advertisements, and log text do not count as connected peers.
 
-The registry key combines transport and remote address so the same IP/address observed on two transports remains distinct. Disconnect callbacks remove only the matching transport peer. Stopping the mesh clears the registry. The dashboard reads a JSON snapshot from the foreground service and renders direct local links; it does not infer multi-hop routes from a radial drawing.
+The peer registry key combines transport and remote address so the same IP/address observed on two transports remains distinct. Disconnect callbacks remove only the matching transport peer. Stopping the mesh clears the registry.
+
+The router separately reports a route observation only after a frame is decoded and authenticated, and only when the current node is not already in the frame's hop history. The observed path is the authenticated hop list plus this receiving node. `MeshRouteRegistry` validates node IDs and loop-free paths, caps history at 64 paths, and expires observations after 30 minutes. The dashboard renders those observed frame paths in a separate multi-hop graph. It does not merge them with the direct-link graph or claim that a previously observed hop is currently online.
 
 Current topology sources:
 - BLE/GATT: native GATT connection-state callbacks.
@@ -79,7 +82,7 @@ The viewer is a read-only snapshot of the source at build time. It is not an edi
 
 ## Known boundaries
 
-- The graph shows established direct transport links only; it is not a full route graph.
+- The direct graph shows established transport links; the separate route graph shows only authenticated paths that actually reached this node. Neither is a complete network map or a live route-quality calculation.
 - Mesh forwarding is still broadcast-style, not destination-aware or link-quality-aware routing.
 - Group AES-GCM is not Signal Protocol and does not provide per-device identity or forward secrecy.
 - Offline local-unit vouchers are not money, a spendable ledger, or a settlement system.
