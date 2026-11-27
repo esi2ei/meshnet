@@ -166,10 +166,14 @@ class MainActivity : Activity() {
     }
 
     private fun queueFile(uri: Uri) {
+        val activeService = meshService
+        if (activeService == null) {
+            toast("Mesh service is not connected")
+            return
+        }
         Thread({
             try {
-                val accepted = meshService?.sendFile(uri)
-                    ?: throw IllegalStateException("Mesh service is not connected")
+                val accepted = activeService.sendFile(uri)
                 runOnUiThread {
                     if (accepted) toast("File queued for encrypted mesh transfer")
                     else toast("File transfer could not be fully queued; check outbox capacity")
