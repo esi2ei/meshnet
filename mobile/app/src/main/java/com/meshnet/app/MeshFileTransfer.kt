@@ -28,7 +28,7 @@ class MeshFileTransfer(private val context: Context, private val sendMessage: (S
         } ?: throw IllegalArgumentException("Unable to open selected file")
         require(bytes.isNotEmpty()){"Empty files are not supported"}
         val id=ByteArray(9).also(java.security.SecureRandom()::nextBytes).let{Base64.encodeToString(it,Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)}
-        val digest=MessageDigest.getInstance("SHA-256").digest(bytes).take(16).joinToString(""){"%02x".format(it)}
+        val digest=MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(""){"%02x".format(it)}
         val count=(bytes.size+CHUNK_BYTES-1)/CHUNK_BYTES
         val safeName=Base64.encodeToString(name.toByteArray(Charsets.UTF_8),Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
         if(!sendMessage("~F1M|$id|${bytes.size}|$count|$digest|$safeName")) return false
@@ -51,7 +51,7 @@ class MeshFileTransfer(private val context: Context, private val sendMessage: (S
         val id=f[1]; if(!id.matches(Regex("[A-Za-z0-9_-]{8,24}")))return true
         val size=f[2].toIntOrNull()?:return true; val count=f[3].toIntOrNull()?:return true; val hash=f[4]
         if(size !in 1..MAX_FILE_BYTES || count !in 1..MAX_CHUNKS || count!=(size+CHUNK_BYTES-1)/CHUNK_BYTES ||
-            !hash.matches(Regex("[a-f0-9]{32}")) || (incoming.size>=MAX_ACTIVE && !incoming.containsKey(id)))return true
+            !hash.matches(Regex("[a-f0-9]{64}")) || (incoming.size>=MAX_ACTIVE && !incoming.containsKey(id)))return true
         val decoded=try{String(Base64.decode(f[5],Base64.URL_SAFE or Base64.NO_WRAP),Charsets.UTF_8)}catch(_:Exception){"mesh-file.bin"}
         val name=decoded.take(MAX_NAME_CHARS).replace(Regex("[^A-Za-z0-9._-]"),"_").ifBlank{"mesh-file.bin"}
         val partial=File(root,"$id.part")
@@ -84,7 +84,7 @@ class MeshFileTransfer(private val context: Context, private val sendMessage: (S
             RandomAccessFile(s.file,"rw").use{it.seek((index*CHUNK_BYTES).toLong());it.write(data)}
             s.received.set(index);s.receivedBytes+=data.size
             if(s.received.cardinality()==s.chunks && s.receivedBytes==s.size){
-                val actual=MessageDigest.getInstance("SHA-256").digest(s.file.readBytes()).take(16).joinToString(""){"%02x".format(it)}
+                val actual=MessageDigest.getInstance("SHA-256").digest(s.file.readBytes()).joinToString(""){"%02x".format(it)}
                 if(actual!=s.digest){s.file.delete();incoming.remove(id);onEvent("File integrity check failed: ${s.name}");return}
                 val dest=uniqueDestination(s.name)
                 if(s.file.renameTo(dest))onEvent("File received and verified: ${dest.name} (${s.size} bytes)") else onEvent("Verified file could not be moved")
@@ -104,5 +104,5 @@ class MeshFileTransfer(private val context: Context, private val sendMessage: (S
                 ?.use{c->if(c.moveToFirst())c.getString(0)?:"mesh-file.bin" else "mesh-file.bin"}?:"mesh-file.bin"
         } catch(_:Exception) { "mesh-file.bin" }
     }
-    companion object{const val MAX_FILE_BYTES=16*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=32;private const val MAX_ACTIVE=4;private const val MAX_PENDING_BYTES=MAX_FILE_BYTES*MAX_ACTIVE}
+    companion object{const val MAX_FILE_BYTES=16*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=20;private const val MAX_ACTIVE=4;private const val MAX_PENDING_BYTES=MAX_FILE_BYTES*MAX_ACTIVE}
 }
