@@ -9,7 +9,7 @@ Before calling MeshNet production-ready, resolve or explicitly remove these prod
 - **Cryptographic identity:** the current app still uses one shared AES-GCM group passphrase. It has no authenticated per-device identity, forward secrecy, signed prekeys, secure group key rotation, or device revocation. `vodozemac` is selected but not integrated.
 - **Delivery semantics:** a group receipt confirms receipt by at least one group-key holder, not a named recipient, all group members, or offline devices.
 - **Routing:** relay is broadcast/flooding with TTL and duplicate-route scoring. It is not destination-aware unicast and does not select routes from measured radio metrics.
-- **Payments:** wallet support only authorizes/deauthorizes a Solana Devnet wallet. No transaction builder, signing, submission, balance verification, or escrow UI exists.
+- **Payments:** the offline wallet signs and verifies provisional `MESH-LOCAL-UNIT` transfer receipts over the encrypted mesh. It is not a real-money wallet: there is no issuance, global balance ledger, double-spend prevention, or final settlement. Solana MWA still only authorizes/deauthorizes a Devnet wallet; no on-chain transaction builder, signing, submission, balance verification, or escrow UI exists.
 - **Escrow:** the Anchor source has not been built, tested, deployed, or independently audited. The program ID and initialization admin are now mandatory build inputs, but that does not constitute deployment or audit approval. Do not accept real funds.
 - **Store identity and disclosure:** supply the actual product website/dApp identity URI, privacy policy, app listing, support contact, data-safety answers, and permission rationale for the distribution channel.
 - **iOS:** remains deliberately deferred and is not part of this Android release candidate.
@@ -82,6 +82,10 @@ Test with files of 1 byte, a few hundred bytes, exactly/around a chunk boundary,
 
 ## 8. Wallet and escrow safety
 
+- Create two independent offline wallet identities and verify that each recipient address is stable across process recreation.
+- With internet disabled, send a signed local-unit transfer between two phones; verify chunk reassembly, recipient binding, signature verification, duplicate rejection, and receipt persistence. Repeat with reordered/lost chunks and after restarting both apps.
+- Modify the amount, sender public key, recipient, and signature in a captured voucher; every altered voucher must be rejected. Verify non-recipient group members do not import the voucher.
+- Confirm the UI never displays local-unit receipts as fiat, cryptocurrency, spendable balance, or blockchain settlement. Do not use real money or valuable assets; offline double-spend prevention is not solved.
 - Test MWA authorize, process recreation, restore, deauthorize, and local credential cleanup with a compatible Devnet wallet.
 - Verify the displayed address against the wallet. Confirm the app does not imply that a payment was made or that funds are held in escrow.
 - Do not use real USDC or advertise payment/escrow functionality until the program has a reproducible build, actual program/admin key ownership, Devnet deployment, adversarial tests, external audit, upgrade-authority policy, emergency plan, and client transaction verification.
