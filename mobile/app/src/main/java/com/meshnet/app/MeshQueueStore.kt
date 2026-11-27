@@ -6,11 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import java.security.MessageDigest
 
-/**
- * Bounded durable outbox and receiver replay cache.
- * No row is removed from the outbox merely because a local GATT write was queued:
- * the protocol has no end-to-end delivery acknowledgement yet.
- */
+/** Bounded durable outbox and persistent receiver replay cache. */
 class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     context.applicationContext, "meshnet-outbox.db", null, 2
 ) {
@@ -87,6 +83,17 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
         )
     }
 
+    @Synchronized
+    fun hasReceived(frameId: String): Boolean {
+        val db = writableDatabase
+        db.delete("received_ids", "created_at < ?", arrayOf(
+            (System.currentTimeMillis() - MAX_AGE_MS).toString()
+        ))
+        return db.rawQuery(
+            "SELECT 1 FROM received_ids WHERE frame_id = ?", arrayOf(frameId)
+        ).use { it.moveToFirst() }
+    }
+
     /** Returns true if this authenticated ID was already persisted. */
     @Synchronized
     fun markReceived(frameId: String, createdAt: Long): Boolean {
@@ -110,13 +117,14 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     /** Prevents frames encrypted for a previous group key from being replayed after key rotation. */
     @Synchronized
     fun clearAll() {
-        writableDatabase.beginTransaction()
+        val db = writableDatabase
+        db.beginTransaction()
         try {
-            writableDatabase.delete("outbox", null, null)
-            writableDatabase.delete("received_ids", null, null)
-            writableDatabase.setTransactionSuccessful()
+            db.delete("outbox", null, null)
+            db.delete("received_ids", null, null)
+            db.setTransactionSuccessful()
         } finally {
-            writableDatabase.endTransaction()
+            db.endTransaction()
         }
     }
 
