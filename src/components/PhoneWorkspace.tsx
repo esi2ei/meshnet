@@ -11,6 +11,7 @@ type NativeRuntimeStatus = {
   offlineWalletAddress: string | null;
   offlineWalletTransfers: Array<{ id: string; recipient: string; amountMinor: number; createdAt: number; status: string }>;
   offlineWalletReceipts: Array<{ id: string; sender: string; amountMinor: number; createdAt: number; asset: string }>;
+  offlineLibrary: Array<{ id: string; name: string; size: number; createdAt: number; local: boolean; origin: string | null; pending: boolean }>;
   platform: string;
   recentEvents: string[];
 };
@@ -39,6 +40,9 @@ type NativeBridge = {
   copyOfflineWalletAddress: () => boolean;
   sendOfflinePayment: (recipientAddress: string, amountMinor: number) => boolean;
   retryPendingOfflinePayments: () => number;
+  selectOfflineContent: () => void;
+  requestOfflineContent: (id: string) => boolean;
+  removeOfflineContent: (id: string) => boolean;
   forgetGroupCredentials: () => void;
   setOnlineIntegrationsEnabled: (enabled: boolean) => void;
 };
@@ -62,6 +66,7 @@ const initialStatus: NativeRuntimeStatus = {
   offlineWalletAddress: null,
   offlineWalletTransfers: [],
   offlineWalletReceipts: [],
+  offlineLibrary: [],
   platform: 'browser',
   recentEvents: [],
 };
@@ -71,7 +76,7 @@ const primaryClass = 'inline-flex min-h-11 items-center justify-center gap-2 rou
 
 export default function PhoneWorkspace() {
   const [runtime, setRuntime] = useState(initialStatus);
-  const [activeTab, setActiveTab] = useState<'network' | 'messages' | 'wallet' | 'activity'>('network');
+  const [activeTab, setActiveTab] = useState<'network' | 'messages' | 'library' | 'wallet' | 'activity'>('network');
   const [passphrase, setPassphrase] = useState('');
   const [message, setMessage] = useState('');
   const [directDestination, setDirectDestination] = useState('');
@@ -153,10 +158,11 @@ export default function PhoneWorkspace() {
         </div>
       )}
 
-      <nav aria-label="MeshNet control sections" className="grid grid-cols-4 gap-1 rounded-2xl border border-slate-800 bg-slate-950 p-1">
+      <nav aria-label="MeshNet control sections" className="grid grid-cols-5 gap-1 rounded-2xl border border-slate-800 bg-slate-950 p-1">
         {[
           { id: 'network', label: 'Network' },
           { id: 'messages', label: 'Chat & media' },
+          { id: 'library', label: 'Library' },
           { id: 'wallet', label: 'Wallet' },
           { id: 'activity', label: 'Activity' },
         ].map((tab) => (
@@ -349,6 +355,45 @@ export default function PhoneWorkspace() {
           </div>
         )}
         <p className="text-[11px] leading-relaxed text-slate-500">Online integrations are off by default. Enabling this setting permits the explicitly requested wallet adapter and Devnet RPC flow only; it does not enable cloud messaging, analytics, telemetry, remote fonts, or automatic uploads.</p>
+      </div>
+      </div>
+
+<div hidden={activeTab !== 'library'}>
+      <div className="space-y-3 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold text-white">Offline library</div>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-400">Publish files explicitly to make them discoverable by other mesh members. No cloud account or Internet connection is required.</p>
+          </div>
+          <button className={primaryClass} disabled={!runtime.native || !runtime.running} onClick={() => native?.selectOfflineContent()}>Publish</button>
+        </div>
+        <div className="flex items-center justify-between text-[11px] text-slate-500">
+          <span>{runtime.offlineLibrary.filter((item) => item.local).length} stored locally</span>
+          <span>{runtime.offlineLibrary.filter((item) => !item.local).length} discovered on mesh</span>
+        </div>
+        {runtime.offlineLibrary.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-slate-700 p-4 text-center text-xs text-slate-500">No published or discovered content yet. Publish a document or media file to seed this offline library.</p>
+        ) : (
+          <div className="space-y-2">
+            {runtime.offlineLibrary.map((item) => (
+              <div key={item.id} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="break-all text-xs font-semibold text-slate-100">{item.name}</div>
+                    <div className="mt-1 text-[10px] text-slate-500">{(item.size / 1024).toFixed(1)} KiB · {item.local ? 'Available on this device' : `Shared by ${item.origin || 'another node'}`}</div>
+                    <div className="mt-1 break-all font-mono text-[9px] text-slate-600">{item.id}</div>
+                  </div>
+                  {item.local ? (
+                    <button className={actionClass} onClick={() => { if (native?.removeOfflineContent(item.id)) refresh(); }}>Remove</button>
+                  ) : (
+                    <button className={primaryClass} disabled={!runtime.running || item.pending} onClick={() => { const accepted = native?.requestOfflineContent(item.id) === true; setLastEvent(accepted ? `Requested ${item.name}` : `Could not request ${item.name}`); refresh(); }}>{item.pending ? 'Pending' : 'Get'}</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="text-[10px] leading-relaxed text-amber-200/80">Published files are visible to the mesh group, not private. Each file is limited to 10 MiB; local storage is capped at 100 MiB. Downloads are verified by SHA-256 before being added to your library.</p>
       </div>
       </div>
 

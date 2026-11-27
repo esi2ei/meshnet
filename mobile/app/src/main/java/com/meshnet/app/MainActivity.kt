@@ -259,6 +259,7 @@ class MainActivity : Activity() {
             .put("offlineWalletAddress", runCatching { offlineWalletStore.address() }.getOrNull() ?: JSONObject.NULL)
             .put("offlineWalletTransfers", outgoingTransfers)
             .put("offlineWalletReceipts", receivedReceipts)
+            .put("offlineLibrary", meshService?.offlineLibraryJson() ?: JSONArray())
             .put("recentEvents", events)
             .put("connectedPeers", peers)
             .put("observedRoutes", routes)
@@ -343,6 +344,29 @@ class MainActivity : Activity() {
                     false
                 }
             } ?: false
+
+        @JavascriptInterface
+        fun selectOfflineContent() {
+            runOnUiThread {
+                val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                }
+                startActivityForResult(picker, REQUEST_PUBLISH_CONTENT)
+            }
+        }
+
+        @JavascriptInterface
+        fun requestOfflineContent(id: String): Boolean = runOnMainBlocking {
+            runCatching { meshService?.requestOfflineContent(id) == true }
+                .onFailure { toast(it.message ?: "Unable to request offline content") }
+                .getOrDefault(false)
+        } ?: false
+
+        @JavascriptInterface
+        fun removeOfflineContent(id: String): Boolean = runOnMainBlocking {
+            meshService?.removeOfflineContent(id) == true
+        } ?: false
 
         @JavascriptInterface
         fun selectFile() {
@@ -510,6 +534,24 @@ class MainActivity : Activity() {
     @Deprecated("Uses the platform document picker for broad Android compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_PUBLISH_CONTENT && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            val grant = data.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
+            if (grant != 0 && (data.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+                runCatching { contentResolver.takePersistableUriPermission(uri, grant) }
+            }
+            val activeService = meshService
+            if (activeService == null) { toast("Start the local mesh before publishing content"); return }
+            Thread({
+                try {
+                    val id = activeService.publishOfflineContent(uri)
+                    runOnUiThread { toast("Published offline content · ${id.take(12)}…"); publishRuntimeStatus() }
+                } catch (error: Exception) {
+                    runOnUiThread { toast(error.message ?: "Unable to publish offline content") }
+                }
+            }, "meshnet-library-publish").apply { isDaemon = true; start() }
+            return
+        }
         if (requestCode == REQUEST_FILE && resultCode == RESULT_OK) {
             val uri = data?.data ?: return
             val readGrant = data.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -1194,6 +1236,7 @@ class MainActivity : Activity() {
         private const val KEY_ONLINE_INTEGRATIONS = "online_integrations_enabled"
         private const val REQUEST_PERMISSIONS = 4102
         private const val REQUEST_FILE = 4103
+        private const val REQUEST_PUBLISH_CONTENT = 4108
         private const val REQUEST_AUDIO = 4104
         private const val REQUEST_WALLET = 4106
         private const val REQUEST_EXPORT_FILE = 4107

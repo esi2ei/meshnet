@@ -17,6 +17,7 @@ class MeshRouter(
     private val acknowledge: (String) -> Int,
     /** Returns true when an authenticated plaintext payload is consumed by an application protocol. */
     private val onPayload: (String) -> Boolean = { false },
+    private val onFramePayload: (String, String) -> Boolean = { _, _ -> false },
     private val sendEphemeralFrame: (ByteArray) -> Boolean = send,
     private val onEphemeralPayload: (String, String) -> Unit = { _, _ -> },
     private val sendRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> send(bytes) },
@@ -162,7 +163,7 @@ class MeshRouter(
             return
         }
 
-        val handled = onPayload(plaintext)
+        val handled = onFramePayload(frame.origin, plaintext) || onPayload(plaintext)
         if (!handled && displayed.add(frame.id)) {
             onMessage("${frame.origin}: $plaintext (hops: ${frame.hops.size - 1})")
             trim(displayed)

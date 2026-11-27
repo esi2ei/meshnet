@@ -46,13 +46,15 @@ A node with no uplink can still provide a **local intranet** when content and se
 
 ### 3. Offline content and services
 
-For a useful offline intranet, add:
-- a local service directory with signed provider identity and expiry;
-- content-addressed objects with integrity verification;
-- storage quotas, eviction policy and user-controlled replication;
-- resumable, chunked multi-hop transfer with retry and integrity checks;
-- a local HTTP portal that exposes only locally available content;
-- conflict-aware synchronization for mutable data.
+The Android app now includes a first usable offline-library slice:
+- users explicitly publish files into a private, content-addressed local library;
+- SHA-256 IDs and metadata advertisements let nearby mesh members discover published files;
+- a member can request an advertised item; the existing resumable chunk-transfer protocol carries the bytes;
+- completed downloads are promoted into the library only after the requested content ID, size and SHA-256 digest match;
+- local storage is capped at 100 MiB, each item at 10 MiB, local entries at 32, and remote advertisements expire after seven days;
+- files are not shared automatically: publication is an explicit user action.
+
+This is a mesh-shared file catalogue, not yet a general local HTTP service directory. Remaining intranet work includes signed provider/service identity, a local HTTP portal/API, conflict-aware synchronization, and efficient unicast content delivery rather than the current group transport used by the chunk protocol.
 
 ### 4. Operational reliability
 
