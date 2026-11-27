@@ -18,7 +18,7 @@ class MeshOfflineWalletStoreTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        val suffix = UUID.randomUUID().toString().replace("-", "")
+        val suffix = UUID.randomUUID().toString().replace("-", "").take(12)
         senderId = "sender-$suffix"
         sender = MeshOfflineWalletStore(context, senderId)
         recipient = MeshOfflineWalletStore(context, "recipient-$suffix")
