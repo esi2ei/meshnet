@@ -75,6 +75,7 @@ class MeshOfflineWalletStoreTest {
         assertEquals(recipient.address(), confirmed.recipient)
         assertEquals("RECEIVED", confirmed.status)
         assertEquals("RECEIVED", sender.outgoingHistory().single().status)
+        assertTrue(sender.pendingOutgoingVouchers().isEmpty())
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -104,6 +105,7 @@ class MeshOfflineWalletStoreTest {
 
         assertEquals("QUEUED", reopened.outgoingHistory().single().status)
         assertEquals(450L, reopened.outgoingHistory().single().amountMinor)
+        assertEquals(voucher, reopened.pendingOutgoingVouchers().single().payload)
     }
 
 }
