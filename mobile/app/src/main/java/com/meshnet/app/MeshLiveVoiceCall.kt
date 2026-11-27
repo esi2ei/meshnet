@@ -58,7 +58,7 @@ class MeshLiveVoiceCall(
     private var focusRequest: AudioFocusRequest? = null
     private var hasAudioFocus = false
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+        if (active.get() && (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)) {
             Thread({ end() }, "meshnet-voice-focus-cleanup").apply { isDaemon = true; start() }
         }
     }
