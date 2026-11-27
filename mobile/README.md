@@ -1,35 +1,35 @@
 # MeshNet native Android prototype
 
-This is a native Android BLE/GATT prototype. The React/Vite dashboard is a separate browser simulation and is not connected to phone radios.
+The native Android target uses real Android BLE advertising, scanning, and GATT. The React/Vite dashboard remains a separate browser simulation and is not connected to phone radios.
 
-## Implemented in this branch
+## Implemented
 
-- BLE service UUID advertising, filtered scanning, GATT server and GATT client.
-- AES-256-GCM encrypted text frames with authenticated metadata and TTL relay.
-- Android runtime BLE permissions for Android 12+ and legacy Android versions.
-- A user-started connected-device foreground service, with an ongoing notification while the mesh is active.
-- A bounded SQLite outbox (up to 500 frames, 24-hour retention) that survives app process restarts and replays queued frames when a peer GATT channel becomes ready.
-- Duplicate suppression in the running process and bounded storage to limit unbounded disk growth.
+- BLE service UUID advertising, filtered scanning, GATT server/client connections, and reconnect discovery.
+- GATT frame fragmentation sized to the negotiated MTU, ordered per-peer writes, bounded write queues, bounded reassembly buffers, and reassembly expiry.
+- AES-256-GCM encrypted text frames with authenticated origin, frame ID, and creation timestamp; TTL-based multi-hop relay.
+- Persistent SQLite outbox (500-frame cap, 24-hour retention) and persistent receiver replay-ID cache (bounded to 4,096 IDs).
+- User-started Android connected-device foreground service with an ongoing notification.
+- Group passphrase encrypted at rest with an Android Keystore AES-GCM key; it can be reused after process recreation and explicitly forgotten from the app.
+- Runtime Bluetooth and notification permission requests for supported Android versions.
 
-## Build locally (no CI required)
+## Build locally (no CI)
 
-Requirements: JDK 17 and Android SDK Platform 35. From this directory run:
+Requirements: JDK 17, Android SDK Platform 35, and Gradle 8.9 or a compatible Gradle installation. From this directory:
 
     gradle assembleDebug
 
-Install the debug APK on at least two Android phones that support BLE peripheral advertising. Open MeshNet on both phones, enter the same high-entropy passphrase (at least 24 characters) on each, grant Bluetooth permissions, and tap Start BLE mesh.
+Install the debug APK on at least two BLE-capable Android phones. On each phone, enter the same high-entropy passphrase (at least 24 characters), grant Bluetooth and notification permissions, and start the mesh. A blank passphrase field reuses the locally saved credential. Use “Forget saved group credentials” to delete it from that device.
 
 For a multi-hop check, use three phones with each device within BLE range of at least one neighbor, then move the origin and destination out of direct range while keeping the relay in range. Verify the receiver log shows the message and hop count.
 
-## Delivery semantics and important limitations
+## Delivery and security boundaries
 
-- The outbox records locally accepted frames and retries them after a peer channel becomes ready. It does **not** prove remote delivery: there is no end-to-end acknowledgement protocol. Frames remain until their 24-hour expiry, so duplicates may be replayed after receiver process restarts.
-- The current duplicate cache is in-memory. Persistent receiver-side deduplication is not implemented.
-- Android foreground-service execution is user initiated and requires the ongoing notification. Android versions and vendors can still stop services under exceptional resource or policy conditions.
-- The shared passphrase is a temporary group-key bootstrap. It is not Signal Protocol, per-device identity authentication, or forward secrecy. Use a high-entropy random passphrase and exchange it out of band.
-- The BLE transport currently sends a single small frame per GATT write. Large-file transfer, fragmentation/resume, voice, congestion control, and adaptive routing are not implemented.
-- Android Wi-Fi Aware / Wi-Fi Direct, hotspot metering, iOS, Solana/USDC, and escrow are not implemented.
-- BLE peripheral advertising and concurrent GATT connections vary by chipset and Android vendor. Physical-device testing is required.
-- Do not use for sensitive or financial traffic until the protocol has undergone independent security review.
+- “Queued” means accepted into this device's encrypted-frame outbox. A successful GATT write only means the BLE stack accepted a chunk; it does **not** prove remote application delivery. There is no end-to-end acknowledgement protocol, so outbox entries are retained until 24-hour expiry and may be replayed. Persistent receiver deduplication reduces duplicate display but does not establish delivery.
+- The outbox and received-ID cache are local SQLite data. Group credentials are encrypted using an Android Keystore key; losing/resetting that key makes the saved credential unreadable and requires entering the group passphrase again.
+- The shared passphrase is a temporary group-key bootstrap, not Signal Protocol. There is no per-device identity authentication, forward secrecy, key rotation, or protection from a malicious member of the shared group.
+- GATT chunking here transports one bounded MeshFrame. It is **not** large-file transfer, resumable file transfer, or voice streaming.
+- File/voice transfer, Wi-Fi Aware, Wi-Fi Direct, hotspot metering, adaptive routing/congestion control, iOS, Solana/USDC, and escrow are not implemented.
+- Android may stop a foreground service under exceptional resource or policy conditions. BLE peripheral advertising and concurrent GATT connections vary by chipset and vendor.
+- No Android build or physical-device test has been performed for these commits. Do not use this prototype for sensitive or financial traffic before independent security review and device testing.
 
 Feature-branch pushes do not trigger GitHub Actions. No CI run is requested or required for this branch update.
