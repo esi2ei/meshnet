@@ -7,6 +7,7 @@ type NativeRuntimeStatus = {
   onlineIntegrationsEnabled: boolean;
   walletBusy: boolean;
   walletAddress: string | null;
+  offlineWalletAddress: string | null;
   platform: string;
   recentEvents: string[];
 };
@@ -29,6 +30,8 @@ type NativeBridge = {
   resumeWifiAware: () => void;
   connectWallet: () => void;
   disconnectWallet: () => void;
+  getOfflineWalletAddress: () => string;
+  sendOfflinePayment: (recipientAddress: string, amountMinor: number) => boolean;
   forgetGroupCredentials: () => void;
   setOnlineIntegrationsEnabled: (enabled: boolean) => void;
 };
@@ -48,6 +51,7 @@ const initialStatus: NativeRuntimeStatus = {
   onlineIntegrationsEnabled: false,
   walletBusy: false,
   walletAddress: null,
+  offlineWalletAddress: null,
   platform: 'browser',
   recentEvents: [],
 };
@@ -60,6 +64,8 @@ export default function PhoneWorkspace() {
   const [passphrase, setPassphrase] = useState('');
   const [message, setMessage] = useState('');
   const [wifiAddress, setWifiAddress] = useState('');
+  const [offlineRecipient, setOfflineRecipient] = useState('');
+  const [offlineAmount, setOfflineAmount] = useState('');
   const [lastEvent, setLastEvent] = useState('Waiting for native runtime');
   const native = typeof window !== 'undefined' ? window.MeshNetNative : undefined;
 
