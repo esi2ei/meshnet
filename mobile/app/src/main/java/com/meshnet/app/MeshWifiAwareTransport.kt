@@ -222,8 +222,8 @@ class MeshWifiAwareTransport(
                 .build()
             val callback = object : ConnectivityManager.NetworkCallback() {
                 override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                    val info = caps.transportInfo as? WifiAwareNetworkInfo ?: return
-                    val address = info.peerIpv6Addr ?: return
+                    val info = caps.transportInfo as? WifiAwareNetworkInfo ?: run { connectionStarted.set(false); return }
+                    val address = info.peerIpv6Addr ?: run { connectionStarted.set(false); return }
                     val port = info.port
                     if (port !in 1..65535) return
                     connect(network, address, port)

@@ -3,7 +3,7 @@
 MeshNet is an offline-first peer-to-peer messaging and connectivity project with two distinct parts:
 
 - **Web dashboard (src/)**: a React/Vite prototype. Its simulated nodes and topology are not connected to phone radios.
-- **Native Android (mobile/)**: a prototype with BLE/GATT and user-controlled Wi-Fi Direct transports, encrypted text and bounded 256 KiB file/voice-note frames, TTL relay, adaptive BLE queue backoff, a foreground service, a persistent SQLite outbox with group-level receipts, replay protection, and Android Keystore-protected group credentials.
+- **Native Android (mobile/)**: a prototype with BLE/GATT, optional Wi-Fi Aware, and user-controlled Wi-Fi Direct transports, encrypted text and bounded 256 KiB file/voice-note frames, TTL relay, adaptive BLE queue backoff, a foreground service, a persistent SQLite outbox with group-level receipts, replay protection, and Android Keystore-protected group credentials.
 
 ## Web dashboard
 
@@ -27,7 +27,7 @@ Build locally without CI:
 
 This is a prototype, not a production release. BLE writes are not delivery acknowledgements. The current group receipt only confirms that at least one member sharing the group key received a message; it does not identify or authenticate a specific recipient. Receipt frames are best-effort and retired after a connected peer accepts them into its BLE write queue; messages remain queued until an authenticated group receipt arrives. The shared group key is not Signal Protocol and has no per-device identity or forward secrecy.
 
-Resumable large-file streaming, Wi-Fi Aware, live voice streaming, iOS, and the Android wallet client are not implemented. An Apache-2.0 cryptography candidate (vodozemac) has been selected but is not integrated. A first-pass non-custodial Solana escrow program source is present under solana/; it is not built, tested, deployed, audited, or connected to a wallet. No Android build, instrumentation run, or physical-device validation has been performed for the latest changes.
+Unbounded large-file streaming, live voice streaming, iOS, and the Android wallet client are not implemented. An Apache-2.0 cryptography candidate (vodozemac) has been selected but is not integrated. A first-pass non-custodial Solana escrow program source is present under solana/; it is not built, tested, deployed, audited, or connected to a wallet. No Android build, instrumentation run, or physical-device validation has been performed for the latest changes.
 
 See [mobile/SECURITY_AND_ESCROW.md](mobile/SECURITY_AND_ESCROW.md) for licensing rationale, the escrow design, activation gates, and remaining work.
 
