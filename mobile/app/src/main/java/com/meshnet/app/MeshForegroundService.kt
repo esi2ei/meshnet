@@ -11,7 +11,9 @@ import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Binder
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 
 class MeshForegroundService : Service() {
     inner class LocalBinder : Binder() {
@@ -54,6 +56,16 @@ class MeshForegroundService : Service() {
     private var replayActive = false
     private var lastWalletRetryAt = 0L
     private var wifiDirectFallbackAttempted = false
+    private val ipAnnouncementHandler = Handler(Looper.getMainLooper())
+    private val ipAnnouncementTicker = object : Runnable {
+        override fun run() {
+            val activeRouter = router
+            if (activeRouter == null || ipPacketRouter == null) return
+            announceIpAddress()
+            activeRouter.sendEphemeral(IP_ADDRESS_QUERY)
+            ipAnnouncementHandler.postDelayed(this, IP_ADDRESS_ANNOUNCE_INTERVAL_MS)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -161,6 +173,8 @@ class MeshForegroundService : Service() {
         offlinePortalServer = MeshOfflinePortalServer(localIp, offlineLibrary, onEvent = ::emit).also { it.start() }
         announceIpAddress()
         router?.sendEphemeral(IP_ADDRESS_QUERY)
+        ipAnnouncementHandler.removeCallbacks(ipAnnouncementTicker)
+        ipAnnouncementHandler.postDelayed(ipAnnouncementTicker, IP_ADDRESS_ANNOUNCE_INTERVAL_MS)
         emit("Offline IPv4 mesh active at $localIp · portal ${offlinePortalUrlValue()}")
     }
 
@@ -169,6 +183,7 @@ class MeshForegroundService : Service() {
     fun sendIpPacket(packet: ByteArray): Boolean = ipPacketRouter?.send(packet) == true
 
     fun stopIpOverlay() {
+        ipAnnouncementHandler.removeCallbacks(ipAnnouncementTicker)
         val wasActive = ipPacketRouter != null || offlinePortalServer != null
         offlinePortalServer?.close()
         offlinePortalServer = null
@@ -924,6 +939,7 @@ class MeshForegroundService : Service() {
         private const val MAX_PENDING_OFFLINE_PAYMENTS = 16
         private const val MAX_LIBRARY_RESPONSES = 2
         private const val IP_ADDRESS_QUERY = "~IP1Q"
+        private const val IP_ADDRESS_ANNOUNCE_INTERVAL_MS = 60_000L
     }
 }
 
