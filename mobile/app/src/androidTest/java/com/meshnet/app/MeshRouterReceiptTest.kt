@@ -385,4 +385,73 @@ class MeshRouterReceiptTest {
         assertTrue("The ACK destination re-forwarded the receipt", sourceRelays.isEmpty())
     }
 
+
+    @Test
+    fun signedOriginSurvivesRelayAndCannotBeSpoofedByGroupMember() {
+        val passphrase = "a sufficiently long group passphrase"
+        val senderIdentity = MeshDeviceIdentity.generateEphemeral()
+        val relayIdentity = MeshDeviceIdentity.generateEphemeral()
+        val destinationIdentity = MeshDeviceIdentity.generateEphemeral()
+        val senderFrames = mutableListOf<ByteArray>()
+        val relayFrames = mutableListOf<ByteArray>()
+        val events = mutableListOf<String>()
+        val senderSeen = mutableSetOf<String>()
+        val relaySeen = mutableSetOf<String>()
+        val destinationSeen = mutableSetOf<String>()
+
+        val sender = MeshRouter(
+            nodeId = senderIdentity.nodeId,
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { senderFrames.add(it); true },
+            onMessage = {},
+            hasReceived = { it in senderSeen },
+            markReceived = { id, _ -> !senderSeen.add(id) },
+            acknowledge = { 0 },
+            identity = senderIdentity
+        )
+        val relay = MeshRouter(
+            nodeId = relayIdentity.nodeId,
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { relayFrames.add(it); true },
+            onMessage = {},
+            hasReceived = { it in relaySeen },
+            markReceived = { id, _ -> !relaySeen.add(id) },
+            acknowledge = { 0 },
+            identity = relayIdentity
+        )
+        val destination = MeshRouter(
+            nodeId = destinationIdentity.nodeId,
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { true },
+            onMessage = { events.add(it) },
+            hasReceived = { it in destinationSeen },
+            markReceived = { id, _ -> !destinationSeen.add(id) },
+            acknowledge = { 0 },
+            identity = destinationIdentity
+        )
+
+        assertTrue(sender.sendMessage("signed mesh origin"))
+        val original = senderFrames.map { MeshFrame.decode(it) }.single { it.kind == MeshFrame.KIND_MESSAGE }
+        assertEquals(senderIdentity.nodeId, original.origin)
+        assertTrue(MeshDeviceIdentity.verify(original, "signed mesh origin"))
+        relay.receive(original.encode(), "radio/source")
+        val relayed = relayFrames.map { MeshFrame.decode(it) }.single { it.kind == MeshFrame.KIND_MESSAGE }
+        assertEquals(original.signature, relayed.signature)
+        destination.receive(relayed.encode(), "radio/relay")
+        assertTrue(events.any { it.contains("signed mesh origin") })
+
+        val plaintext = MeshCrypto(passphrase.toCharArray()).decrypt(
+            original.nonce, original.ciphertext, MeshFrame.aad(original)
+        )
+        val forgedBase = original.copy(origin = "spoofed_node", hops = listOf("spoofed_node"))
+        val (nonce, ciphertext) = MeshCrypto(passphrase.toCharArray()).encrypt(
+            plaintext, MeshFrame.aad(forgedBase)
+        )
+        val forged = forgedBase.copy(nonce = nonce, ciphertext = ciphertext)
+        val before = events.size
+        destination.receive(forged.encode(), "radio/malicious-member")
+        assertEquals(before, events.size)
+        assertTrue(events.any { it.contains("device identity signature") })
+    }
+
 }

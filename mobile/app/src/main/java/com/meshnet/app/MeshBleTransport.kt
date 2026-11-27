@@ -485,15 +485,15 @@ class MeshBleTransport(
         private const val ATT_OVERHEAD = 3
         private const val HEADER_BYTES = 10
         private const val MAGIC: Short = 0x4d4e
-        private const val MAX_CHUNKS = 64
+        private const val MAX_CHUNKS = 96
         private const val MAX_QUEUED_CHUNKS = 256
         private const val MAX_ASSEMBLIES = 32
         private const val ASSEMBLY_TTL_MS = 30_000L
 
         /**
          * Keep backoff pressure on the total queue while always allowing one whole frame.
-         * At the default ATT MTU a maximum-size frame requires 64 chunks; clamping the
-         * admission limit to 32 after repeated failures otherwise permanently starves it.
+         * At the default ATT MTU a maximum-size frame requires 90 chunks; clamping the
+         * admission limit below the frame size after repeated failures permanently starves it.
          */
         internal fun adaptiveQueueLimit(failures: Int, frameChunkCount: Int): Int {
             require(frameChunkCount in 1..MAX_CHUNKS) { "Invalid BLE frame chunk count" }

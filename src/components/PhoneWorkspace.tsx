@@ -147,8 +147,8 @@ export default function PhoneWorkspace() {
         </div>
         <div className="rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
           <div className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4 text-cyan-400" /> Local security</div>
-          <div className="mt-2 text-xs font-semibold text-amber-200">Shared-key AES-GCM</div>
-          <p className="mt-1 text-[10px] leading-relaxed text-slate-500">No per-device identity or forward secrecy yet</p>
+          <div className="mt-2 text-xs font-semibold text-emerald-200">Signed device identity + group AES-GCM</div>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-500">P-256 origin signatures · no forward secrecy or device revocation yet</p>
         </div>
       </div>
 

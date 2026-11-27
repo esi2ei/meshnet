@@ -35,4 +35,23 @@ class MeshDeviceIdentityTest {
         assertFalse(MeshDeviceIdentity.verify(signed.copy(signature = null), "payload"))
         assertFalse(MeshDeviceIdentity.verify(signed.copy(deviceKey = "invalid"), "payload"))
     }
+
+    @Test fun signedFrameFitsTheBoundedTransportEnvelope() {
+        val identity = MeshDeviceIdentity.generateEphemeral()
+        val hops = listOf(identity.nodeId) + (1 until MeshFrame.MAX_TTL).map { "node_" + it.toString().padStart(18, '0') }
+        val frame = MeshFrame(
+            origin = identity.nodeId,
+            ttl = 1,
+            hops = hops,
+            nonce = "A".repeat(16),
+            ciphertext = "A".repeat(184),
+            id = "signed_mtu_frame_01",
+            destination = "destination_node_000000000"
+        )
+        val plaintext = "A".repeat(120)
+        val signed = identity.sign(identity.prepare(frame, plaintext))
+        assertTrue(signed.encode().size <= MeshFrame.MAX_FRAME_BYTES)
+        assertTrue(MeshDeviceIdentity.verify(MeshFrame.decode(signed.encode()), plaintext))
+    }
+
 }

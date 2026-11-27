@@ -23,14 +23,14 @@ The above describes code paths, not a claim of production-grade security or mult
 
 ### 1. Device identity and session security
 
-The current AES-GCM design derives one group key from a shared passphrase. Every participant with that secret can decrypt group traffic and the protocol does not provide independently authenticated device identities, per-device revocation, ratcheting or forward secrecy. A group member can therefore impersonate another claimed origin. The UI must not label this as Signal-grade end-to-end encryption.
+The current AES-GCM design still derives one group key from a shared passphrase, so every group member can decrypt group traffic. Protocol v6 now adds a stable Android Keystore P-256 signing identity per installation: the public-key fingerprint is the node ID, and each origin signs the immutable payload digest and message identity. Relays preserve that origin signature while re-encrypting route metadata. This prevents a group member from forging another enrolled node's origin, but it does not provide explicit device approval/revocation, a ratchet, forward secrecy or protection from a compromised group key. Do not describe this as Signal-grade end-to-end encryption.
 
 Before production messaging:
-- establish a reviewed device identity and explicit trust/onboarding model;
+- add an explicit trust/onboarding model with QR/fingerprint verification and device approval;
 - use a maintained, audited session protocol rather than custom cryptographic primitives;
-- bind origin identity to verified device keys;
-- support key rotation, device removal and replay protection;
-- prove forward secrecy and recovery behavior with protocol tests.
+- support device revocation, group-key rotation, ratcheting and forward secrecy;
+- prove recovery, multi-device replacement and downgrade resistance with protocol tests;
+- obtain an independent cryptographic review of the custom frame-signature integration.
 
 ### 2. General IP connectivity
 
