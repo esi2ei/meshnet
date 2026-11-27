@@ -31,6 +31,7 @@ class MeshForegroundService : Service() {
     private lateinit var walletEnvelopePreferences: SharedPreferences
     private data class PendingOfflineWalletEnvelope(
         val count: Int,
+        val prefix: String,
         val chunks: MutableMap<Int, String>,
         val createdAt: Long
     )
@@ -174,10 +175,10 @@ class MeshForegroundService : Service() {
                 require(pendingOfflinePayments.size < MAX_PENDING_OFFLINE_PAYMENTS) {
                     "Too many pending offline wallet transfers"
                 }
-                PendingOfflineWalletEnvelope(count, mutableMapOf(), now)
+                PendingOfflineWalletEnvelope(count, fields[0], mutableMapOf(), now)
                     .also { pendingOfflinePayments[transferId] = it }
             } else {
-                require(state.count == count) { "Offline wallet chunk count changed" }
+                require(state.count == count && state.prefix == fields[0]) { "Offline wallet envelope metadata changed" }
                 state
             }
             val previous = envelope.chunks[index]
@@ -188,8 +189,6 @@ class MeshForegroundService : Service() {
                 val encoded = (0 until count).joinToString("") {
                     envelope.chunks[it] ?: error("Offline wallet transfer is incomplete")
                 }
-                pendingOfflinePayments.remove(transferId)
-                persistPendingOfflinePayments()
                 val payload = String(
                     android.util.Base64.decode(encoded, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP),
                     Charsets.UTF_8
@@ -199,14 +198,27 @@ class MeshForegroundService : Service() {
                     emit("Recipient acknowledgement verified · ${acknowledged.amountMinor} minor units · ${acknowledged.recipient.take(12)}…")
                 } else {
                     val json = org.json.JSONObject(payload)
-                    if (json.optString("recipient") != offlineWallet.address()) return
-                    val receipt = offlineWallet.acceptPayment(payload)
+                    if (json.optString("recipient") != offlineWallet.address()) {
+                        pendingOfflinePayments.remove(transferId)
+                        persistPendingOfflinePayments()
+                        return
+                    }
+                    val receiptId = json.getString("id")
+                    val receipt = try {
+                        offlineWallet.acceptPayment(payload)
+                    } catch (error: IllegalArgumentException) {
+                        if (error.message?.contains("already imported on this device") == true) {
+                            offlineWallet.receiptById(receiptId) ?: throw error
+                        } else throw error
+                    }
                     emit("Offline wallet receipt verified and saved · ${receipt.amountMinor} minor units · ${receipt.sender.take(12)}…")
                     val acknowledgement = offlineWallet.createAcknowledgement(receipt)
                     if (sendOfflineWalletEnvelope(OFFLINE_ACK_PREFIX, receipt.id, acknowledgement)) {
                         emit("Signed recipient acknowledgement queued")
                     }
                 }
+                pendingOfflinePayments.remove(transferId)
+                persistPendingOfflinePayments()
             }
         } catch (error: Exception) {
             emit("Rejected offline wallet envelope: ${error.message ?: "invalid packet"}")
@@ -360,6 +372,7 @@ class MeshForegroundService : Service() {
                 bleSent || p2pSent || awareSent
             }
         )
+        processCompletedPendingOfflinePayments()
         liveVoiceCall = MeshLiveVoiceCall(
             context = this,
             localNodeId = nodeId,
@@ -502,13 +515,25 @@ class MeshForegroundService : Service() {
                     require(index in 0 until count && value.length <= OFFLINE_PAYMENT_CHUNK_SIZE)
                     chunks[index] = value
                 }
-                require(chunks.size < count)
+                val prefix = item.getString("prefix")
+                require(prefix == OFFLINE_PAYMENT_PREFIX || prefix == OFFLINE_ACK_PREFIX)
+                require(chunks.size <= count)
                 if (pendingOfflinePayments.size < MAX_PENDING_OFFLINE_PAYMENTS) {
-                    pendingOfflinePayments[id] = PendingOfflineWalletEnvelope(count, chunks, createdAt)
+                    pendingOfflinePayments[id] = PendingOfflineWalletEnvelope(count, prefix, chunks, createdAt)
                 }
             }
         }
         persistPendingOfflinePayments()
+    }
+
+    private fun processCompletedPendingOfflinePayments() {
+        pendingOfflinePayments.toList().forEach { (id, envelope) ->
+            if (envelope.chunks.size == envelope.count) {
+                val lastIndex = envelope.count - 1
+                val lastChunk = envelope.chunks[lastIndex] ?: return@forEach
+                handleRouterMessage("${envelope.prefix}|$id|$lastIndex|${envelope.count}|$lastChunk")
+            }
+        }
     }
 
     @Synchronized
@@ -521,6 +546,7 @@ class MeshForegroundService : Service() {
                 org.json.JSONObject()
                     .put("id", id)
                     .put("count", envelope.count)
+                    .put("prefix", envelope.prefix)
                     .put("createdAt", envelope.createdAt)
                     .put("chunks", chunks)
             )
