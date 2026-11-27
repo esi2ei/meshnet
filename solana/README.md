@@ -10,7 +10,9 @@ This directory contains a first-pass non-custodial USDC order escrow program usi
 - `refund_expired`: buyer can refund after expiry.
 - `arbitrate_release` / `arbitrate_refund`: the configured arbitrator can resolve a dispute.
 
-The program rejects zero amounts, self-orders, expiry outside the next 30 days, non-configured mints, repeated settlement, and unexpected vault balances. It uses SPL Token (not Token-2022) and `TransferChecked`.
+The program rejects zero amounts, self-orders, expiry outside the next 30 days, non-configured mints, repeated settlement, and underfunded vaults. It uses SPL Token (not Token-2022) and `TransferChecked`.
+
+Settled order PDAs remain open so the terminal `Released` or `Refunded` status persists and can be queried. The buyer may later call `close_settled_order` to reclaim the order-account rent; open orders cannot be closed. The vault token account is still closed during settlement.
 
 ## Deployment is intentionally disabled
 

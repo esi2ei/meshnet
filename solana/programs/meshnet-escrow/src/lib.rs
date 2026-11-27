@@ -100,6 +100,11 @@ pub mod meshnet_escrow {
         require_keys_eq!(ctx.accounts.arbitrator.key(), ctx.accounts.order.arbitrator, EscrowError::WrongArbitrator);
         settle_to_buyer_arbitrated(ctx)
     }
+
+    /// The buyer may reclaim order-account rent after the terminal state has been recorded.
+    pub fn close_settled_order(_ctx: Context<CloseSettledOrder>) -> Result<()> {
+        Ok(())
+    }
 }
 
 
@@ -206,6 +211,7 @@ fn settle_to_provider(ctx: Context<SettleOrder>) -> Result<()> {
 fn settle_to_buyer(ctx: Context<RefundOrder>) -> Result<()> {
     require!(ctx.accounts.order.status == OrderStatus::Open, EscrowError::AlreadySettled);
     require_keys_eq!(ctx.accounts.mint.key(), ctx.accounts.order.mint, EscrowError::InvalidMint);
+    validate_vault_balance(ctx.accounts.vault.amount, ctx.accounts.order.amount)?;
     let order_key = ctx.accounts.order.key();
     let bump = [ctx.accounts.order.bump];
     let seeds: &[&[u8]] = &[
@@ -319,6 +325,19 @@ fn settle_to_buyer_arbitrated(ctx: Context<ArbitrateRefund>) -> Result<()> {
 }
 
 #[derive(Accounts)]
+pub struct CloseSettledOrder<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+    #[account(
+        mut, close = buyer,
+        seeds = [ORDER_SEED, order.buyer.as_ref(), order.order_id.as_ref()], bump = order.bump,
+        has_one = buyer,
+        constraint = order.status != OrderStatus::Open @ EscrowError::OrderStillOpen
+    )]
+    pub order: Account<'info, EscrowOrder>,
+}
+
+#[derive(Accounts)]
 pub struct InitializeConfig<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -358,7 +377,7 @@ pub struct SettleOrder<'info> {
     pub buyer: Signer<'info>,
     pub provider: Signer<'info>,
     #[account(
-        mut, close = buyer,
+        mut,
         seeds = [ORDER_SEED, order.buyer.as_ref(), order.order_id.as_ref()], bump = order.bump,
         has_one = buyer, has_one = provider
     )]
@@ -384,7 +403,7 @@ pub struct ArbitrateOrder<'info> {
     /// A provider signature is intentionally not required for an arbitrator's dispute release.
     pub provider: UncheckedAccount<'info>,
     #[account(
-        mut, close = buyer,
+        mut,
         seeds = [ORDER_SEED, order.buyer.as_ref(), order.order_id.as_ref()], bump = order.bump,
         has_one = provider
     )]
@@ -405,7 +424,7 @@ pub struct RefundOrder<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
     #[account(
-        mut, close = buyer,
+        mut,
         seeds = [ORDER_SEED, order.buyer.as_ref(), order.order_id.as_ref()], bump = order.bump,
         has_one = buyer
     )]
@@ -486,4 +505,5 @@ pub enum EscrowError {
     #[msg("Order is already settled")] AlreadySettled,
     #[msg("Order has not expired")] NotExpired,
     #[msg("Vault balance is below the immutable order amount")] VaultBalanceMismatch,
+    #[msg("An open order cannot be closed")] OrderStillOpen,
 }
