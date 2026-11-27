@@ -18,6 +18,7 @@ class MeshForegroundService : Service() {
 
     private val binder = LocalBinder()
     private var transport: MeshBleTransport? = null
+    private var wifiTransport: MeshWifiDirectTransport? = null
     private var router: MeshRouter? = null
     private var fileTransfer: MeshFileTransfer? = null
     private lateinit var outbox: MeshQueueStore
@@ -101,6 +102,10 @@ class MeshForegroundService : Service() {
         return transfer.send(uri)
     }
 
+    fun discoverWifiDirect() { wifiTransport?.discover() ?: throw IllegalStateException("Wi-Fi Direct is not ready") }
+    fun createWifiDirectGroup() { wifiTransport?.createGroup() ?: throw IllegalStateException("Wi-Fi Direct is not ready") }
+    fun connectWifiDirect(address: String) { wifiTransport?.connect(address) ?: throw IllegalStateException("Wi-Fi Direct is not ready") }
+
     private fun startMesh(passphrase: String) {
         // Encode the full 128-bit random UUID as compact base64url to keep route headers bounded.
         val nodeUuid = java.util.UUID.randomUUID()
@@ -133,9 +138,9 @@ class MeshForegroundService : Service() {
                     // A receipt has no ACK-of-ACK. Once a connected peer accepts it into
                     // its ordered BLE write queue, retain only the ability to regenerate it
                     // when the original message is seen again.
-                    if (transport?.sendToPeers(frame) == true) {
-                        outbox.retireAcknowledgement(frame)
-                    }
+                    val bleAccepted = transport?.sendToPeers(frame) == true
+                    val wifiAccepted = wifiTransport?.sendToPeers(frame) == true
+                    if (bleAccepted || wifiAccepted) outbox.retireAcknowledgement(frame)
                     true
                 }
             },
@@ -157,6 +162,16 @@ class MeshForegroundService : Service() {
         )
         try {
             transport?.start()
+            wifiTransport = MeshWifiDirectTransport(
+                this,
+                { _, payload -> router?.receive(payload) },
+                { state ->
+                    emit(state)
+                    if (state.contains("data channel ready")) handleTransportState("Wi-Fi Direct channel ready")
+                }
+            )
+            runCatching { wifiTransport?.start() }
+                .onFailure { emit("Wi-Fi Direct unavailable; BLE remains active: ${it.message}") }
             emit("BLE foreground service started · Node $nodeId")
         } catch (error: Exception) {
             emit(error.message ?: "Unable to start BLE")
@@ -197,7 +212,9 @@ class MeshForegroundService : Service() {
                 continue
             }
             // A full per-peer BLE queue pauses this pass. Queue-drained callbacks resume it.
-            if (!link.sendToPeers(frame)) return
+            val bleAccepted = link.sendToPeers(frame)
+            val wifiAccepted = wifiTransport?.sendToPeers(frame) == true
+            if (!bleAccepted && !wifiAccepted) return
             outbox.noteReplay(frame)
             outbox.retireAcknowledgement(frame)
             replayIndex++
@@ -213,6 +230,8 @@ class MeshForegroundService : Service() {
     private fun stopMesh() {
         transport?.stop()
         transport = null
+        wifiTransport?.stop()
+        wifiTransport = null
         router = null
         fileTransfer = null
         replayFrames = emptyList()
