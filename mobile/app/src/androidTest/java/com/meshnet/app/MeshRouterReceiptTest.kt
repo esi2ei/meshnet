@@ -46,6 +46,8 @@ class MeshRouterReceiptTest {
         val senderQueue = mutableListOf<ByteArray>()
         val relayQueue = mutableListOf<ByteArray>()
         val destinationEvents = mutableListOf<String>()
+        val relayRoutes = mutableListOf<List<String>>()
+        val destinationRoutes = mutableListOf<List<String>>()
         val senderSeen = mutableSetOf<String>()
         val relaySeen = mutableSetOf<String>()
         val destinationSeen = mutableSetOf<String>()
@@ -66,7 +68,8 @@ class MeshRouterReceiptTest {
             onMessage = {},
             hasReceived = { it in relaySeen },
             markReceived = { id, _ -> !relaySeen.add(id) },
-            acknowledge = { 0 }
+            acknowledge = { 0 },
+            onRouteObserved = { relayRoutes.add(it) }
         )
         val destination = MeshRouter(
             nodeId = "dest_0001",
@@ -75,13 +78,14 @@ class MeshRouterReceiptTest {
             onMessage = { destinationEvents.add(it) },
             hasReceived = { it in destinationSeen },
             markReceived = { id, _ -> !destinationSeen.add(id) },
-            acknowledge = { 0 }
+            acknowledge = { 0 },
+            onRouteObserved = { destinationRoutes.add(it) }
         )
 
         sender.sendMessage("route-bound hello")
         val original = senderQueue.map { MeshFrame.decode(it) }
             .first { it.kind == MeshFrame.KIND_MESSAGE }
-        relay.receive(original.encode())
+        relay.receive(original.encode(), "ble-peer-address")
 
         val relayed = relayQueue.map { MeshFrame.decode(it) }
             .first { it.kind == MeshFrame.KIND_MESSAGE }
@@ -95,8 +99,10 @@ class MeshRouterReceiptTest {
             )
         )
 
-        destination.receive(relayed.encode())
+        destination.receive(relayed.encode(), "wifi-peer-address")
         assertTrue(destinationEvents.any { it.contains("route-bound hello") })
+        assertEquals(listOf(listOf("sender_01", "relay_001")), relayRoutes)
+        assertEquals(listOf(listOf("sender_01", "relay_001", "dest_0001")), destinationRoutes)
     }
 
     @Test
