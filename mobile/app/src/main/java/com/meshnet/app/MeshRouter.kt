@@ -11,7 +11,9 @@ class MeshRouter(
     private val onMessage: (String) -> Unit,
     private val hasReceived: (String) -> Boolean,
     /** Atomically persists the received frame ID; true means it was already seen. */
-    private val markReceived: (String, Long) -> Boolean
+    private val markReceived: (String, Long) -> Boolean,
+    /** Removes the original group message after an authenticated group receipt. */
+    private val acknowledge: (String) -> Int
 ) {
     private val seen = LinkedHashSet<String>()
     private val displayed = LinkedHashSet<String>()
@@ -24,19 +26,19 @@ class MeshRouter(
         }
         val id = UUID.randomUUID().toString()
         val createdAt = System.currentTimeMillis()
-        val (nonce, ciphertext) = crypto.encrypt(text, aad(id, nodeId, createdAt))
         val frame = MeshFrame(
-            id = id, origin = nodeId, ttl = MeshFrame.MAX_TTL,
-            hops = listOf(nodeId), nonce = nonce, ciphertext = ciphertext,
-            createdAt = createdAt
+            origin = nodeId, ttl = MeshFrame.MAX_TTL, hops = listOf(nodeId),
+            nonce = "", ciphertext = "", createdAt = createdAt, id = id
         )
+        val (nonce, ciphertext) = crypto.encrypt(text, MeshFrame.aad(frame))
+        val encryptedFrame = frame.copy(nonce = nonce, ciphertext = ciphertext)
         remember(seen, id)
-        if (!send(frame.encode())) {
+        if (!send(encryptedFrame.encode())) {
             seen.remove(id)
             onMessage("Outbox rejected message; it was not queued")
             return
         }
-        onMessage("Message encrypted and stored in the durable outbox; delivery is unconfirmed")
+        onMessage("Message encrypted and queued; waiting for a group receipt")
     }
 
     @Synchronized
@@ -46,30 +48,58 @@ class MeshRouter(
             return
         }
         val plaintext = try {
-            crypto.decrypt(frame.nonce, frame.ciphertext, aad(frame.id, frame.origin, frame.createdAt))
+            crypto.decrypt(frame.nonce, frame.ciphertext, MeshFrame.aad(frame))
         } catch (_: Exception) {
             onMessage("Rejected frame: authentication failed")
             return
         }
-        if (frame.id in seen || hasReceived(frame.id)) return
+
+        if (frame.kind == MeshFrame.KIND_ACK) {
+            if (frame.id in seen || hasReceived(frame.id)) return
+            val target = frame.ackFor ?: return
+            val removed = acknowledge(target)
+            relayIfNeeded(frame)
+            markReceived(frame.id, frame.createdAt)
+            remember(seen, frame.id)
+            if (removed > 0) onMessage("Group receipt received for message $target")
+            return
+        }
+
+        if (frame.id in seen || hasReceived(frame.id)) {
+            // Re-send the receipt: the previous ACK may have been lost during a disconnect.
+            sendReceipt(frame.id)
+            return
+        }
 
         if (displayed.add(frame.id)) {
             onMessage("${frame.origin}: $plaintext (hops: ${frame.hops.size - 1})")
             trim(displayed)
         }
-
-        // Do not persist the replay marker until a required relay is durably queued.
-        // This allows a later duplicate radio frame to retry a relay after temporary queue pressure.
-        if (frame.ttl > 1 && !frame.hops.contains(nodeId)) {
-            val relayed = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId).encode()
-            if (!send(relayed)) {
-                onMessage("Relay deferred: local outbox is unavailable or full")
-                return
-            }
-        }
+        sendReceipt(frame.id)
+        relayIfNeeded(frame)
 
         if (markReceived(frame.id, frame.createdAt)) return
         remember(seen, frame.id)
+    }
+
+    private fun sendReceipt(messageId: String) {
+        val ackId = UUID.randomUUID().toString()
+        val createdAt = System.currentTimeMillis()
+        val frame = MeshFrame(
+            origin = nodeId, ttl = MeshFrame.MAX_TTL, hops = listOf(nodeId),
+            nonce = "", ciphertext = "", createdAt = createdAt,
+            id = ackId, kind = MeshFrame.KIND_ACK, ackFor = messageId
+        )
+        val (nonce, ciphertext) = crypto.encrypt("", MeshFrame.aad(frame))
+        if (!send(frame.copy(nonce = nonce, ciphertext = ciphertext).encode())) {
+            onMessage("Receipt for $messageId could not be queued; it will retry when the frame is received again")
+        }
+    }
+
+    private fun relayIfNeeded(frame: MeshFrame) {
+        if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
+        val relayed = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId).encode()
+        if (!send(relayed)) onMessage("Relay deferred: local outbox is unavailable or full")
     }
 
     private fun remember(target: LinkedHashSet<String>, id: String) {
@@ -80,9 +110,6 @@ class MeshRouter(
     private fun trim(target: LinkedHashSet<String>) {
         while (target.size > MAX_SEEN_IDS) target.remove(target.first())
     }
-
-    private fun aad(id: String, origin: String, createdAt: Long) =
-        "meshnet-v1|$id|$origin|$createdAt".toByteArray(Charsets.UTF_8)
 
     companion object {
         private const val MAX_SEEN_IDS = 2048
