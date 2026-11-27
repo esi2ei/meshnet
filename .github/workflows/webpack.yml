@@ -1,10 +1,7 @@
 name: MeshNet CI
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
+  # Intentionally manual-only while the owner completes local/device validation.
   workflow_dispatch:
 
 permissions:
@@ -21,14 +18,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20.x, 22.x]
+        node-version: [22.x, 24.x]
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: ${{ matrix.node-version }}
 
@@ -40,3 +37,88 @@ jobs:
 
       - name: Build production bundle
         run: npm run build
+
+  android:
+    name: Android debug APK and instrumentation tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6.3.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Node.js for the bundled dashboard
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22.x
+
+      - name: Install dashboard dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.4
+
+      - name: Install Android 16 SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v6.4.1
+        with:
+          gradle-version: "8.11.1"
+          cache-read-only: false
+
+      - name: Build debug APK
+        working-directory: mobile
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Verify debug APK signature and checksum
+        if: success()
+        run: |
+          APK="mobile/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          sha256sum "$APK"
+
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Android instrumentation tests on API 36 emulator
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7_pro
+          working-directory: mobile
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest
+
+      - name: Upload debug APK artifact
+        if: ${{ always() && hashFiles('mobile/app/build/outputs/apk/debug/app-debug.apk') != '' }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: meshnet-debug-apk-${{ github.sha }}
+          path: mobile/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Android test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: meshnet-android-test-reports-${{ github.sha }}
+          path: |
+            mobile/app/build/reports/androidTests/connected/
+            mobile/app/build/outputs/androidTest-results/connected/
+          if-no-files-found: ignore
+          retention-days: 14

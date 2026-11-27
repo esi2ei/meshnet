@@ -213,14 +213,28 @@ class MeshBleTransport(
             .setIncludeDeviceName(false)
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
+        var advertisingStarted = false
+        var scanningStarted = false
         try {
-            bt.bluetoothLeAdvertiser?.startAdvertising(settings, data, advertiseCallback)
+            val advertiser = bt.bluetoothLeAdvertiser ?: error("BLE advertiser is unavailable")
+            advertiser.startAdvertising(settings, data, advertiseCallback)
+            advertisingStarted = true
+        } catch (error: Exception) {
+            onState("BLE advertising failed: ${error.message}")
+        }
+        try {
             val filters = listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(SERVICE_UUID)).build())
             val scanSettings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
-            bt.bluetoothLeScanner?.startScan(filters, scanSettings, scanCallback)
-            onState("BLE discovery started")
+            val scanner = bt.bluetoothLeScanner ?: error("BLE scanner is unavailable")
+            scanner.startScan(filters, scanSettings, scanCallback)
+            scanningStarted = true
         } catch (error: Exception) {
-            onState("Unable to start BLE advertising or scanning: ${error.message}")
+            onState("BLE scanning failed: ${error.message}")
+        }
+        if (advertisingStarted && scanningStarted) {
+            onState("BLE advertising and scanning active")
+        } else if (!advertisingStarted || !scanningStarted) {
+            onState("BLE is operating with a missing radio role; starting a local Wi-Fi fallback is recommended")
         }
     }
 
@@ -276,7 +290,7 @@ class MeshBleTransport(
             var queuedForPeer = false
             synchronized(queue) {
                 val failureCount = synchronized(health) { health.failures }
-                val adaptiveLimit = (MAX_QUEUED_CHUNKS shr failureCount.coerceIn(0, 3)).coerceAtLeast(32)
+                val adaptiveLimit = adaptiveQueueLimit(failureCount, count)
                 if (queue.size + count > adaptiveLimit) {
                     onState("BLE write queue is full for peer $address")
                     return@synchronized
@@ -455,5 +469,16 @@ class MeshBleTransport(
         private const val MAX_QUEUED_CHUNKS = 256
         private const val MAX_ASSEMBLIES = 32
         private const val ASSEMBLY_TTL_MS = 30_000L
+
+        /**
+         * Keep backoff pressure on the total queue while always allowing one whole frame.
+         * At the default ATT MTU a maximum-size frame requires 64 chunks; clamping the
+         * admission limit to 32 after repeated failures otherwise permanently starves it.
+         */
+        internal fun adaptiveQueueLimit(failures: Int, frameChunkCount: Int): Int {
+            require(frameChunkCount in 1..MAX_CHUNKS) { "Invalid BLE frame chunk count" }
+            return (MAX_QUEUED_CHUNKS shr failures.coerceIn(0, 3))
+                .coerceAtLeast(frameChunkCount)
+        }
     }
 }

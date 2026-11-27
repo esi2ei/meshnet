@@ -60,7 +60,7 @@ export default function SystemInfo({ logs, onClearLogs }: SystemInfoProps) {
           <div className="flex items-center gap-2 text-red-300 font-semibold">
             <ShieldAlert className="w-4 h-4" /> Validation and security warning
           </div>
-          <p className="leading-relaxed">The browser is a simulation. Android, Wi-Fi, file and voice source implementations have not passed a local build, instrumentation suite or physical-device interoperability test for this branch. The escrow source has not been built, tested, deployed or audited. Do not use this prototype for sensitive or financial traffic before independent security review and device testing.</p>
+          <p className="leading-relaxed">The browser topology is a simulation; only the Android device-runtime panel is connected to native services. CI typechecks and builds the web dashboard, packages and signature-verifies the Android APK, and runs instrumentation tests on an API 36 emulator. Consult the latest GitHub Actions run for the current result. Emulator tests do not establish physical-device Bluetooth/Wi-Fi interoperability. The escrow source has not been built, tested, deployed or audited. Do not use this prototype for sensitive or financial traffic before independent security review and device testing.</p>
         </div>
       </div>
     </div>

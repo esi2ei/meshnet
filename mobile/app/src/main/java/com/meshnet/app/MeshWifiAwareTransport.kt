@@ -23,7 +23,7 @@ import android.os.Looper
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.EOFException
-import java.io.ServerSocket
+import java.net.ServerSocket
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.security.MessageDigest
@@ -367,8 +367,8 @@ class MeshWifiAwareTransport(
         private const val SERVICE_NAME = "meshnet-v1"
         private const val HELLO_ID = 4101
         private const val READY_ID = 4102
-        private const val HELLO = "MESHNET_HELLO_V1".toByteArray(Charsets.UTF_8)
-        private const val READY = "MESHNET_READY_V1".toByteArray(Charsets.UTF_8)
+        private val HELLO = "MESHNET_HELLO_V1".toByteArray(Charsets.UTF_8)
+        private val READY = "MESHNET_READY_V1".toByteArray(Charsets.UTF_8)
         private const val CONNECT_TIMEOUT_MS = 10_000
     }
 }

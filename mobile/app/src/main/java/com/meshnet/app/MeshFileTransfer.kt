@@ -101,13 +101,13 @@ class MeshFileTransfer(
                 return false
             }
 
-            var next = awaitCheckpoint(ackState, null, INITIAL_ACK_TIMEOUT_MS)
+            val initialCheckpoint = awaitCheckpoint(ackState, null, INITIAL_ACK_TIMEOUT_MS)
             if (Thread.currentThread().isInterrupted) throw InterruptedException("File transfer cancelled")
-            if (next == null) {
+            if (initialCheckpoint == null) {
                 onEvent("File transfer $id paused: receiver checkpoint was not received; retry with the same file")
                 return false
             }
-            next = next.coerceIn(0, count)
+            var next = initialCheckpoint.coerceIn(0, count)
 
             while (next < count) {
                 if (Thread.currentThread().isInterrupted) throw InterruptedException("File transfer cancelled")

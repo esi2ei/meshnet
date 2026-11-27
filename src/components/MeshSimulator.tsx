@@ -54,13 +54,14 @@ export default function MeshSimulator({
   }
 
   // Handle Dragging
-  const handleMouseDown = (nodeId: string, e: React.MouseEvent) => {
+  const handlePointerDown = (nodeId: string, e: React.PointerEvent<HTMLDivElement>) => {
     if (isSimulatingHop) return;
     e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
     setDraggedNodeId(nodeId);
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!draggedNodeId || !containerRef.current || isSimulatingHop) return;
     const rect = containerRef.current.getBoundingClientRect();
     let x = e.clientX - rect.left;
@@ -76,7 +77,7 @@ export default function MeshSimulator({
     onNodesUpdate(updated);
   };
 
-  const handleMouseUp = () => {
+  const handlePointerUp = () => {
     setDraggedNodeId(null);
   };
 
@@ -94,7 +95,7 @@ export default function MeshSimulator({
     const newNode: MeshNode = {
       id: `NODE-${count + 1}`,
       username: nextName,
-      avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80`, // placeholder
+      avatar: '', // use local initials; do not request remote images
       x,
       y,
       isSharingInternet: false,
@@ -127,9 +128,9 @@ export default function MeshSimulator({
   return (
     <div
       ref={containerRef}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
       className="relative flex flex-col h-[380px] bg-[#0A0B0D] border border-slate-800 rounded-2xl overflow-hidden shadow-2xl select-none"
     >
       {/* Background Tech Radar Rings */}
@@ -236,13 +237,13 @@ export default function MeshSimulator({
                 position: 'absolute',
                 cursor: draggedNodeId === node.id ? 'grabbing' : 'grab',
               }}
-              onMouseDown={(e) => handleMouseDown(node.id, e)}
+              onPointerDown={(e) => handlePointerDown(node.id, e)}
               onMouseEnter={() => setHoveredNodeId(node.id)}
               onMouseLeave={() => setHoveredNodeId(null)}
               onClick={() => {
                 if (!isSimulatingHop) setActiveNodeId(node.id);
               }}
-              className={`group z-20 flex flex-col items-center transition-transform ${
+              className={`group z-20 flex touch-none flex-col items-center transition-transform ${
                 isSelected ? 'scale-110' : 'hover:scale-105'
               }`}
             >

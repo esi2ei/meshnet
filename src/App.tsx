@@ -4,14 +4,14 @@ import PhoneWorkspace from './components/PhoneWorkspace';
 import SystemInfo from './components/SystemInfo';
 import CodeExporter from './components/CodeExporter';
 import { MeshNode, MeshMessage, BlockchainLog } from './types';
-import { Shield, Smartphone, HardDrive, Cpu, Wifi, BookOpen, AlertCircle } from 'lucide-react';
+import { Smartphone, HardDrive, AlertCircle } from 'lucide-react';
 
 export default function App() {
   const [nodes, setNodes] = useState<MeshNode[]>([
     {
       id: 'NODE-1',
       username: 'Charlie',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80',
+      avatar: '',
       x: 120,
       y: 180,
       isSharingInternet: false,
@@ -27,7 +27,7 @@ export default function App() {
     {
       id: 'NODE-2',
       username: 'Delta',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&q=80',
+      avatar: '',
       x: 250,
       y: 110,
       isSharingInternet: true, // Delta shares high-speed cell cellular!
@@ -43,7 +43,7 @@ export default function App() {
     {
       id: 'NODE-3',
       username: 'Echo',
-      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=100&q=80',
+      avatar: '',
       x: 200,
       y: 280,
       isSharingInternet: false,
@@ -80,8 +80,8 @@ export default function App() {
     <div className="min-h-screen bg-[#0A0B0D] text-slate-200 flex flex-col font-sans transition-all duration-300">
       
       {/* Top Main Navigation HUD */}
-      <div className="p-6 pb-0">
-        <header className="flex justify-between items-center bg-[#15171C] border border-slate-800 rounded-2xl px-6 py-4 shadow-xl">
+      <div className="p-3 pb-0 sm:p-6 sm:pb-0">
+        <header className="flex justify-between items-center bg-[#15171C] border border-slate-800 rounded-2xl px-4 py-4 shadow-xl sm:px-6">
           <div className="flex items-center gap-4">
             <div className="w-8 h-8 bg-cyan-500 rounded-lg flex items-center justify-center">
               <svg className="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -92,18 +92,18 @@ export default function App() {
               <div className="text-xl font-display font-bold tracking-wide text-white flex items-center gap-2">
                 MESH<span className="text-cyan-400">NET</span>
                 <span className="px-2 py-0.5 bg-green-500/10 text-green-400 text-[10px] font-mono rounded border border-green-500/35 uppercase font-bold tracking-wider">
-                  BROWSER SIMULATION
+                  OFFLINE-FIRST
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1 font-medium font-display">
-                Offline Mesh Concept · Browser Simulation Only
+                Local-first mesh · Optional online integrations
               </p>
             </div>
           </div>
           <div className="flex items-center gap-6">
             <div className="hidden md:flex flex-col items-end">
-              <span className="text-[10px] text-slate-500 uppercase font-mono tracking-widest leading-none">Demo Wallet (Not Connected)</span>
-              <span className="text-xs font-mono text-cyan-400 mt-1">No wallet connected</span>
+              <span className="text-[10px] text-slate-500 uppercase font-mono tracking-widest leading-none">Optional online integrations</span>
+              <span className="text-xs font-mono text-cyan-400 mt-1">Disabled by default</span>
             </div>
             <div className="w-10 h-10 rounded-full border-2 border-slate-705 bg-slate-800 flex items-center justify-center">
               <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
@@ -113,20 +113,20 @@ export default function App() {
       </div>
 
       {/* Primary Simulator Split Pane Board */}
-      <main className="flex-grow p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-[1700px] mx-auto w-full overflow-hidden">
+      <main className="flex-grow p-3 grid grid-cols-1 xl:grid-cols-12 gap-4 sm:p-6 sm:gap-6 max-w-[1700px] mx-auto w-full overflow-hidden">
         
         {/* LEFT COLUMN: Visual Network Mesh Map & Protocol Logger logs (8 of 12 widths) */}
-        <div className="lg:col-span-8 flex flex-col gap-6 min-h-0">
+        <div className="xl:col-span-8 flex flex-col gap-4 sm:gap-6 min-h-0">
           
           {/* Node Topological Map Component */}
           <div className="relative bg-[#15171C] border border-slate-800 rounded-3xl overflow-hidden p-6 shadow-xl">
             <div className="mb-4">
               <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400 flex items-center gap-2">
                 <Smartphone className="w-4 h-4 text-cyan-400" />
-                Simulated Mesh Topology
+                Simulated topology · demo only
               </h2>
               <p className="text-xs text-slate-500 mt-1 font-sans italic">
-                Illustrative topology only — this browser view is not connected to phone radios. Drag nodes to explore simulated RF links.
+                Illustrative topology only — this browser view is not connected to phone radios. This local demo map is not connected to Bluetooth or nearby phones.
               </p>
             </div>
 
@@ -164,29 +164,29 @@ export default function App() {
 
         </div>
 
-        {/* MIDDLE COLUMN: Native runtime instructions */}
-        <div className="lg:col-span-4 flex justify-center w-full">
+        {/* Native Android controls are live only inside the packaged APK. */}
+        <div className="xl:col-span-4 flex justify-center w-full">
           <div className="flex flex-col items-center w-full max-w-[340px]">
             
-            {/* Display which phone screen is currently loaded */}
+            {/* Device status and native actions */}
             <div className="mb-3 text-center">
               <span className="text-[10px] font-bold uppercase text-slate-500 font-mono tracking-widest">
                 Native Runtime
               </span>
               <h2 className="text-xs font-semibold text-slate-300 mt-1 font-display uppercase tracking-wide">
-                Android setup · {activeNodeId}
+                Native controls for this device
               </h2>
             </div>
 
-            {/* Simulated hardware wrapper */}
-            <PhoneWorkspace activeNodeId={activeNodeId} />
+            {/* Real native runtime panel, bridged to Android in the APK. */}
+            <PhoneWorkspace />
           </div>
         </div>
 
       </main>
 
       {/* FULL-WIDTH EXPANSION: Code Exporter view offering complete structural packages */}
-      <div className="px-6 pb-12 pt-4 max-w-[1700px] mx-auto w-full">
+      <div className="px-3 pb-8 pt-3 sm:px-6 sm:pb-12 sm:pt-4 max-w-[1700px] mx-auto w-full">
         <div className="bg-[#15171C] border border-slate-800 rounded-3xl overflow-hidden p-6 shadow-xl">
           <div className="mb-4">
             <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-300 flex items-center gap-2">

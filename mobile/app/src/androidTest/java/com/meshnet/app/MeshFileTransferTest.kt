@@ -18,6 +18,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 
 class MeshFileTransferTest {
+    private class SendResult {
+        @Volatile var succeeded: Boolean? = null
+    }
+
     private val transfers = mutableListOf<MeshFileTransfer>()
     private lateinit var context: Context
     private lateinit var source: File
@@ -83,7 +87,11 @@ class MeshFileTransferTest {
         val receiver = track(MeshFileTransfer(context, { true }, {}))
         receiver.accept(manifest)
         chunks.forEach { receiver.accept(it) }
-        assertTrue(receiver.latestVoiceNote()?.exists() == true)
+        val receivedVoice = receiver.latestVoiceNote()
+        assertTrue("A verified .m4a voice note should be discoverable", receivedVoice != null)
+        assertEquals("m4a", receivedVoice!!.extension)
+        assertTrue(receivedVoice.exists())
+        assertArrayEquals(voice.readBytes(), receivedVoice.readBytes())
         voice.delete()
     }
 
@@ -232,15 +240,15 @@ class MeshFileTransferTest {
             if (message.startsWith("~F2M|")) manifestQueued.countDown()
             true
         }, { events.add(it) }))
-        val result = AtomicReference<Boolean?>()
-        val worker = Thread({ result.set(sender.send(Uri.fromFile(source))) }, "mesh-file-cancel-test")
+        val result = SendResult()
+        val worker = Thread({ result.succeeded = sender.send(Uri.fromFile(source)) }, "mesh-file-cancel-test")
         worker.start()
 
         assertTrue("Sender did not queue its manifest", manifestQueued.await(5, TimeUnit.SECONDS))
         assertTrue(sender.cancelOutgoing())
         worker.join(5_000)
-        assertTrue("Sender worker did not stop after cancellation", !worker.isAlive)
-        assertFalse(result.get() == true)
+        assertEquals("Sender worker must terminate after cancellation", Thread.State.TERMINATED, worker.state)
+        assertFalse(result.succeeded == true)
         assertTrue(sent.any { it.startsWith("~F2X|") })
         assertTrue(events.any { it.contains("cancelled on this device") })
     }
@@ -342,7 +350,7 @@ class MeshFileTransferTest {
         )
         val count = (bytes.size + 47) / 48
         val safeName = Base64.encodeToString(
-            file.name.take(20).toByteArray(Charsets.UTF_8),
+            file.name.toByteArray(Charsets.UTF_8),
             Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
         )
         val manifest = "~F2M|$id|${bytes.size}|$count|$digest|$safeName"
