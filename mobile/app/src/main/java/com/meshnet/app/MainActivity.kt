@@ -2,6 +2,9 @@ package com.meshnet.app
 
 import android.Manifest
 import android.app.Activity
+import android.media.MediaRecorder
+import android.net.Uri
+import java.io.File
 import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
@@ -25,6 +28,10 @@ class MainActivity : Activity() {
     private lateinit var wifiAddress: EditText
     private var meshService: MeshForegroundService? = null
     private var bound = false
+    private var recorder: MediaRecorder? = null
+    private var recordingFile: File? = null
+    private var isRecording = false
+    private var voiceButton: Button? = null
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -117,6 +124,13 @@ class MainActivity : Activity() {
                 }
             }
         })
+        voiceButton = Button(this).apply {
+            text = "Record voice note (up to 7 seconds)"
+            setOnClickListener {
+                if (isRecording) stopVoiceRecording() else requestVoiceRecording()
+            }
+        }
+        root.addView(voiceButton)
         root.addView(Button(this).apply {
             text = "Send small file (max 16 KiB)"
             setOnClickListener {
@@ -153,6 +167,66 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun requestVoiceRecording() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_AUDIO)
+            return
+        }
+        beginVoiceRecording()
+    }
+
+    private fun beginVoiceRecording() {
+        val file = File(cacheDir, "mesh-voice-${System.currentTimeMillis()}.m4a")
+        val media = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
+        try {
+            media.setAudioSource(MediaRecorder.AudioSource.MIC)
+            media.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            media.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            media.setAudioSamplingRate(16_000)
+            media.setAudioEncodingBitRate(12_000)
+            media.setMaxDuration(7_000)
+            media.setOutputFile(file.absolutePath)
+            media.setOnInfoListener { _, what, _ ->
+                if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED && isRecording) stopVoiceRecording()
+            }
+            media.prepare()
+            media.start()
+            recorder = media
+            recordingFile = file
+            isRecording = true
+            voiceButton?.text = "Stop and send voice note"
+            toast("Recording voice note · maximum 7 seconds")
+        } catch (error: Exception) {
+            runCatching { media.release() }
+            file.delete()
+            toast(error.message ?: "Unable to start voice recording")
+        }
+    }
+
+    private fun stopVoiceRecording() {
+        val media = recorder ?: return
+        val file = recordingFile
+        isRecording = false
+        recorder = null
+        recordingFile = null
+        voiceButton?.text = "Record voice note (up to 7 seconds)"
+        try {
+            media.stop()
+            file?.let {
+                val accepted = meshService?.sendFile(Uri.fromFile(it))
+                    ?: throw IllegalStateException("Mesh service is not connected")
+                if (accepted) toast("Voice note queued for encrypted mesh transfer")
+                else toast("Voice note could not be queued; check outbox capacity")
+            }
+        } catch (error: Exception) {
+            file?.delete()
+            toast(error.message ?: "Voice recording was too short or could not be sent")
+        } finally {
+            runCatching { media.reset() }
+            media.release()
+        }
+    }
+
     private fun requestAndStart() {
         val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             mutableListOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT,
@@ -175,6 +249,11 @@ class MainActivity : Activity() {
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_AUDIO) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) beginVoiceRecording()
+            else toast("Microphone permission is required to record a voice note")
+            return
+        }
         if (requestCode == REQUEST_PERMISSIONS) {
             val bluetoothRequired = mutableSetOf(
                 Manifest.permission.BLUETOOTH_SCAN,
@@ -232,6 +311,14 @@ class MainActivity : Activity() {
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
     override fun onStop() {
+        if (isRecording) {
+            isRecording = false
+            runCatching { recorder?.stop() }
+            runCatching { recorder?.release() }
+            recorder = null
+            recordingFile?.delete()
+            recordingFile = null
+        }
         meshService?.setListener(null)
         if (bound) {
             unbindService(connection)
@@ -244,5 +331,6 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_PERMISSIONS = 4102
         private const val REQUEST_FILE = 4103
+        private const val REQUEST_AUDIO = 4104
     }
 }
