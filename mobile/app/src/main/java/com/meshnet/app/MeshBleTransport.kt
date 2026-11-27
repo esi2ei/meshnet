@@ -128,6 +128,7 @@ class MeshBleTransport(
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS || newState == BluetoothProfile.STATE_DISCONNECTED) {
                 clients.remove(address)
+                seen.remove(address)
                 onPeer(address, false)
                 gatt.close()
             } else if (newState == BluetoothProfile.STATE_CONNECTED) {
@@ -145,6 +146,11 @@ class MeshBleTransport(
             if (status != BluetoothGatt.GATT_SUCCESS) return
             val service = gatt.getService(SERVICE_UUID) ?: return
             val remote = service.getCharacteristic(CHARACTERISTIC_UUID) ?: return
+            if (remote.properties and BluetoothGattCharacteristic.PROPERTY_WRITE == 0) {
+                onState("Peer does not expose a writable MeshNet channel: $address")
+                gatt.disconnect()
+                return
+            }
             clients[address] = gatt
             onState("Mesh GATT channel ready: $address")
         }
@@ -204,6 +210,10 @@ class MeshBleTransport(
     }
 
     fun sendToPeers(payload: ByteArray) {
+        if (clients.isEmpty()) {
+            onState("No connected BLE peers; message was not transmitted")
+            return
+        }
         clients.entries.toList().forEach { (address, gatt) ->
             val remote = gatt.getService(SERVICE_UUID)?.getCharacteristic(CHARACTERISTIC_UUID)
             if (remote == null) {
