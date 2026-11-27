@@ -64,6 +64,8 @@ class MeshQueueStoreTest {
         assertTrue(store.enqueue(first.encode()))
         assertTrue(store.enqueue(retry.encode()))
         assertEquals(1, store.pending().size)
+        assertTrue(store.retireAcknowledgement(retry.encode()))
+        assertTrue(store.pending().isEmpty())
     }
 
     private fun frame(id: String, kind: String, ackFor: String? = null) = MeshFrame(
