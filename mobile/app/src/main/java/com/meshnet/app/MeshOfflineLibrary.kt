@@ -36,7 +36,12 @@ internal class MeshOfflineLibrary(context: Context) {
                 output.fd.sync()
             }}
             val id=hash.digest().toHex()
-            local[id]?.let{temp.delete();return it}
+            local[id]?.let { existing ->
+                if (localFile(id) != null) {
+                    temp.delete()
+                    return existing
+                }
+            }
             ensureCapacity(size)
             val name=safeName(queryName(uri))
             val dest=fileFor(id)
@@ -88,7 +93,8 @@ internal class MeshOfflineLibrary(context: Context) {
         if(id !in pending||!received.isFile||received.length()!=advertised.size||runCatching{digest(received)}.getOrNull()!=id){
             pending.remove(id);persist();return false
         }
-        if(!local.containsKey(id)){
+        val existingLocalIsValid = local[id]?.let { localFile(id) != null } == true
+        if (!existingLocalIsValid) {
             ensureCapacity(advertised.size)
             val temp=File(root,"$id.tmp")
             try {
@@ -137,6 +143,7 @@ internal class MeshOfflineLibrary(context: Context) {
         }.getOrNull() ?: return
         val now = System.currentTimeMillis()
         val locals = json.optJSONArray("local") ?: JSONArray()
+        var recoveredLocalBytes = 0L
         for (i in 0 until locals.length()) {
             runCatching {
                 val entry = locals.getJSONObject(i)
@@ -147,8 +154,12 @@ internal class MeshOfflineLibrary(context: Context) {
                 require(size in 1..MAX_FILE_BYTES.toLong())
                 require(createdAt in 1..(now + MAX_FUTURE_CLOCK_SKEW_MS))
                 val file = fileFor(id)
-                if (file.isFile && file.length() == size && digest(file) == id) {
+                if (file.isFile && file.length() == size && digest(file) == id &&
+                    id !in local && local.size < MAX_LOCAL_ITEMS &&
+                    size <= MAX_STORAGE_BYTES - recoveredLocalBytes
+                ) {
                     local[id] = Item(id, safeName(entry.getString("name")), size, createdAt, true, null)
+                    recoveredLocalBytes += size
                 }
             }
         }
