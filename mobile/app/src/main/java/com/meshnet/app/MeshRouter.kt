@@ -188,7 +188,8 @@ class MeshRouter(
         val encoded = frame.copy(nonce = nonce, ciphertext = ciphertext).encode()
         val candidates = resolveNextHops(destination)
         val routed = candidates.any { peer -> sendToPeer(encoded, peer) }
-        if (routed || if (candidates.isEmpty()) send(encoded) else sendRelay(encoded, null)) {
+        val queued = if (routed) true else if (candidates.isEmpty()) send(encoded) else sendRelay(encoded, null)
+        if (queued) {
             remember(seen, ackId)
             markReceived(ackId, createdAt)
         } else {
