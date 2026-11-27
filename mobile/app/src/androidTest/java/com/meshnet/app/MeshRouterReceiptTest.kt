@@ -262,7 +262,7 @@ class MeshRouterReceiptTest {
         assertTrue(nodeB.sendMessage("from B to A"))
         val bMessage = bToA.map { MeshFrame.decode(it) }.first { it.kind == MeshFrame.KIND_MESSAGE }
         nodeA.receive(bMessage.encode())
-        assertTrue(eventsA.any { it.contains("from B to A") })
+        assertTrue("B-to-A delivery failed; node A events: $eventsA", eventsA.any { it.contains("from B to A") })
     }
 
     @Test
