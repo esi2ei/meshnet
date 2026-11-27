@@ -147,7 +147,7 @@ class MeshForegroundService : Service() {
             "AWARE" -> wifiAwareTransport?.sendToPeer(frame, address) == true
             else -> false
         }
-        if (durable && accepted && runCatching { MeshFrame.decode(frame).kind == MeshFrame.KIND_ACK }.getOrDefault(false)) {
+        if (accepted && runCatching { MeshFrame.decode(frame).kind == MeshFrame.KIND_ACK }.getOrDefault(false)) {
             outbox.retireAcknowledgement(frame)
         }
         return accepted
@@ -162,7 +162,7 @@ class MeshForegroundService : Service() {
         val p2pSent = wifiTransport?.sendToPeers(frame, if (ingressTransport == "P2P") ingressAddress else null) == true
         val awareSent = wifiAwareTransport?.sendToPeers(frame, if (ingressTransport == "AWARE") ingressAddress else null) == true
         val accepted = bleSent || p2pSent || awareSent
-        if (accepted && runCatching { MeshFrame.decode(frame).kind == MeshFrame.KIND_ACK }.getOrDefault(false)) {
+        if (durable && accepted && runCatching { MeshFrame.decode(frame).kind == MeshFrame.KIND_ACK }.getOrDefault(false)) {
             outbox.retireAcknowledgement(frame)
         }
         return accepted
