@@ -23,7 +23,7 @@ class MeshFileTransfer(
     private var pendingBytes=0
     private val root=File(context.filesDir,"meshnet-received").apply{
         mkdirs()
-        listFiles()?.filter { (it.name.endsWith(".part") || it.name.endsWith(".meta")) &&
+        listFiles()?.filter { (it.name.endsWith(".part") || it.name.endsWith(".meta") || it.name.endsWith(".meta.tmp")) &&
             System.currentTimeMillis()-it.lastModified()>PARTIAL_TTL_MS }?.forEach { it.delete() }
     }
     private val outgoingRoot=File(context.filesDir,"meshnet-outgoing").apply{
@@ -99,6 +99,7 @@ class MeshFileTransfer(
             persistMetadata(state)
             onEvent(if(bits.cardinality()==0) "Incoming file: $name ($size bytes)" else "Resuming file: $name (${bits.cardinality()}/$count chunks already stored)")
         } catch(_:Exception) {
+            incoming.remove(id)
             partial.delete();meta.delete();onEvent("Unable to create private transfer file")
         }
         val early=pending.remove(id)
