@@ -100,6 +100,54 @@ class MeshRouterReceiptTest {
     }
 
     @Test
+    fun relayRebroadcastsOnlyWhenANewerPathIsShorter() {
+        val passphrase = "a sufficiently long group passphrase"
+        val senderFrames = mutableListOf<ByteArray>()
+        val relayFrames = mutableListOf<ByteArray>()
+        val senderSeen = mutableSetOf<String>()
+        val relaySeen = mutableSetOf<String>()
+        val sender = MeshRouter(
+            nodeId = "sender_01",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { senderFrames.add(it); true },
+            onMessage = {},
+            hasReceived = { it in senderSeen },
+            markReceived = { id, _ -> !senderSeen.add(id) },
+            acknowledge = { 0 }
+        )
+        val relay = MeshRouter(
+            nodeId = "relay_001",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { relayFrames.add(it); true },
+            onMessage = {},
+            hasReceived = { it in relaySeen },
+            markReceived = { id, _ -> !relaySeen.add(id) },
+            acknowledge = { 0 }
+        )
+        sender.sendMessage("shortest route")
+        val original = senderFrames.map { MeshFrame.decode(it) }
+            .first { it.kind == MeshFrame.KIND_MESSAGE }
+        val plaintext = MeshCrypto(passphrase.toCharArray()).decrypt(
+            original.nonce, original.ciphertext, MeshFrame.aad(original)
+        )
+        val longer = original.copy(
+            ttl = original.ttl - 1,
+            hops = original.hops + "other_hop"
+        )
+        val encryptedLonger = MeshCrypto(passphrase.toCharArray()).encrypt(
+            plaintext, MeshFrame.aad(longer)
+        )
+        relay.receive(longer.copy(nonce = encryptedLonger.first, ciphertext = encryptedLonger.second).encode())
+        assertEquals(1, relayFrames.count { MeshFrame.decode(it).kind == MeshFrame.KIND_MESSAGE })
+
+        relay.receive(original.encode())
+        assertEquals(2, relayFrames.count { MeshFrame.decode(it).kind == MeshFrame.KIND_MESSAGE })
+
+        relay.receive(longer.copy(nonce = encryptedLonger.first, ciphertext = encryptedLonger.second).encode())
+        assertEquals(2, relayFrames.count { MeshFrame.decode(it).kind == MeshFrame.KIND_MESSAGE })
+    }
+
+    @Test
     fun receiverReturnsAuthenticatedGroupReceiptAndSenderRetiresMessage() {
         val senderQueue = mutableListOf<ByteArray>()
         val receiverQueue = mutableListOf<ByteArray>()

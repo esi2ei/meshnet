@@ -1,5 +1,6 @@
 package com.meshnet.app
 
+import java.util.LinkedHashMap
 import java.util.LinkedHashSet
 import java.util.UUID
 
@@ -19,6 +20,7 @@ class MeshRouter(
 ) {
     private val seen = LinkedHashSet<String>()
     private val displayed = LinkedHashSet<String>()
+    private val bestRouteHops = LinkedHashMap<String, Int>()
 
     @Synchronized
     fun sendMessage(text: String): Boolean {
@@ -65,11 +67,12 @@ class MeshRouter(
                 return
             }
             if (frame.id in seen || hasReceived(frame.id)) {
-                relayIfNeeded(frame, plaintext)
+                if (rememberBestRoute(frame)) relayIfNeeded(frame, plaintext)
                 return
             }
             val target = frame.ackFor ?: return
             val removed = acknowledge(target)
+            rememberBestRoute(frame)
             relayIfNeeded(frame, plaintext)
             markReceived(frame.id, frame.createdAt)
             remember(seen, frame.id)
@@ -80,7 +83,7 @@ class MeshRouter(
         if (frame.id in seen || hasReceived(frame.id)) {
             // Retry both paths: an earlier receipt or relay may have been queued while no peer was connected.
             if (frame.origin != nodeId) sendReceipt(frame.id)
-            relayIfNeeded(frame, plaintext)
+            if (rememberBestRoute(frame)) relayIfNeeded(frame, plaintext)
             return
         }
 
@@ -99,7 +102,7 @@ class MeshRouter(
             remember(displayed, frame.id)
         }
         sendReceipt(frame.id)
-        relayIfNeeded(frame, plaintext)
+        if (rememberBestRoute(frame)) relayIfNeeded(frame, plaintext)
 
         if (markReceived(frame.id, frame.createdAt)) return
         remember(seen, frame.id)
@@ -120,6 +123,22 @@ class MeshRouter(
         } else {
             onMessage("Receipt for $messageId could not be queued; it will retry when the frame is received again")
         }
+    }
+
+    /** Relay only a newly observed route or a strictly shorter route for the same frame. */
+    private fun rememberBestRoute(frame: MeshFrame): Boolean {
+        val hops = frame.hops.size
+        val previous = bestRouteHops[frame.id]
+        if (previous != null && previous <= hops) return false
+        bestRouteHops[frame.id] = hops
+        while (bestRouteHops.size > MAX_SEEN_IDS) {
+            val oldest = bestRouteHops.entries.iterator()
+            if (oldest.hasNext()) {
+                oldest.next()
+                oldest.remove()
+            } else break
+        }
+        return true
     }
 
     private fun relayIfNeeded(frame: MeshFrame, plaintext: String) {
