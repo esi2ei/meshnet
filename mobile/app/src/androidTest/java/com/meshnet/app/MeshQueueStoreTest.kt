@@ -34,6 +34,7 @@ class MeshQueueStoreTest {
         assertTrue(store.enqueue(message.encode()))
         assertTrue(store.enqueue(receipt.encode()))
         assertEquals(1, store.acknowledge("message_01"))
+        assertFalse(store.containsFrame(message.encode()))
 
         val pending = store.pending().map { MeshFrame.decode(it) }
         assertEquals(1, pending.size)
