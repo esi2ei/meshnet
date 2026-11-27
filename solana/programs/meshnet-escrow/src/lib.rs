@@ -7,6 +7,8 @@ use anchor_spl::{
 declare_id!("Fg6PaFpoGXkYsidMpWxTWqZ7FEfcYkgMQhgX5j4mYp");
 
 const CONFIG_SEED: &[u8] = b"config";
+// Replace this placeholder with the audited deployment-admin public key before building.
+const INITIAL_ADMIN: Pubkey = pubkey!("11111111111111111111111111111111");
 const ORDER_SEED: &[u8] = b"order";
 const MAX_ORDER_LIFETIME: i64 = 30 * 24 * 60 * 60;
 
@@ -19,6 +21,7 @@ pub mod meshnet_escrow {
         usdc_mint: Pubkey,
         arbitrator: Pubkey,
     ) -> Result<()> {
+        require_keys_eq!(ctx.accounts.admin.key(), INITIAL_ADMIN, EscrowError::UnauthorizedAdmin);
         require!(usdc_mint != Pubkey::default(), EscrowError::InvalidMint);
         require!(arbitrator != Pubkey::default(), EscrowError::InvalidArbitrator);
         let config = &mut ctx.accounts.config;
@@ -465,6 +468,7 @@ pub struct OrderSettled { pub order: Pubkey, pub status: OrderStatus, pub amount
 
 #[error_code]
 pub enum EscrowError {
+    #[msg("Unauthorized escrow config initializer")] UnauthorizedAdmin,
     #[msg("Invalid USDC mint")] InvalidMint,
     #[msg("USDC mint must use six decimals")] InvalidMintDecimals,
     #[msg("Invalid arbitrator")] InvalidArbitrator,
