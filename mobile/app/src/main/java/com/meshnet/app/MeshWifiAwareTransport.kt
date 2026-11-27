@@ -42,7 +42,8 @@ class MeshWifiAwareTransport(
     context: Context,
     groupPassphrase: String,
     private val onPayload: (String, ByteArray) -> Unit,
-    private val onState: (String) -> Unit
+    private val onState: (String) -> Unit,
+    private val onPeerConnection: (String, Boolean) -> Unit = { _, _ -> }
 ) {
     private val app = context.applicationContext
     private val manager = app.getSystemService(Context.WIFI_AWARE_SERVICE) as? WifiAwareManager
@@ -264,6 +265,7 @@ class MeshWifiAwareTransport(
                     val socket = listener.accept()
                     socket.tcpNoDelay = true
                     sockets.add(socket)
+                    onPeerConnection(socket.inetAddress.hostAddress ?: "unknown", true)
                     onState("Wi-Fi Aware data channel ready")
                     startReader(socket)
                 }
@@ -291,6 +293,7 @@ class MeshWifiAwareTransport(
                 socket.connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MS)
                 socket.tcpNoDelay = true
                 sockets.add(socket)
+                onPeerConnection(socket.inetAddress.hostAddress ?: "unknown", true)
                 onState("Wi-Fi Aware data channel ready")
                 startReader(socket)
             } catch (error: Exception) {
@@ -318,6 +321,7 @@ class MeshWifiAwareTransport(
             } finally {
                 sockets.remove(socket)
                 runCatching { socket.close() }
+                onPeerConnection(socket.inetAddress.hostAddress ?: "unknown", false)
                 onState("Wi-Fi Aware peer disconnected")
             }
         }, "meshnet-wifi-aware-reader").apply { isDaemon = true; start() }
