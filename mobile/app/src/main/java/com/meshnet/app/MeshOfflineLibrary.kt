@@ -55,6 +55,9 @@ internal class MeshOfflineLibrary(context: Context) {
         require(origin.matches(Regex("[A-Za-z0-9_-]{1,32}"))){ "Invalid content provider identity" }
         require(id.matches(Regex("[a-f0-9]{64}"))){ "Invalid content digest" }
         require(size in 1..MAX_FILE_BYTES.toLong()){ "Invalid advertised content size" }
+        val currentTime = System.currentTimeMillis()
+        require(now in 1..(currentTime + MAX_FUTURE_CLOCK_SKEW_MS)) { "Invalid advertisement timestamp" }
+        if (currentTime - now > REMOTE_TTL_MS) return false
         if(local.containsKey(id))return false
         val previous=remote[id]
         remote[id]=Item(id,safeName(name),size,now,false,origin)
