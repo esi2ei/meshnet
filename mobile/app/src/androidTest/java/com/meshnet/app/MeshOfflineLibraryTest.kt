@@ -54,6 +54,52 @@ class MeshOfflineLibraryTest {
         assertNotNull(restarted.localFile(item.id));assertEquals("node_remote",restarted.remoteItem(remote)!!.origin)
         assertTrue(restarted.toJson().getJSONObject(1).getBoolean("pending"))
     }
+    @Test fun publishReplacesCorruptBlobAtTheExpectedContentAddress() {
+        val expected = MessageDigest.getInstance("SHA-256").digest(source.readBytes())
+            .joinToString("") { "%02x".format(it) }
+        File(root, "$expected.blob").writeText("corrupted prior file")
+
+        val item = library.publish(Uri.fromFile(source))
+
+        assertEquals(expected, item.id)
+        assertArrayEquals(source.readBytes(), library.localFile(item.id)!!.readBytes())
+    }
+
+    @Test fun malformedRemoteCatalogueEntryDoesNotHideLaterValidEntries() {
+        val validId = "d".repeat(64)
+        val now = System.currentTimeMillis()
+        val catalogue = org.json.JSONObject()
+            .put("local", org.json.JSONArray())
+            .put("remote", org.json.JSONArray()
+                .put(org.json.JSONObject()
+                    .put("id", "invalid")
+                    .put("origin", "bad origin")
+                    .put("size", 0)
+                    .put("createdAt", now))
+                .put(org.json.JSONObject()
+                    .put("id", validId)
+                    .put("origin", "node_valid")
+                    .put("size", 64)
+                    .put("name", "valid.txt")
+                    .put("createdAt", now)))
+            .put("pending", org.json.JSONArray())
+        File(root, "catalog.json").writeText(catalogue.toString())
+
+        val recovered = MeshOfflineLibrary(context)
+
+        assertEquals("node_valid", recovered.remoteItem(validId)!!.origin)
+        assertEquals(1, recovered.items().size)
+    }
+
+    @Test fun staleAndFarFutureRemoteAdvertisementsAreRejected() {
+        val id = "e".repeat(64)
+        val now = System.currentTimeMillis()
+        assertFalse(library.observeRemote("node_stale", id, 64, "stale.txt", now - 8L * 24L * 60L * 60L * 1000L))
+        assertFalse(library.items().any { it.id == id })
+        assertFalse(library.observeRemote("node_future", id, 64, "future.txt", now + 60L * 60L * 1000L))
+        assertFalse(library.items().any { it.id == id })
+    }
+
     @Test fun localLibraryEnforcesPerItemSizeLimit(){
         val oversized=File(context.cacheDir,"mesh-library-oversized.bin")
         oversized.writeBytes(ByteArray(MeshOfflineLibrary.MAX_FILE_BYTES+1))
