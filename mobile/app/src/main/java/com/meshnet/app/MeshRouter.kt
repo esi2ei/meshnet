@@ -16,11 +16,35 @@ class MeshRouter(
     /** Removes the original group message after an authenticated group receipt. */
     private val acknowledge: (String) -> Int,
     /** Returns true when an authenticated plaintext payload is consumed by an application protocol. */
-    private val onPayload: (String) -> Boolean = { false }
+    private val onPayload: (String) -> Boolean = { false },
+    private val sendEphemeralFrame: (ByteArray) -> Boolean = send,
+    private val onEphemeralPayload: (String) -> Unit = {},
+    private val sendRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> send(bytes) },
+    private val sendEphemeralRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> sendEphemeralFrame(bytes) }
 ) {
     private val seen = LinkedHashSet<String>()
     private val displayed = LinkedHashSet<String>()
-    private val bestRouteHops = LinkedHashMap<String, Int>()
+    private val bestRouteScores = LinkedHashMap<String, Long>()
+    private val peerArrivalAgeMs = LinkedHashMap<String, Double>()
+
+    @Synchronized
+    fun sendEphemeral(text: String): Boolean {
+        require(text.isNotBlank()) { "Ephemeral payload cannot be empty" }
+        require(text.toByteArray(Charsets.UTF_8).size <= MAX_PLAINTEXT_BYTES) {
+            "Ephemeral payload is too large for one frame"
+        }
+        val id = UUID.randomUUID().toString()
+        val createdAt = System.currentTimeMillis()
+        val frame = MeshFrame(
+            origin = nodeId, ttl = MeshFrame.MAX_TTL, hops = listOf(nodeId),
+            nonce = "", ciphertext = "", createdAt = createdAt,
+            id = id, kind = MeshFrame.KIND_EPHEMERAL
+        )
+        val (nonce, ciphertext) = crypto.encrypt(text, MeshFrame.aad(frame))
+        val accepted = sendEphemeralFrame(frame.copy(nonce = nonce, ciphertext = ciphertext).encode())
+        if (!accepted) onMessage("Ephemeral media packet dropped: no connected transport accepted it")
+        return accepted
+    }
 
     @Synchronized
     fun sendMessage(text: String): Boolean {
@@ -48,7 +72,7 @@ class MeshRouter(
     }
 
     @Synchronized
-    fun receive(bytes: ByteArray) {
+    fun receive(bytes: ByteArray, viaPeer: String? = null) {
         val frame = try { MeshFrame.decode(bytes) } catch (error: Exception) {
             onMessage("Rejected malformed frame: ${error.message}")
             return
@@ -60,6 +84,19 @@ class MeshRouter(
             return
         }
 
+        if (frame.kind == MeshFrame.KIND_EPHEMERAL) {
+            // Media is best-effort: no durable replay cache, chat display, or group ACK.
+            if (frame.origin == nodeId) {
+                remember(seen, frame.id)
+                return
+            }
+            val duplicate = frame.id in seen
+            remember(seen, frame.id)
+            if (!duplicate) onEphemeralPayload(plaintext)
+            if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
+            return
+        }
+
         if (frame.kind == MeshFrame.KIND_ACK) {
             if (frame.origin == nodeId) {
                 markReceived(frame.id, frame.createdAt)
@@ -67,7 +104,7 @@ class MeshRouter(
                 return
             }
             if (frame.id in seen || hasReceived(frame.id)) {
-                if (rememberBestRoute(frame)) relayIfNeeded(frame, plaintext)
+                if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
                 return
             }
             val target = frame.ackFor ?: return
@@ -83,7 +120,7 @@ class MeshRouter(
         if (frame.id in seen || hasReceived(frame.id)) {
             // Retry both paths: an earlier receipt or relay may have been queued while no peer was connected.
             if (frame.origin != nodeId) sendReceipt(frame.id)
-            if (rememberBestRoute(frame)) relayIfNeeded(frame, plaintext)
+            if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
             return
         }
 
@@ -102,7 +139,7 @@ class MeshRouter(
             remember(displayed, frame.id)
         }
         sendReceipt(frame.id)
-        if (rememberBestRoute(frame)) relayIfNeeded(frame, plaintext)
+        if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
 
         if (markReceived(frame.id, frame.createdAt)) return
         remember(seen, frame.id)
@@ -125,30 +162,41 @@ class MeshRouter(
         }
     }
 
-    /** Relay only a newly observed route or a strictly shorter route for the same frame. */
-    private fun rememberBestRoute(frame: MeshFrame): Boolean {
-        val hops = frame.hops.size
-        val previous = bestRouteHops[frame.id]
-        if (previous != null && previous <= hops) return false
-        bestRouteHops[frame.id] = hops
-        while (bestRouteHops.size > MAX_SEEN_IDS) {
-            val oldest = bestRouteHops.entries.iterator()
-            if (oldest.hasNext()) {
-                oldest.next()
-                oldest.remove()
-            } else break
+    /** Fewer hops always wins; equal-hop alternatives use peer historical arrival age. */
+    private fun rememberBestRoute(frame: MeshFrame, viaPeer: String?): Boolean {
+        val peerPenalty = viaPeer?.let { peerArrivalAgeMs[it] } ?: DEFAULT_PEER_AGE_MS
+        val score = frame.hops.size * ROUTE_HOP_WEIGHT + peerPenalty.toLong().coerceIn(0L, MAX_PEER_AGE_MS)
+        if (viaPeer != null) {
+            val age = (System.currentTimeMillis() - frame.createdAt).coerceAtLeast(0L).toDouble()
+            val previousAge = peerArrivalAgeMs[viaPeer]
+            peerArrivalAgeMs[viaPeer] = if (previousAge == null) age else previousAge * 0.8 + age * 0.2
+            while (peerArrivalAgeMs.size > MAX_TRACKED_PEERS) {
+                val iterator = peerArrivalAgeMs.entries.iterator()
+                if (iterator.hasNext()) { iterator.next(); iterator.remove() } else break
+            }
+        }
+        val previous = bestRouteScores[frame.id]
+        if (previous != null && score >= previous) return false
+        bestRouteScores[frame.id] = score
+        while (bestRouteScores.size > MAX_SEEN_IDS) {
+            val iterator = bestRouteScores.entries.iterator()
+            if (iterator.hasNext()) { iterator.next(); iterator.remove() } else break
         }
         return true
     }
 
-    private fun relayIfNeeded(frame: MeshFrame, plaintext: String) {
+    private fun relayIfNeeded(frame: MeshFrame, plaintext: String, viaPeer: String?) {
         if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
         val nextHopFrame = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId)
-        // TTL and route are authenticated in protocol v3, so a relay must re-encrypt
-        // the already-authenticated plaintext under the updated route metadata.
+        // TTL and route are authenticated; relays re-encrypt after updating route metadata.
         val (nonce, ciphertext) = crypto.encrypt(plaintext, MeshFrame.aad(nextHopFrame))
         val relayed = nextHopFrame.copy(nonce = nonce, ciphertext = ciphertext).encode()
-        if (!send(relayed)) onMessage("Relay deferred: local outbox is unavailable or full")
+        val accepted = if (frame.kind == MeshFrame.KIND_EPHEMERAL) {
+            sendEphemeralRelay(relayed, viaPeer)
+        } else {
+            sendRelay(relayed, viaPeer)
+        }
+        if (!accepted) onMessage("Relay deferred: no eligible transport accepted the frame")
     }
 
     private fun remember(target: LinkedHashSet<String>, id: String) {
@@ -162,6 +210,10 @@ class MeshRouter(
 
     companion object {
         private const val MAX_SEEN_IDS = 2048
+        private const val MAX_TRACKED_PEERS = 128
+        private const val ROUTE_HOP_WEIGHT = 100_000L
+        private const val MAX_PEER_AGE_MS = 99_999L
+        private const val DEFAULT_PEER_AGE_MS = 50_000.0
         private const val MAX_PLAINTEXT_BYTES = 120
     }
 }

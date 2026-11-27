@@ -29,9 +29,10 @@ data class MeshFrame(
         .toByteArray(Charsets.UTF_8)
 
     companion object {
-        const val PROTOCOL_VERSION = 3
+        const val PROTOCOL_VERSION = 4
         const val KIND_MESSAGE = "MESSAGE"
         const val KIND_ACK = "ACK"
+        const val KIND_EPHEMERAL = "EPHEMERAL"
 
         fun decode(bytes: ByteArray): MeshFrame {
             require(bytes.size in 1..MAX_FRAME_BYTES) { "Invalid BLE frame size" }
@@ -63,19 +64,19 @@ data class MeshFrame(
                 "Frame is expired or has an invalid timestamp"
             }
             require(frame.nonce.isNotBlank() && frame.ciphertext.isNotBlank()) { "Missing encrypted payload" }
-            require(frame.kind == KIND_MESSAGE || frame.kind == KIND_ACK) { "Unknown frame kind" }
+            require(frame.kind == KIND_MESSAGE || frame.kind == KIND_ACK || frame.kind == KIND_EPHEMERAL) { "Unknown frame kind" }
             if (frame.kind == KIND_ACK) {
                 require(frame.ackFor?.matches(Regex("[A-Za-z0-9_-]{1,64}")) == true) {
                     "ACK is missing a valid message ID"
                 }
             } else {
-                require(frame.ackFor == null) { "Message frame cannot contain an ACK target" }
+                require(frame.ackFor == null) { "Non-ACK frame cannot contain an ACK target" }
             }
             return frame
         }
 
         fun aad(frame: MeshFrame): ByteArray =
-            "meshnet-v3|${frame.kind}|${frame.id}|${frame.origin}|${frame.createdAt}|${frame.ackFor.orEmpty()}|${frame.ttl}|${frame.hops.joinToString(",")}"
+            "meshnet-v4|${frame.kind}|${frame.id}|${frame.origin}|${frame.createdAt}|${frame.ackFor.orEmpty()}|${frame.ttl}|${frame.hops.joinToString(",")}"
                 .toByteArray(Charsets.UTF_8)
 
         const val MAX_TTL = 8
