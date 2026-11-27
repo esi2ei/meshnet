@@ -29,14 +29,16 @@ Install the debug APK on at least two BLE-capable Android phones. On each phone,
 
 For a multi-hop check, use three phones with each device within BLE range of at least one neighbor, then move the origin and destination out of direct range while keeping the relay in range. Verify the receiver log shows the message and hop count.
 
-## Delivery and security boundaries
+## Security and delivery boundaries
 
-- “Queued” means accepted into this device's encrypted-frame outbox. A successful GATT write only means the BLE stack accepted a chunk; it does **not** prove remote application delivery. The current receipt is a group-level acknowledgement: any member with the shared group key can generate it, and it does not prove delivery to a named recipient. Messages remain queued until a valid receipt arrives, the 24-hour expiry is reached, or the 500-entry capacity forces eviction of the oldest frame; capacity eviction can lose an unacknowledged message. Receipts are queued and replayed; persistent receiver deduplication reduces duplicate display.
+- “Queued” means accepted into this device's encrypted-frame outbox. A successful GATT write only means the BLE stack accepted a chunk; it does **not** prove remote application delivery. The current receipt is a group-level acknowledgement: any member with the shared group key can generate it, and it does not prove delivery to a named recipient. Messages remain queued until a valid receipt arrives, the 24-hour expiry is reached, or the 500-entry capacity forces eviction of the oldest frame; capacity eviction can lose an unacknowledged message.
 - Upgrading from protocol v1 clears the old outbox and replay cache because the authenticated-data schema changed; update all participating phones together. The outbox and received-ID cache are local SQLite data. Group credentials are encrypted using an Android Keystore key; losing/resetting that key makes the saved credential unreadable and requires entering the group passphrase again.
 - The shared passphrase is a temporary group-key bootstrap, not Signal Protocol. There is no per-device identity authentication, forward secrecy, or protection from a malicious member of the shared group. Group key changes clear the local queue; there is no secure multi-device key rotation protocol.
-- GATT chunking here transports one bounded MeshFrame. It is **not** large-file transfer, resumable file transfer, or voice streaming.
-- File/voice transfer, Wi-Fi Aware, Wi-Fi Direct, hotspot metering, adaptive routing/congestion control, iOS, Solana/USDC, and escrow are not implemented.
+- GATT chunking transports one bounded MeshFrame. It is **not** large-file transfer, resumable file transfer, or voice streaming.
+- Wi-Fi Aware, Wi-Fi Direct, hotspot metering, adaptive routing/congestion control, iOS, and production payments/escrow are not implemented.
 - Android may stop a foreground service under exceptional resource or policy conditions. BLE peripheral advertising and concurrent GATT connections vary by chipset and vendor.
-- No Android build or physical-device test has been performed for these commits. Do not use this prototype for sensitive or financial traffic before independent security review and device testing.
+- The added Android instrumentation tests have **not** been executed. No Android build or physical-device test has been performed for these commits. Do not use this prototype for sensitive or financial traffic before independent security review and device testing.
 
-Feature-branch pushes do not trigger GitHub Actions. No CI run is requested or required for this branch update.
+## Remaining implementation plan
+
+See [SECURITY_AND_ESCROW.md](SECURITY_AND_ESCROW.md) for the Apache-2.0 cryptography candidate, escrow design decision, integration gates, and explicit items that cannot safely be enabled without a deployed and reviewed program.
