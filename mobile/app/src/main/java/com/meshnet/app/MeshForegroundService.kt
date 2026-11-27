@@ -194,7 +194,11 @@ class MeshForegroundService : Service() {
             require(count in 1..MAX_OFFLINE_PAYMENT_CHUNKS && index in 0 until count) {
                 "Invalid offline wallet chunk index"
             }
-            require(fields[4].length <= OFFLINE_PAYMENT_CHUNK_SIZE) { "Offline wallet chunk is too large" }
+            require(
+                fields[4].isNotEmpty() &&
+                    fields[4].length <= OFFLINE_PAYMENT_CHUNK_SIZE &&
+                    (index == count - 1 || fields[4].length == OFFLINE_PAYMENT_CHUNK_SIZE)
+            ) { "Offline wallet chunk has an invalid length" }
             val now = System.currentTimeMillis()
             val expired = pendingOfflinePayments.entries.removeAll { now - it.value.createdAt > WALLET_ENVELOPE_TTL_MS }
             val state = pendingOfflinePayments[transferId]
@@ -220,6 +224,7 @@ class MeshForegroundService : Service() {
                     android.util.Base64.decode(encoded, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP),
                     Charsets.UTF_8
                 )
+                validateOfflineWalletEnvelopeId(transferId, payload, isAcknowledgement)
                 if (isAcknowledgement) {
                     val acknowledgementJson = org.json.JSONObject(payload)
                     if (acknowledgementJson.optString("sender") != offlineWallet.address()) {
@@ -672,4 +677,20 @@ class MeshForegroundService : Service() {
         private const val MAX_OFFLINE_PAYMENT_CHUNKS = 32
         private const val MAX_PENDING_OFFLINE_PAYMENTS = 16
     }
+}
+
+
+/**
+ * Bind the transport-level chunk envelope to the signed voucher/acknowledgement identity.
+ * The transport ID is not trusted merely because the payload is group-encrypted.
+ */
+internal fun validateOfflineWalletEnvelopeId(
+    transferId: String,
+    payload: String,
+    isAcknowledgement: Boolean
+) {
+    require(transferId.length in 1..64) { "Invalid offline wallet transfer ID" }
+    val json = org.json.JSONObject(payload)
+    val payloadId = if (isAcknowledgement) json.getString("voucherId") else json.getString("id")
+    require(payloadId == transferId) { "Offline wallet envelope ID does not match its signed payload" }
 }
