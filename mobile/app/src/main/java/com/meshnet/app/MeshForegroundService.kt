@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Binder
@@ -27,7 +28,13 @@ class MeshForegroundService : Service() {
     private lateinit var outbox: MeshQueueStore
     private lateinit var secretStore: MeshSecretStore
     private lateinit var offlineWallet: MeshOfflineWalletStore
-    private val pendingOfflinePayments = linkedMapOf<String, Pair<Int, MutableMap<Int, String>>>()
+    private lateinit var walletEnvelopePreferences: SharedPreferences
+    private data class PendingOfflineWalletEnvelope(
+        val count: Int,
+        val chunks: MutableMap<Int, String>,
+        val createdAt: Long
+    )
+    private val pendingOfflinePayments = linkedMapOf<String, PendingOfflineWalletEnvelope>()
     private var listener: ((String) -> Unit)? = null
     private var nodeId: String = "unknown"
     private var replayFrames: List<ByteArray> = emptyList()
@@ -39,6 +46,8 @@ class MeshForegroundService : Service() {
         outbox = MeshQueueStore(this)
         secretStore = MeshSecretStore(this)
         offlineWallet = MeshOfflineWalletStore(this)
+        walletEnvelopePreferences = getSharedPreferences(WALLET_ENVELOPE_PREFERENCES, MODE_PRIVATE)
+        restorePendingOfflinePayments()
         createNotificationChannel()
     }
 
@@ -158,24 +167,29 @@ class MeshForegroundService : Service() {
                 "Invalid offline wallet chunk index"
             }
             require(fields[4].length <= OFFLINE_PAYMENT_CHUNK_SIZE) { "Offline wallet chunk is too large" }
+            val now = System.currentTimeMillis()
+            val expired = pendingOfflinePayments.entries.removeAll { now - it.value.createdAt > WALLET_ENVELOPE_TTL_MS }
             val state = pendingOfflinePayments[transferId]
-            val chunks = if (state == null) {
+            val envelope = if (state == null) {
                 require(pendingOfflinePayments.size < MAX_PENDING_OFFLINE_PAYMENTS) {
                     "Too many pending offline wallet transfers"
                 }
-                mutableMapOf<Int, String>().also { pendingOfflinePayments[transferId] = count to it }
+                PendingOfflineWalletEnvelope(count, mutableMapOf(), now)
+                    .also { pendingOfflinePayments[transferId] = it }
             } else {
-                require(state.first == count) { "Offline wallet chunk count changed" }
-                state.second
+                require(state.count == count) { "Offline wallet chunk count changed" }
+                state
             }
-            val previous = chunks[index]
+            val previous = envelope.chunks[index]
             require(previous == null || previous == fields[4]) { "Conflicting duplicate wallet chunk" }
-            chunks[index] = fields[4]
-            if (chunks.size == count) {
+            envelope.chunks[index] = fields[4]
+            persistPendingOfflinePayments()
+            if (envelope.chunks.size == count) {
                 val encoded = (0 until count).joinToString("") {
-                    chunks[it] ?: error("Offline wallet transfer is incomplete")
+                    envelope.chunks[it] ?: error("Offline wallet transfer is incomplete")
                 }
                 pendingOfflinePayments.remove(transferId)
+                persistPendingOfflinePayments()
                 val payload = String(
                     android.util.Base64.decode(encoded, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP),
                     Charsets.UTF_8
@@ -464,6 +478,58 @@ class MeshForegroundService : Service() {
         replayActive = false
     }
 
+    private fun restorePendingOfflinePayments() {
+        pendingOfflinePayments.clear()
+        val stored = runCatching {
+            org.json.JSONArray(walletEnvelopePreferences.getString(KEY_PENDING_WALLET_ENVELOPES, "[]"))
+        }.getOrDefault(org.json.JSONArray())
+        val now = System.currentTimeMillis()
+        for (i in 0 until stored.length()) {
+            runCatching {
+                val item = stored.getJSONObject(i)
+                val id = item.getString("id")
+                val count = item.getInt("count")
+                val createdAt = item.getLong("createdAt")
+                require(id.length in 1..64 && count in 1..MAX_OFFLINE_PAYMENT_CHUNKS)
+                require(createdAt > 0L && now - createdAt <= WALLET_ENVELOPE_TTL_MS)
+                val chunkObject = item.getJSONObject("chunks")
+                val chunks = mutableMapOf<Int, String>()
+                val keys = chunkObject.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val index = key.toInt()
+                    val value = chunkObject.getString(key)
+                    require(index in 0 until count && value.length <= OFFLINE_PAYMENT_CHUNK_SIZE)
+                    chunks[index] = value
+                }
+                require(chunks.size < count)
+                if (pendingOfflinePayments.size < MAX_PENDING_OFFLINE_PAYMENTS) {
+                    pendingOfflinePayments[id] = PendingOfflineWalletEnvelope(count, chunks, createdAt)
+                }
+            }
+        }
+        persistPendingOfflinePayments()
+    }
+
+    @Synchronized
+    private fun persistPendingOfflinePayments() {
+        val stored = org.json.JSONArray()
+        pendingOfflinePayments.forEach { (id, envelope) ->
+            val chunks = org.json.JSONObject()
+            envelope.chunks.forEach { (index, value) -> chunks.put(index.toString(), value) }
+            stored.put(
+                org.json.JSONObject()
+                    .put("id", id)
+                    .put("count", envelope.count)
+                    .put("createdAt", envelope.createdAt)
+                    .put("chunks", chunks)
+            )
+        }
+        check(walletEnvelopePreferences.edit().putString(KEY_PENDING_WALLET_ENVELOPES, stored.toString()).commit()) {
+            "Could not persist pending offline wallet chunks"
+        }
+    }
+
     private fun emit(message: String) {
         listener?.invoke(message)
         getSystemService(NotificationManager::class.java)
@@ -520,6 +586,9 @@ class MeshForegroundService : Service() {
         private const val NOTIFICATION_ID = 73
         private const val OFFLINE_PAYMENT_PREFIX = "MESHOP1"
         private const val OFFLINE_ACK_PREFIX = "MESHACK1"
+        private const val WALLET_ENVELOPE_PREFERENCES = "meshnet_wallet_envelope_v1"
+        private const val KEY_PENDING_WALLET_ENVELOPES = "pending_envelopes"
+        private const val WALLET_ENVELOPE_TTL_MS = 24L * 60L * 60L * 1000L
         private const val OFFLINE_PAYMENT_CHUNK_SIZE = 48
         private const val MAX_OFFLINE_PAYMENT_CHUNKS = 32
         private const val MAX_PENDING_OFFLINE_PAYMENTS = 16
