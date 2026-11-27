@@ -16,7 +16,7 @@ The dashboard does not require a Gemini API key for its core UI. Do not put priv
 
 ## Native Android
 
-Requirements: JDK 17 and Android SDK Platform 35. See mobile/README.md.
+Requirements: JDK 17 and Android SDK Platform 35. See [mobile/README.md](mobile/README.md).
 
 Build locally without CI:
 
@@ -25,8 +25,12 @@ Build locally without CI:
 
 ## Development status
 
-This is still a prototype, not a production release. BLE writes are not delivery acknowledgements. The current group receipt only confirms that at least one member sharing the group key received a message; it does not identify or authenticate a specific recipient. The shared group key is not Signal Protocol and has no per-device identity or forward secrecy. Large-file/voice transfer, Wi-Fi transports, iOS, and payment/escrow are not implemented. No Android build or physical-device validation has been performed for the latest changes.
+This is a prototype, not a production release. BLE writes are not delivery acknowledgements. The current group receipt only confirms that at least one member sharing the group key received a message; it does not identify or authenticate a specific recipient. Receipt frames are best-effort and retired after a connected peer accepts them into its BLE write queue; messages remain queued until an authenticated group receipt arrives. The shared group key is not Signal Protocol and has no per-device identity or forward secrecy.
+
+Large-file/voice transfer, Wi-Fi transports, iOS, and production payment/escrow are not implemented. An Apache-2.0 cryptography candidate (vodozemac) and a non-custodial Solana escrow design have been selected for further integration, but neither is wired into the app. No Android build, instrumentation run, or physical-device validation has been performed for the latest changes.
+
+See [mobile/SECURITY_AND_ESCROW.md](mobile/SECURITY_AND_ESCROW.md) for licensing rationale, the escrow design, activation gates, and remaining work.
 
 The browser dashboard is a simulation and is not evidence of live radio connectivity.
 
-Feature-branch pushes do not run GitHub Actions. Workflows remain available for main pushes, pull requests targeting main, and manual dispatch.
+Feature-branch pushes do not run GitHub Actions. Do not run CI for this branch unless explicitly requested.
