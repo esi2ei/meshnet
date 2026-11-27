@@ -59,10 +59,10 @@ class MeshForegroundService : Service() {
     private val ipAnnouncementHandler = Handler(Looper.getMainLooper())
     private val ipAnnouncementTicker = object : Runnable {
         override fun run() {
-            val activeRouter = router
-            if (activeRouter == null || ipPacketRouter == null) return
+            if (router == null || ipPacketRouter == null) return
+            // Each active node refreshes only its own record. Peer discovery queries are
+            // sent on startup/connection, not every interval, to avoid periodic mesh-wide floods.
             announceIpAddress()
-            activeRouter.sendEphemeral(IP_ADDRESS_QUERY)
             ipAnnouncementHandler.postDelayed(this, IP_ADDRESS_ANNOUNCE_INTERVAL_MS)
         }
     }
