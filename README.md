@@ -12,7 +12,7 @@ MeshNet is an offline-first peer-to-peer messaging and connectivity prototype. T
 
 The installed APK loads bundled assets through AndroidX WebViewAssetLoader at the virtual `https://appassets.androidplatform.net/assets/` origin; requests are served from the APK and do not reach the network. The Vite build uses relative asset URLs, remote fonts and avatar downloads have been removed, external WebView navigation is blocked, and the dashboard's Content Security Policy denies network connections. Bluetooth, local Wi-Fi peer transport, local message queues, file transfer and voice features do not require a cloud server.
 
-Optional online integrations are disabled by default and can be enabled in the device-runtime settings. At this stage the only online-facing flow exposed there is explicit Solana Devnet wallet authorization through a compatible wallet app. This is not a payment system: the app does not create, sign or submit transactions. Enabling this setting does not turn on cloud messaging, analytics, telemetry or automatic uploads.
+Optional online integrations are disabled by default and can be enabled in the device-runtime settings. The opt-in online flow supports Solana Mobile Wallet Adapter authorization and user-approved native SOL transfers on Devnet through the connected wallet. It requires internet and wallet approval, is separate from the offline core, and does not send mainnet funds or operate the escrow program. Enabling this setting does not turn on cloud messaging, analytics, telemetry or automatic uploads.
 
 ## Web development
 
