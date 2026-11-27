@@ -8,7 +8,7 @@ import java.security.MessageDigest
 
 /** Bounded durable outbox and persistent receiver replay cache. */
 class MeshQueueStore(context: Context) : SQLiteOpenHelper(
-    context.applicationContext, "meshnet-outbox.db", null, 3
+    context.applicationContext, "meshnet-outbox.db", null, 4
 ) {
     override fun onCreate(db: SQLiteDatabase) {
         createOutbox(db)
@@ -21,6 +21,11 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             db.execSQL("ALTER TABLE outbox ADD COLUMN message_id TEXT")
             db.execSQL("ALTER TABLE outbox ADD COLUMN frame_kind TEXT NOT NULL DEFAULT 'MESSAGE'")
             db.execSQL("CREATE INDEX IF NOT EXISTS outbox_message_id ON outbox(message_id)")
+        }
+        if (oldVersion < 4) {
+            // Protocol v2 changes the authenticated-data schema; v1 frames cannot be replayed safely.
+            db.delete("outbox", null, null)
+            db.delete("received_ids", null, null)
         }
     }
 
