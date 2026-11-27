@@ -240,8 +240,8 @@ internal class MeshIpPacketRouter(
         val queryOffset = udpOffset + UDP_HEADER_BYTES
         val query = packet.copyOfRange(queryOffset, udpOffset + udpLength)
         if (query.size < DNS_HEADER_BYTES) return null
-        val queryFlags = readU16(query, 2)
-        if ((queryFlags and DNS_QR) != 0 || (queryFlags and DNS_OPCODE_MASK) != 0 || readU16(query, 4) != 1) {
+        val requestFlags = readU16(query, 2)
+        if ((requestFlags and DNS_QR) != 0 || (requestFlags and DNS_OPCODE_MASK) != 0 || readU16(query, 4) != 1) {
             return null
         }
         var cursor = DNS_HEADER_BYTES
