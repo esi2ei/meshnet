@@ -111,7 +111,7 @@ class MainActivity : Activity() {
             return
         }
         router = MeshRouter(nodeId, crypto, { bytes ->
-            runOnUiThread { transport?.sendToPeers(bytes) }
+            runOnUiThread { transport?.sendToPeers(bytes) ?: false }
         }, { line -> append(line) })
         transport = MeshBleTransport(
             this,
