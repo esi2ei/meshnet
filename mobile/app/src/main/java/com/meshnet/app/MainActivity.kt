@@ -51,8 +51,6 @@ class MainActivity : Activity() {
     @Volatile private var meshService: MeshForegroundService? = null
     private var webView: WebView? = null
     private val recentEvents = ArrayList<String>()
-    // Live BLE/GATT peers only; populated by native connection callbacks.
-    private val activeBlePeers = linkedMapOf<String, Long>()
     private val appPreferences by lazy {
         getSharedPreferences("meshnet_app_settings", MODE_PRIVATE)
     }
@@ -222,20 +220,7 @@ class MainActivity : Activity() {
         synchronized(recentEvents) {
             recentEvents.takeLast(12).forEach { events.put(it) }
         }
-        val peers = JSONArray()
-        synchronized(activeBlePeers) {
-            if (meshService?.isRunning() == true) {
-                activeBlePeers.forEach { (address, connectedAt) ->
-                    peers.put(JSONObject()
-                        .put("id", address)
-                        .put("address", address)
-                        .put("transport", "BLE/GATT")
-                        .put("connectedAt", connectedAt))
-                }
-            } else {
-                activeBlePeers.clear()
-            }
-        }
+        val peers = meshService?.connectedPeersJson() ?: JSONArray()
         val outgoingTransfers = JSONArray()
         runCatching {
             offlineWalletStore.outgoingHistory().takeLast(8).forEach { transfer ->
@@ -1144,18 +1129,6 @@ class MainActivity : Activity() {
             synchronized(recentEvents) {
                 recentEvents.add(line)
                 while (recentEvents.size > 30) recentEvents.removeAt(0)
-            }
-            // Only explicit native connection callbacks update this live set.
-            // Discovered devices and arbitrary log lines are never counted as connected.
-            Regex("^(Connected|Disconnected):\\s*(.+)$").matchEntire(line)?.let { match ->
-                val address = match.groupValues[2].trim()
-                synchronized(activeBlePeers) {
-                    if (match.groupValues[1] == "Connected") {
-                        activeBlePeers[address] = System.currentTimeMillis()
-                    } else {
-                        activeBlePeers.remove(address)
-                    }
-                }
             }
             publishRuntimeStatus(line)
         }
