@@ -22,7 +22,7 @@ export default function PhoneWorkspace({ activeNodeId }: PhoneWorkspaceProps) {
           Browser controls are not connected to phone hardware
         </div>
         <p className="text-xs leading-relaxed text-slate-400 mt-2">
-          The previous phone emulator exposed fake chat delivery, fake battery readings, simulated voice/file transfers, placeholder Signal encryption, fabricated wallet balances, and pretend hotspot/escrow transactions. Those controls have been removed rather than presented as working features.
+          This browser view is illustrative only. It does not send BLE packets, deliver chat messages, measure battery, transfer files or voice, connect a wallet, or execute escrow transactions.
         </p>
       </div>
 
@@ -35,7 +35,7 @@ export default function PhoneWorkspace({ activeNodeId }: PhoneWorkspaceProps) {
           <li>Open the repository's <code>mobile/</code> directory on a machine with JDK 17 and Android SDK 35.</li>
           <li>Build locally with <code>gradle assembleDebug</code>.</li>
           <li>Install the APK on two or more BLE-capable Android phones.</li>
-          <li>Enter the same out-of-band group passphrase (24+ characters), grant Bluetooth permissions, and start BLE mesh on each phone.</li>
+          <li>Enter the same high-entropy group passphrase on each phone, grant Bluetooth and notification permissions, and start BLE mesh.</li>
           <li>Send a short encrypted text message. Use a third phone as a relay for a multi-hop experiment.</li>
         </ol>
       </div>
@@ -46,7 +46,7 @@ export default function PhoneWorkspace({ activeNodeId }: PhoneWorkspaceProps) {
           Not production-ready
         </div>
         <p className="text-xs leading-relaxed text-slate-400 mt-2">
-          The current native target uses shared group AES-GCM, not Signal or forward secrecy. Its relay cache is in-memory and foreground/background operation is not implemented. Do not use it for sensitive or financial traffic. The remaining work is tracked in mobile/README.md.
+          The Android prototype currently uses a shared AES-GCM group key and group-level receipts. It does not yet provide per-device identity, forward secrecy, secure key rotation, or production escrow. The browser screen is not a device emulator. See mobile/SECURITY_AND_ESCROW.md for the implementation plan and security gates.
         </p>
       </div>
     </section>
