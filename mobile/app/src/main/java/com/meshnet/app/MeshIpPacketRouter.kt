@@ -59,10 +59,12 @@ internal class MeshIpPacketRouter(
     private val sendToNode: (String, String) -> Boolean,
     private val resolveName: (String) -> String? = { null },
     private val forwardDnsQuery: (ByteArray) -> ByteArray? = { null },
+    private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000L },
     private val deliverPacket: (ByteArray) -> Unit
 ) {
     private data class Assembly(val count: Int, val parts: Array<ByteArray?>, var bytes: Int, val createdAt: Long)
-    private val nodesByIp = linkedMapOf<String, String>()
+    private data class NodeAddressRecord(val nodeId: String, val lastSeenAt: Long)
+    private val nodesByIp = linkedMapOf<String, NodeAddressRecord>()
     private val conflicts = linkedSetOf<String>()
     private val assemblies = linkedMapOf<String, Assembly>()
     private val random = SecureRandom()
@@ -77,6 +79,7 @@ internal class MeshIpPacketRouter(
 
     @Synchronized
     fun accept(origin: String, message: String): Boolean {
+        pruneKnownNodes()
         if (message.startsWith("~IP1A|")) {
             val fields = message.split('|')
             if (fields.size == 2 && MeshIpAddress.isOverlayAddress(fields[1])) observeNode(origin, fields[1])
@@ -124,14 +127,18 @@ internal class MeshIpPacketRouter(
             assemblies.remove(key)
             val header = parseHeader(packet) ?: return true
             if (localIp !in conflicts && header.destination == localIp &&
-                nodesByIp[header.source] == origin
-            ) deliverPacket(packet)
+                nodesByIp[header.source]?.nodeId == origin
+            ) {
+                refreshKnownNode(origin)
+                deliverPacket(packet)
+            }
         }
         return true
     }
 
     @Synchronized
     fun send(packet: ByteArray): Boolean {
+        pruneKnownNodes()
         val header = parseHeader(packet) ?: return false
         if (header.source != localIp || !MeshIpAddress.isOverlayAddress(header.destination) || localIp in conflicts) return false
         if (header.destination == DNS_SERVICE_IP && header.protocol == IP_PROTOCOL_UDP && isDnsQuery(packet, header)) {
@@ -147,7 +154,7 @@ internal class MeshIpPacketRouter(
             return true
         }
         if (header.destination in conflicts) return false
-        val target = nodesByIp[header.destination] ?: return false
+        val target = nodesByIp[header.destination]?.nodeId ?: return false
         val id = Base64.encodeToString(ByteArray(9).also(random::nextBytes), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
         val count = (packet.size + FRAGMENT_BYTES - 1) / FRAGMENT_BYTES
         if (count !in 1..MAX_CHUNKS) return false
@@ -164,9 +171,19 @@ internal class MeshIpPacketRouter(
         return accepted
     }
 
-    @Synchronized fun knownNodeCount(): Int = nodesByIp.size
+    @Synchronized
+    fun knownNodeCount(): Int {
+        pruneKnownNodes()
+        return nodesByIp.size
+    }
+
     @Synchronized fun hasAddressConflict(): Boolean = localIp in conflicts
-    @Synchronized fun addressForNode(nodeId: String): String? = nodesByIp.entries.firstOrNull { it.value == nodeId }?.key
+
+    @Synchronized
+    fun addressForNode(nodeId: String): String? {
+        pruneKnownNodes()
+        return nodesByIp.entries.firstOrNull { it.value.nodeId == nodeId }?.key
+    }
 
     private fun observeNode(origin: String, address: String) {
         if (!origin.matches(Regex("[A-Za-z0-9_-]{16,32}")) || origin == localNodeId ||
@@ -174,10 +191,26 @@ internal class MeshIpPacketRouter(
         ) return
         if (address == localIp) { conflicts.add(localIp); nodesByIp.remove(localIp); return }
         val existing = nodesByIp[address]
-        if (existing != null && existing != origin) { nodesByIp.remove(address); conflicts.add(address); return }
+        if (existing != null && existing.nodeId != origin) {
+            nodesByIp.remove(address)
+            conflicts.add(address)
+            return
+        }
         if (address in conflicts) return
-        nodesByIp[address] = origin
-        while (nodesByIp.size > MAX_NODES) nodesByIp.keys.firstOrNull()?.let(nodesByIp::remove)
+        nodesByIp.entries.removeAll { it.value.nodeId == origin && it.key != address }
+        nodesByIp[address] = NodeAddressRecord(origin, nowMillis())
+        while (nodesByIp.size > MAX_NODES) {
+            nodesByIp.minByOrNull { it.value.lastSeenAt }?.key?.let(nodesByIp::remove)
+        }
+    }
+
+    private fun refreshKnownNode(origin: String) {
+        val entry = nodesByIp.entries.firstOrNull { it.value.nodeId == origin } ?: return
+        nodesByIp[entry.key] = entry.value.copy(lastSeenAt = nowMillis())
+    }
+
+    private fun pruneKnownNodes(now: Long = nowMillis()) {
+        nodesByIp.entries.removeAll { now - it.value.lastSeenAt > NODE_ADDRESS_TTL_MS }
     }
 
     private fun parseHeader(packet: ByteArray): Header? {
@@ -331,6 +364,7 @@ internal class MeshIpPacketRouter(
         private const val MAX_CHUNKS = (MAX_PACKET_BYTES + FRAGMENT_BYTES - 1) / FRAGMENT_BYTES
         private const val MAX_ASSEMBLIES = 64
         private const val MAX_NODES = 1024
+        private const val NODE_ADDRESS_TTL_MS = 180_000L
         private const val ASSEMBLY_TTL_MS = 15_000L
     }
 }
