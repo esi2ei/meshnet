@@ -70,6 +70,14 @@ internal class MeshRouteRegistry {
     }
 
     @Synchronized
+    fun removePeer(peer: String) {
+        nextHops.entries.removeAll { (_, candidates) ->
+            candidates.remove(peer)
+            candidates.isEmpty()
+        }
+    }
+
+    @Synchronized
     fun clear() {
         routes.clear()
         nextHops.clear()
