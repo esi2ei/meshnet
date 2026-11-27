@@ -160,11 +160,10 @@ class MeshBleTransport(
                 closeClient(address, gatt)
                 return
             }
-            if (!running) {
+            if (!running || !pendingClients.remove(address, gatt)) {
                 closeClient(address, gatt)
                 return
             }
-            pendingClients.remove(address, gatt)
             clients[address] = gatt
             onPeer(address, true)
             onState("Mesh GATT channel ready: $address (MTU ${negotiatedMtu[address] ?: DEFAULT_MTU})")
