@@ -1,14 +1,14 @@
 # MeshNet release validation plan
 
-This is a release checklist for the Android prototype. GitHub Actions is currently manual-only and must not be dispatched unless the owner explicitly requests it. No automated validation is being run as part of the current source-completion work. Emulator success, when later requested, does not establish real-phone Bluetooth/Wi-Fi interoperability, Solana contract readiness, independent security audit, or production fitness.
+This is the release checklist for the Android prototype. GitHub Actions runs on pull requests targeting main and can also be started manually. The dedicated release/trial-apk branch retains a debug APK artifact for seven days; ordinary pull-request runs do not upload APK artifacts. A successful emulator run verifies build and instrumented regression coverage only. It does not establish real-phone Bluetooth/Wi-Fi interoperability, Solana contract readiness, an independent security audit, or production fitness.
 
 ## 1. Release blockers that tests alone cannot close
 
 Before calling MeshNet production-ready, resolve or explicitly remove these product claims/features from the release scope:
 
-- **Cryptographic identity:** the current app still uses one shared AES-GCM group passphrase. It has no authenticated per-device identity, forward secrecy, signed prekeys, secure group key rotation, or device revocation. `vodozemac` is selected but not integrated.
+- **Cryptographic identity:** protocol v6 now adds a stable per-install P-256 signing identity stored in Android Keystore. The public-key fingerprint forms the node ID, and the origin signs the plaintext digest; receivers verify it after decrypting the shared AES-GCM group frame. This authenticates the enrolled origin key but does not provide per-device private sessions, forward secrecy, ratcheting, explicit trust approval/revocation, or secure group-key rotation. `vodozemac` is selected but not integrated.
 - **Delivery semantics:** a group receipt confirms receipt by at least one group-key holder, not a named recipient, all group members, or offline devices.
-- **Routing:** directed text frames now carry an authenticated destination and use reverse next-hop candidates learned from group-key-authenticated packet paths. Up to three alternatives are ranked by hop count and freshness; failed/disconnected peers are removed, and unknown/stale routes fall back to TTL-bounded flooding. This is not a complete route-discovery control plane, does not measure radio/link quality, and does not provide cryptographic device identity.
+- **Routing:** directed text frames carry an authenticated destination and use reverse next-hop candidates learned from received paths. The current Android app also contains signed ephemeral IPv4 overlay packets. The separate IP overlay neighbor cache is being hardened with address expiry and periodic announcements on the completion branch. Neither path has been validated across a three-phone physical radio topology; no reliable congestion-controlled IP transport is provided.
 - **Payments:** the offline wallet signs and verifies provisional `MESH-LOCAL-UNIT` transfer receipts over the encrypted mesh. It is not a real-money wallet: there is no issuance, global balance ledger, double-spend prevention, or final settlement. Solana MWA supports Devnet authorization and a native SOL SystemProgram transfer builder that submits through the connected wallet's sign-and-send flow; no mainnet transfer, escrow transaction, token transfer, or authoritative app-side balance ledger exists. Devnet RPC confirmation read-back must be checked independently.
 - **Escrow:** the Anchor source has not been built, tested, deployed, or independently audited. The program ID and initialization admin are now mandatory build inputs, but that does not constitute deployment or audit approval. Do not accept real funds.
 - **Store identity and disclosure:** supply the actual product website/dApp identity URI, privacy policy, app listing, support contact, data-safety answers, and permission rationale for the distribution channel.
@@ -18,11 +18,11 @@ A messaging-only prototype release is a different scope from a secure production
 
 ## 2. Automated CI and APK artifact
 
-The `MeshNet CI` workflow builds the Android debug APK, verifies its debug signature, runs `connectedDebugAndroidTest` on an API 36 emulator, and uploads the APK as a 14-day workflow artifact. A green run verifies build and instrumented regression coverage in the emulator only; it is not a physical-radio or security-audit result.
+The `MeshNet CI` workflow builds the Android debug APK, verifies its debug signature, runs `connectedDebugAndroidTest` on an API 36 emulator, and builds/typechecks the web app with Node 22 and 24. APK artifacts are retained for seven days on the dedicated trial branch or on explicit manual workflow runs; ordinary PR runs do not upload APK artifacts. The MeshNet 0.1.0 trial APK passed all these CI jobs. This is debug-signed, not a production release.
 
 ## 3. Local toolchain and build
 
-Use JDK 17, Android SDK Platform 36, Android Gradle Plugin 8.9.1, Kotlin Gradle Plugin 2.2.21, and Gradle 8.11.1 or a compatible newer Gradle.
+Use JDK 17, Android SDK Platform 36, Android Gradle Plugin 8.9.1, Kotlin Gradle Plugin 2.2.21, and Gradle 8.13 for the CI-equivalent build.
 
 From `mobile/`:
 
@@ -37,7 +37,7 @@ Run the local instrumentation suite on a connected Android phone or emulator:
 
     gradle connectedDebugAndroidTest
 
-The tests under `app/src/androidTest` cover protocol v5 destination/AAD validation, reverse-route ranking/expiry/disconnect invalidation, directed next-hop forwarding, queue migration/persistence, receipt handling, encrypted credential storage, file-transfer resume/integrity/cancellation/quota/export behavior, and wallet authorization storage. Review any failures and fix them before proceeding. Do not substitute a successful build for device interoperability checks.
+The tests under `app/src/androidTest` cover protocol and identity validation, route behavior, queue migration/persistence, receipt handling, encrypted credential storage, file-transfer resume/integrity/cancellation/quota/export behavior, wallet authorization storage, offline IP packet routing, DNS packet handling, neighbor-address expiry and HTTP portal access. Review any failures and fix them before proceeding. Do not substitute a successful build for device interoperability checks.
 
 ## 4. Two-phone BLE and messaging
 
@@ -50,13 +50,13 @@ On two Android 10+ BLE phones:
 5. Stop and restart the service and the app. Verify saved credentials can be reused; use **Forget saved group credentials** and confirm the passphrase is required again.
 6. Repeat with different group passphrases. A phone in the wrong group must not display or accept another group's encrypted payload.
 
-Remember: these checks do not establish authenticated per-device identities or all-member delivery guarantees.
+Remember: protocol v6 verifies the origin signing identity, but the group still shares one AES-GCM encryption key. These checks do not establish all-member delivery guarantees or security properties from a per-device ratchet.
 
 ## 5. Multi-hop and alternate transports
 
 - **Three-phone BLE relay:** arrange phone A ↔ B ↔ C with A and C out of direct range. Send broadcast and directed messages in both directions. Verify B learns reverse routes, C receives the directed message, and the receipt returns by the learned route. Move phones and verify TTL/hop behavior and duplicate suppression.
 - **Alternative routes and measured quality:** create two different paths to the same destination; record BLE RSSI and targeted-write success/failure/latency on each first hop. Verify the route score changes as samples change, stale metrics decay toward neutral after five minutes, and a disconnected peer is removed immediately. Confirm the router still respects hop distance, tries the next candidate after a failed write, and uses bounded flooding when no usable candidate remains. Record device models and measured RSSI/write latency. These local metrics are not end-to-end RTT or throughput.
-- **Protocol upgrade:** upgrade a device with a v4 database to v5. Confirm the migration clears incompatible queued ciphertext and replay IDs, and confirm every group participant is updated before exchanging frames.
+- **Protocol upgrade:** validate the current protocol-version migration path from the supported prior database version(s). Confirm incompatible queued ciphertext and replay IDs are cleared safely, and confirm every group participant is updated before exchanging frames.
 - **Wi-Fi Direct:** create a group on one phone, discover it on the second, connect using the discovered device address, transfer frames both ways, stop/recreate the group, and repeat after app restart.
 - **Wi-Fi Aware:** use at least two devices confirmed to support Aware. Test discovery, PSK negotiation, TCP connection, simultaneous send/receive, peer loss, re-discovery, and switching to/from Wi-Fi Direct. Repeat with Aware unavailable and confirm BLE remains usable.
 - **Radio coexistence:** run BLE while Wi-Fi Aware is active, then switch transports. Record device models, OS builds, RSSI/link state where available, and observed throughput/latency.
