@@ -103,6 +103,7 @@ pub mod meshnet_escrow {
 fn settle_to_provider(ctx: Context<SettleOrder>) -> Result<()> {
     require!(ctx.accounts.order.status == OrderStatus::Open, EscrowError::AlreadySettled);
     require_keys_eq!(ctx.accounts.mint.key(), ctx.accounts.order.mint, EscrowError::InvalidMint);
+    require!(ctx.accounts.vault.amount == ctx.accounts.order.amount, EscrowError::VaultBalanceMismatch);
     let order_key = ctx.accounts.order.key();
     let bump = [ctx.accounts.order.bump];
     let seeds: &[&[u8]] = &[
@@ -128,6 +129,7 @@ fn settle_to_provider(ctx: Context<SettleOrder>) -> Result<()> {
         &ctx.accounts.token_program,
         &ctx.accounts.vault,
         &ctx.accounts.buyer.to_account_info(),
+        &ctx.accounts.order.to_account_info(),
         signer,
     )?;
     ctx.accounts.order.status = OrderStatus::Released;
@@ -163,6 +165,7 @@ fn settle_to_buyer(ctx: Context<RefundOrder>) -> Result<()> {
         &ctx.accounts.token_program,
         &ctx.accounts.vault,
         &ctx.accounts.buyer.to_account_info(),
+        &ctx.accounts.order.to_account_info(),
         signer,
     )?;
     ctx.accounts.order.status = OrderStatus::Refunded;
@@ -174,14 +177,67 @@ fn close_vault<'info>(
     token_program: &Program<'info, Token>,
     vault: &Account<'info, TokenAccount>,
     destination: &AccountInfo<'info>,
+    authority: &AccountInfo<'info>,
     signer: &[&[&[u8]]],
 ) -> Result<()> {
     let cpi = CloseAccount {
         account: vault.to_account_info(),
         destination: destination.clone(),
-        authority: vault.to_account_info(),
+        authority: authority.clone(),
     };
     token::close_account(CpiContext::new_with_signer(token_program.to_account_info(), cpi, signer))
+}
+
+fn settle_to_provider_arbitrated(ctx: Context<ArbitrateOrder>) -> Result<()> {
+    require_keys_eq!(ctx.accounts.arbitrator.key(), ctx.accounts.order.arbitrator, EscrowError::WrongArbitrator);
+    require!(ctx.accounts.order.status == OrderStatus::Open, EscrowError::AlreadySettled);
+    require!(ctx.accounts.vault.amount == ctx.accounts.order.amount, EscrowError::VaultBalanceMismatch);
+    let key = ctx.accounts.order.key();
+    let bump = [ctx.accounts.order.bump];
+    let seeds: &[&[u8]] = &[ORDER_SEED, ctx.accounts.order.buyer.as_ref(), ctx.accounts.order.order_id.as_ref(), &bump];
+    let signer = &[seeds];
+    let amount = ctx.accounts.order.amount;
+    let transfer = TransferChecked {
+        from: ctx.accounts.vault.to_account_info(),
+        mint: ctx.accounts.mint.to_account_info(),
+        to: ctx.accounts.provider_token.to_account_info(),
+        authority: ctx.accounts.order.to_account_info(),
+    };
+    token::transfer_checked(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), transfer, signer), amount, ctx.accounts.mint.decimals)?;
+    let close = CloseAccount {
+        account: ctx.accounts.vault.to_account_info(),
+        destination: ctx.accounts.buyer.to_account_info(),
+        authority: ctx.accounts.order.to_account_info(),
+    };
+    token::close_account(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), close, signer))?;
+    emit!(OrderSettled { order: key, status: OrderStatus::Released, amount });
+    Ok(())
+}
+
+fn settle_to_buyer_arbitrated(ctx: Context<ArbitrateRefund>) -> Result<()> {
+    require_keys_eq!(ctx.accounts.arbitrator.key(), ctx.accounts.order.arbitrator, EscrowError::WrongArbitrator);
+    require!(ctx.accounts.order.status == OrderStatus::Open, EscrowError::AlreadySettled);
+    require!(ctx.accounts.vault.amount == ctx.accounts.order.amount, EscrowError::VaultBalanceMismatch);
+    let key = ctx.accounts.order.key();
+    let bump = [ctx.accounts.order.bump];
+    let seeds: &[&[u8]] = &[ORDER_SEED, ctx.accounts.order.buyer.as_ref(), ctx.accounts.order.order_id.as_ref(), &bump];
+    let signer = &[seeds];
+    let amount = ctx.accounts.order.amount;
+    let transfer = TransferChecked {
+        from: ctx.accounts.vault.to_account_info(),
+        mint: ctx.accounts.mint.to_account_info(),
+        to: ctx.accounts.buyer_token.to_account_info(),
+        authority: ctx.accounts.order.to_account_info(),
+    };
+    token::transfer_checked(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), transfer, signer), amount, ctx.accounts.mint.decimals)?;
+    let close = CloseAccount {
+        account: ctx.accounts.vault.to_account_info(),
+        destination: ctx.accounts.buyer.to_account_info(),
+        authority: ctx.accounts.order.to_account_info(),
+    };
+    token::close_account(CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), close, signer))?;
+    emit!(OrderSettled { order: key, status: OrderStatus::Refunded, amount });
+    Ok(())
 }
 
 #[derive(Accounts)]
@@ -241,8 +297,9 @@ pub struct SettleOrder<'info> {
 #[derive(Accounts)]
 pub struct ArbitrateOrder<'info> {
     pub arbitrator: Signer<'info>,
-    #[account(mut)]
-    pub buyer: SystemAccount<'info>,
+    /// CHECK: Immutable buyer address stored in the order; receives rent refunds only.
+    #[account(mut, address = order.buyer)]
+    pub buyer: UncheckedAccount<'info>,
     pub provider: Signer<'info>,
     #[account(
         mut, close = buyer,
@@ -257,14 +314,6 @@ pub struct ArbitrateOrder<'info> {
     #[account(mut, associated_token::mint = mint, associated_token::authority = provider)]
     pub provider_token: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
-}
-
-impl<'info> ArbitrateOrder<'info> {
-    fn into_settle(self) -> Context<'info, SettleOrder<'info>> {
-        // This conversion is intentionally not used: Anchor Context cannot be safely rebuilt
-        // from a different account struct. The arbitrator path is implemented below separately.
-        unreachable!()
-    }
 }
 
 #[derive(Accounts)]
@@ -290,7 +339,9 @@ pub struct RefundOrder<'info> {
 pub struct ArbitrateRefund<'info> {
     pub arbitrator: Signer<'info>,
     #[account(mut)]
-    pub buyer: SystemAccount<'info>,
+    /// CHECK: Immutable buyer address stored in the order; receives the refund and rent.
+    #[account(mut, address = order.buyer)]
+    pub buyer: UncheckedAccount<'info>,
     #[account(
         mut, close = buyer,
         seeds = [ORDER_SEED, order.buyer.as_ref(), order.order_id.as_ref()], bump = order.bump
@@ -303,12 +354,6 @@ pub struct ArbitrateRefund<'info> {
     #[account(mut, associated_token::mint = mint, associated_token::authority = buyer)]
     pub buyer_token: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
-}
-
-impl<'info> ArbitrateRefund<'info> {
-    fn into_refund(self) -> Context<'info, RefundOrder<'info>> {
-        unreachable!()
-    }
 }
 
 #[account]
@@ -355,4 +400,5 @@ pub enum EscrowError {
     #[msg("Wrong arbitrator signer")] WrongArbitrator,
     #[msg("Order is already settled")] AlreadySettled,
     #[msg("Order has not expired")] NotExpired,
+    #[msg("Vault balance differs from immutable order amount")] VaultBalanceMismatch,
 }
