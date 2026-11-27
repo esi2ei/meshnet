@@ -59,7 +59,7 @@ class MeshLiveVoiceCall(
     private var hasAudioFocus = false
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
         if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
-            Thread({ stopMedia() }, "meshnet-voice-focus-cleanup").apply { isDaemon = true; start() }
+            Thread({ end() }, "meshnet-voice-focus-cleanup").apply { isDaemon = true; start() }
         }
     }
 
@@ -490,11 +490,10 @@ class MeshLiveVoiceCall(
     }
 
     private fun abandonAudioFocus() {
-        if (!hasAudioFocus) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            if (hasAudioFocus) focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
             focusRequest = null
-        } else {
+        } else if (hasAudioFocus) {
             @Suppress("DEPRECATION")
             audioManager.abandonAudioFocus(focusListener)
         }
