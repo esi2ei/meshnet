@@ -102,6 +102,45 @@ class MeshOfflineLibraryTest {
         assertFalse(library.items().any { it.id == id })
     }
 
+    @Test fun corruptedExistingBlobIsRemovedAndSameContentCanBePublishedAgain() {
+        val first = library.publish(Uri.fromFile(source))
+        library.localFile(first.id)!!.writeText("tampered bytes")
+
+        assertNull(library.localFile(first.id))
+        val repaired = library.publish(Uri.fromFile(source))
+
+        assertEquals(first.id, repaired.id)
+        assertArrayEquals(source.readBytes(), library.localFile(repaired.id)!!.readBytes())
+    }
+
+    @Test fun recoveryEnforcesLocalItemCountAndDeletesUnindexedBlobs() {
+        val entries = org.json.JSONArray()
+        var overflowId: String? = null
+        val now = System.currentTimeMillis()
+        repeat(MeshOfflineLibrary.MAX_LOCAL_ITEMS + 1) { index ->
+            val bytes = byteArrayOf(index.toByte())
+            val id = MessageDigest.getInstance("SHA-256").digest(bytes)
+                .joinToString("") { "%02x".format(it) }
+            File(root, "$id.blob").writeBytes(bytes)
+            entries.put(org.json.JSONObject()
+                .put("id", id)
+                .put("name", "item-$index.bin")
+                .put("size", bytes.size)
+                .put("createdAt", now))
+            if (index == MeshOfflineLibrary.MAX_LOCAL_ITEMS) overflowId = id
+        }
+        File(root, "catalog.json").writeText(org.json.JSONObject()
+            .put("local", entries)
+            .put("remote", org.json.JSONArray())
+            .put("pending", org.json.JSONArray())
+            .toString())
+
+        val recovered = MeshOfflineLibrary(context)
+
+        assertEquals(MeshOfflineLibrary.MAX_LOCAL_ITEMS, recovered.items().count { it.local })
+        assertFalse(File(root, "$overflowId.blob").exists())
+    }
+
     @Test fun localLibraryEnforcesPerItemSizeLimit(){
         val oversized=File(context.cacheDir,"mesh-library-oversized.bin")
         oversized.writeBytes(ByteArray(MeshOfflineLibrary.MAX_FILE_BYTES+1))
