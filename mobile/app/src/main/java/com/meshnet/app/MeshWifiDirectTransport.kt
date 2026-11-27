@@ -137,7 +137,7 @@ class MeshWifiDirectTransport(
                     val socket = listener.accept()
                     socket.tcpNoDelay = true
                     sockets.add(socket)
-                    onState("Wi-Fi Direct peer connected")
+                    onState("Wi-Fi Direct data channel ready")
                     startReader(socket)
                 }
             } catch (error: Exception) {
@@ -151,13 +151,24 @@ class MeshWifiDirectTransport(
     private fun connectToOwner(address: InetAddress) {
         if (sockets.any { !it.isClosed } || !clientConnecting.compareAndSet(false, true)) return
         Thread({
+            var lastError: Exception? = null
             try {
-                val socket = Socket()
-                socket.connect(java.net.InetSocketAddress(address, PORT), CONNECT_TIMEOUT_MS)
-                socket.tcpNoDelay = true
-                sockets.add(socket)
-                onState("Wi-Fi Direct data channel ready")
-                startReader(socket)
+                repeat(CONNECT_ATTEMPTS) { attempt ->
+                    if (!running.get() || sockets.any { !it.isClosed }) return@repeat
+                    try {
+                        val socket = Socket()
+                        socket.connect(java.net.InetSocketAddress(address, PORT), CONNECT_TIMEOUT_MS)
+                        socket.tcpNoDelay = true
+                        sockets.add(socket)
+                        onState("Wi-Fi Direct data channel ready")
+                        startReader(socket)
+                        return@Thread
+                    } catch (error: Exception) {
+                        lastError = error
+                        if (attempt + 1 < CONNECT_ATTEMPTS) Thread.sleep(RETRY_DELAY_MS)
+                    }
+                }
+                if (running.get()) onState("Wi-Fi Direct socket connection failed: ${lastError?.message}")
             } catch (error: Exception) {
                 if (running.get()) onState("Wi-Fi Direct socket connection failed: ${error.message}")
             } finally {
@@ -228,5 +239,7 @@ class MeshWifiDirectTransport(
     companion object {
         private const val PORT = 43871
         private const val CONNECT_TIMEOUT_MS = 10_000
+        private const val CONNECT_ATTEMPTS = 5
+        private const val RETRY_DELAY_MS = 500L
     }
 }
