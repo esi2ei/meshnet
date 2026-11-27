@@ -22,6 +22,9 @@ class MeshForegroundService : Service() {
     private lateinit var secretStore: MeshSecretStore
     private var listener: ((String) -> Unit)? = null
     private var nodeId: String = "unknown"
+    private var replayFrames: List<ByteArray> = emptyList()
+    private var replayIndex = 0
+    private var replayActive = false
 
     override fun onCreate() {
         super.onCreate()
@@ -127,7 +130,13 @@ class MeshForegroundService : Service() {
             { _, payload -> router?.receive(payload) },
             { state ->
                 emit(state)
-                if (state.contains("channel ready")) replayOutbox()
+                when {
+                    state.contains("channel ready") -> {
+                        if (!replayActive) beginOutboxReplay() else pumpOutboxReplay()
+                    }
+                    state.contains("write queue drained") || state.contains("write queue available") ->
+                        pumpOutboxReplay()
+                }
             }
         )
         try {
@@ -141,12 +150,30 @@ class MeshForegroundService : Service() {
         }
     }
 
-    private fun replayOutbox() {
+    @Synchronized
+    private fun beginOutboxReplay() {
+        replayFrames = outbox.pending()
+        replayIndex = 0
+        replayActive = true
+        pumpOutboxReplay()
+    }
+
+    @Synchronized
+    private fun pumpOutboxReplay() {
         val link = transport ?: return
-        outbox.pending().forEach { frame ->
-            if (link.sendToPeers(frame)) outbox.noteReplay(frame)
+        if (!replayActive) return
+        while (replayIndex < replayFrames.size) {
+            val frame = replayFrames[replayIndex]
+            // A full per-peer BLE queue pauses this pass. Queue-drained callbacks resume it.
+            if (!link.sendToPeers(frame)) return
+            outbox.noteReplay(frame)
+            replayIndex++
         }
-        emit("Retried durable outbox; messages retire on group receipt, receipts expire after 24 hours")
+        val queued = replayFrames.size
+        replayFrames = emptyList()
+        replayIndex = 0
+        replayActive = false
+        emit("Queued $queued durable frames for BLE transmission; messages retire on group receipt")
     }
 
     private fun stopMesh() {
