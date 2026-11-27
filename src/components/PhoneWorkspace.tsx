@@ -109,7 +109,7 @@ export default function PhoneWorkspace() {
   const canSend = runtime.native && runtime.running && message.trim().length > 0 &&
     new TextEncoder().encode(message).length <= 120;
   const onlineDescription = runtime.onlineIntegrationsEnabled
-    ? 'Enabled by you. Wallet authorization is limited to Solana Devnet.'
+    ? 'Enabled by you. Wallet authorization and native SOL transfers are limited to Solana Devnet.'
     : 'Disabled. Local mesh, messaging and file transfer remain available.';
 
   return (
