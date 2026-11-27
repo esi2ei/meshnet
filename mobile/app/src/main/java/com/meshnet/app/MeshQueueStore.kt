@@ -77,7 +77,7 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             put("created_at", now)
             put("attempts", 0)
         }
-        val inserted = db.insertWithOnConflict("outbox", null, values, SQLiteDatabase.CONFLICT_IGNORE)
+        db.insertWithOnConflict("outbox", null, values, SQLiteDatabase.CONFLICT_IGNORE)
         db.execSQL(
             "DELETE FROM outbox WHERE frame_id IN (SELECT frame_id FROM outbox ORDER BY created_at ASC LIMIT MAX(0, (SELECT COUNT(*) FROM outbox) - ?))",
             arrayOf(MAX_ENTRIES)
