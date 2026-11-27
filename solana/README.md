@@ -1,0 +1,31 @@
+# MeshNet Solana escrow program
+
+This directory contains a first-pass non-custodial USDC order escrow program using Anchor 1.2.2.
+
+## State machine
+
+- `initialize_config`: one-time PDA configuration. The initial signer pins the USDC mint and dispute arbitrator. There is no config mutation instruction.
+- `open_order`: buyer deposits an exact USDC amount into an order-specific associated token account controlled by the order PDA. Provider, amount, mint, and expiry are immutable.
+- `release`: buyer and provider must both sign.
+- `refund_expired`: buyer can refund after expiry.
+- `arbitrate_release` / `arbitrate_refund`: the configured arbitrator can resolve a dispute.
+
+The program rejects zero amounts, self-orders, expiry outside the next 30 days, non-configured mints, repeated settlement, and unexpected vault balances. It uses SPL Token (not Token-2022) and `TransferChecked`.
+
+## Deployment is intentionally disabled
+
+The declared program ID is Anchor's example ID and MUST be replaced with a newly generated program keypair before building a deployable artifact. The program is not deployed. The config PDA has not been initialized. No wallet, RPC endpoint, mainnet transaction, or private key is connected to the Android app.
+
+The config initializer accepts a mint address from the initial admin. Before any deployment, verify the exact canonical USDC mint for the target cluster independently and initialize config with that address. The configured arbitrator is a single key in this first iteration; production requires a reviewed multisig/threshold governance arrangement and a published dispute policy.
+
+## Critical review required before funds
+
+This source is an implementation draft, not an audited financial contract. Before accepting funds:
+1. Replace the example program ID and reproduce the build.
+2. Add Anchor/LiteSVM adversarial tests for all signer, PDA, token mint, amount, expiry, replay, and settlement paths.
+3. Have an independent Solana security firm review the source and deployed binary.
+4. Establish multisig governance for the arbitrator key, a key-loss/replacement plan, and a transparent dispute process.
+5. Verify canonical USDC mint, token program, cluster identity, upgrade authority, and deployed program hash.
+6. Add a typed Android/desktop client that derives PDAs locally, simulates transactions, displays exact token units, and verifies finalised signatures.
+
+No production payment or escrow feature is enabled in MeshNet. Do not send real funds to this program.
