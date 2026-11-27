@@ -83,7 +83,7 @@ pub mod meshnet_escrow {
     /// The configured arbitrator may release funds after a dispute decision.
     pub fn arbitrate_release(ctx: Context<ArbitrateOrder>) -> Result<()> {
         require_keys_eq!(ctx.accounts.arbitrator.key(), ctx.accounts.order.arbitrator, EscrowError::WrongArbitrator);
-        settle_to_provider(ctx.accounts.into_settle())
+        settle_to_provider_arbitrated(ctx)
     }
 
     /// Buyer can reclaim funds only after the immutable expiry timestamp.
@@ -96,7 +96,7 @@ pub mod meshnet_escrow {
     /// The configured arbitrator may refund the buyer after a dispute decision.
     pub fn arbitrate_refund(ctx: Context<ArbitrateRefund>) -> Result<()> {
         require_keys_eq!(ctx.accounts.arbitrator.key(), ctx.accounts.order.arbitrator, EscrowError::WrongArbitrator);
-        settle_to_buyer(ctx.into_refund())
+        settle_to_buyer_arbitrated(ctx)
     }
 }
 
@@ -256,7 +256,7 @@ pub struct OpenOrder<'info> {
     pub buyer: Signer<'info>,
     /// CHECK: Provider is stored as an immutable public key; token destination is constrained to its ATA.
     pub provider: UncheckedAccount<'info>,
-    #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = usdc_mint)]
+    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Account<'info, Config>,
     #[account(
         init, payer = buyer, space = 8 + EscrowOrder::INIT_SPACE,
@@ -264,8 +264,8 @@ pub struct OpenOrder<'info> {
     )]
     pub order: Account<'info, EscrowOrder>,
     #[account(address = config.usdc_mint)]
-    pub usdc_mint: Account<'info, Mint>,
-    #[account(mut, associated_token::mint = usdc_mint, associated_token::authority = buyer)]
+    pub mint: Account<'info, Mint>,
+    #[account(mut, associated_token::mint = mint, associated_token::authority = buyer)]
     pub buyer_token: Account<'info, TokenAccount>,
     #[account(init, payer = buyer, associated_token::mint = usdc_mint, associated_token::authority = order)]
     pub vault: Account<'info, TokenAccount>,
@@ -287,7 +287,7 @@ pub struct SettleOrder<'info> {
     pub order: Account<'info, EscrowOrder>,
     #[account(address = order.mint)]
     pub mint: Account<'info, Mint>,
-    #[account(mut, associated_token::mint = mint, associated_token::authority = order, address = vault.key())]
+    #[account(mut, associated_token::mint = mint, associated_token::authority = order)]
     pub vault: Account<'info, TokenAccount>,
     #[account(mut, associated_token::mint = mint, associated_token::authority = provider)]
     pub provider_token: Account<'info, TokenAccount>,
@@ -338,7 +338,6 @@ pub struct RefundOrder<'info> {
 #[derive(Accounts)]
 pub struct ArbitrateRefund<'info> {
     pub arbitrator: Signer<'info>,
-    #[account(mut)]
     /// CHECK: Immutable buyer address stored in the order; receives the refund and rent.
     #[account(mut, address = order.buyer)]
     pub buyer: UncheckedAccount<'info>,
