@@ -96,4 +96,14 @@ class MeshOfflineWalletStoreTest {
         sender.acceptAcknowledgement(recipient.createAcknowledgement(receipt))
     }
 
+    @Test
+    fun outgoingTransferJournalSurvivesStoreRecreation() {
+        val voucher = sender.createPayment(recipient.address(), 450L)
+        sender.recordOutgoing(voucher)
+        val reopened = MeshOfflineWalletStore(context, senderId)
+
+        assertEquals("QUEUED", reopened.outgoingHistory().single().status)
+        assertEquals(450L, reopened.outgoingHistory().single().amountMinor)
+    }
+
 }
