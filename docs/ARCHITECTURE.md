@@ -58,7 +58,7 @@ The peer registry key combines transport and remote address so the same IP/addre
 The router separately reports a route observation only after a frame is decoded and authenticated, and only when the current node is not already in the frame's hop history. The observed path is the group-key-authenticated hop list plus this receiving node. `MeshRouteRegistry` validates node IDs and loop-free paths, caps history at 64 paths, and expires observations after 30 minutes. The dashboard renders those observed frame paths in a separate multi-hop graph. It does not merge them with the direct-link graph or claim that a previously observed hop is currently online.
 
 Current topology sources:
-- BLE/GATT: native GATT connection-state callbacks.
+- BLE/GATT: the remote MeshNet service and writable characteristic must be discovered before the client-side peer is registered; server-side peers are registered on accepted GATT connections.
 - Wi-Fi Direct: accepted/connected TCP data sockets after P2P group negotiation.
 - Wi-Fi Aware: accepted/connected TCP data sockets after Aware network negotiation.
 
