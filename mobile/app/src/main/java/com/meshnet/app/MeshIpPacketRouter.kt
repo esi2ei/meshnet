@@ -105,7 +105,7 @@ internal class MeshIpPacketRouter(
             if (assemblies.size >= MAX_ASSEMBLIES) {
                 assemblies.minByOrNull { it.value.createdAt }?.key?.let(assemblies::remove)
             }
-            assembly = Assembly(count, arrayOfNulls(count), 0, System.currentTimeMillis())
+            assembly = Assembly(count, arrayOfNulls(count), 0, nowMillis())
             assemblies[key] = assembly
         }
         if (assembly.count != count) { assemblies.remove(key); return true }
@@ -239,7 +239,11 @@ internal class MeshIpPacketRouter(
         if (udpLength < UDP_HEADER_BYTES + DNS_HEADER_BYTES || udpOffset + udpLength > packet.size) return null
         val queryOffset = udpOffset + UDP_HEADER_BYTES
         val query = packet.copyOfRange(queryOffset, udpOffset + udpLength)
-        if (query.size < DNS_HEADER_BYTES || readU16(query, 4) != 1) return null
+        if (query.size < DNS_HEADER_BYTES) return null
+        val queryFlags = readU16(query, 2)
+        if ((queryFlags and DNS_QR) != 0 || (queryFlags and DNS_OPCODE_MASK) != 0 || readU16(query, 4) != 1) {
+            return null
+        }
         var cursor = DNS_HEADER_BYTES
         val labels = mutableListOf<String>()
         while (cursor < query.size) {
@@ -334,7 +338,7 @@ internal class MeshIpPacketRouter(
         bytes[offset + 1] = (value and 0xff).toByte()
     }
 
-    private fun pruneAssemblies(now: Long = System.currentTimeMillis()) {
+    private fun pruneAssemblies(now: Long = nowMillis()) {
         assemblies.entries.removeAll { now - it.value.createdAt > ASSEMBLY_TTL_MS }
     }
 
@@ -356,6 +360,7 @@ internal class MeshIpPacketRouter(
         private const val UDP_HEADER_BYTES = 8
         private const val DNS_QR = 0x8000
         private const val DNS_RD = 0x0100
+        private const val DNS_OPCODE_MASK = 0x7800
         private const val DNS_RA = 0x0080
         private const val DNS_RCODE_NO_ERROR = 0
         private const val DNS_RCODE_SERVER_FAILURE = 2
