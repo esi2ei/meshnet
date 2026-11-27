@@ -538,7 +538,7 @@ class MeshForegroundService : Service() {
         replayFrames = emptyList()
         replayIndex = 0
         replayActive = false
-        emit("Queued $queued durable frames for BLE transmission; messages retire on group receipt")
+        emit("Queued $queued durable frames across available local transports; messages retire on group receipt")
     }
 
     @Synchronized
