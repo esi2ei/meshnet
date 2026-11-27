@@ -99,7 +99,7 @@ Test with files of 1 byte, a few hundred bytes, exactly/around a chunk boundary,
 - Do not use real USDC or advertise payment/escrow functionality until the program has a reproducible build, actual program/admin key ownership, Devnet deployment, adversarial tests, external audit, upgrade-authority policy, emergency plan, and client transaction verification.
 - Keep program keypairs, wallet files, seed phrases, and signing passwords outside the repository.
 
-## 9. Release signing and package verification
+## 10. Release signing and package verification
 
 Create the release keystore in a private location outside this repository. Configure these environment variables locally or via a secrets manager:
 
@@ -114,6 +114,6 @@ Then build the Play/store package locally:
 
 The Gradle release gate must fail when signing data is missing or the keystore path is not an existing absolute path. Verify the resulting AAB's signer certificate and preserve the keystore/password backup securely. Never commit the keystore or secrets. Increment `versionCode` and set the final `versionName` only after the product owner chooses the release version.
 
-## 10. Final release decision
+## 11. Final release decision
 
 Release only after the required tests are green, all manual results are recorded, store/legal disclosures are complete, and every production blocker above is either implemented and independently reviewed or explicitly removed from the app's advertised scope. A passing test suite does not replace a cryptographic review, a smart-contract audit, or real-device interoperability validation.
