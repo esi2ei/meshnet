@@ -17,7 +17,7 @@ export default function SystemInfo({ logs, onClearLogs }: SystemInfoProps) {
             Browser demonstration log
           </h2>
           <p className="text-[11px] text-amber-300 mt-1">
-            This is not a blockchain explorer, radio monitor, or cryptographic audit log.
+            Demo-only events; not a blockchain explorer, radio monitor, or cryptographic audit log.
           </p>
         </div>
         <button onClick={onClearLogs} className="text-[11px] text-slate-300 border border-slate-800 px-3 py-1 rounded-lg hover:bg-slate-900">
@@ -41,21 +41,21 @@ export default function SystemInfo({ logs, onClearLogs }: SystemInfoProps) {
           <div className="flex items-center gap-2 text-amber-300 font-semibold">
             <AlertTriangle className="w-4 h-4" /> Verified implementation boundaries
           </div>
-          <p className="leading-relaxed">The native Android target currently contains BLE advertising/scanning, GATT peer connections, AES-GCM group-encrypted text frames, TTL relay, and process-local duplicate suppression.</p>
+          <p className="leading-relaxed">The native Android target contains BLE advertising/scanning, GATT peer connections, AES-GCM group-encrypted text frames, TTL relay, a persistent SQLite outbox, persistent replay-ID storage, and a user-started connected-device foreground service.</p>
           <div className="flex items-center gap-2 text-cyan-300 font-semibold">
             <Radio className="w-4 h-4" /> Not yet implemented
           </div>
           <ul className="list-disc list-inside space-y-1">
-            <li>Signal Protocol / per-device identity / forward secrecy</li>
-            <li>Persistent offline queue and background foreground-service lifecycle</li>
-            <li>Large-file and voice transfer, fragmentation and resume</li>
+            <li>Per-device identity, Double Ratchet sessions, forward secrecy and secure key rotation</li>
+            <li>Large-file/voice transfer, resumable chunks and congestion control</li>
             <li>Wi-Fi Aware, Wi-Fi Direct and hotspot metering</li>
-            <li>iOS runtime and real Solana payment/escrow</li>
+            <li>Production USDC escrow and wallet integration</li>
+            <li>iOS runtime (deferred)</li>
           </ul>
           <div className="flex items-center gap-2 text-red-300 font-semibold">
             <ShieldAlert className="w-4 h-4" /> Security warning
           </div>
-          <p className="leading-relaxed">Do not use the prototype for sensitive or financial data until peer authentication, key lifecycle, persistence, and independent security review are complete.</p>
+          <p className="leading-relaxed">The browser is a simulation. The Android target is an unvalidated prototype; no local Android build, instrumentation run, or physical-device validation has been completed for this branch. Do not use it for sensitive or financial traffic before independent security review.</p>
         </div>
       </div>
     </div>
