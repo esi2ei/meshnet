@@ -264,8 +264,11 @@ class MeshBleTransport(
         if (clients.containsKey(device.address) || pendingClients.containsKey(device.address)) return
         try {
             val gatt = device.connectGatt(appContext, false, clientCallback(device.address), BluetoothDevice.TRANSPORT_LE)
-            if (gatt != null) pendingClients[device.address] = gatt
-            else {
+            if (gatt != null) {
+                pendingClients[device.address] = gatt
+                // A fast failure callback can run before connectGatt returns its handle.
+                if (!seen.contains(device.address)) closeClient(device.address, gatt)
+            } else {
                 seen.remove(device.address)
                 onState("Unable to create GATT connection: ${device.address}")
             }
