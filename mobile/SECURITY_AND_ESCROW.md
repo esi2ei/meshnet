@@ -54,10 +54,10 @@ Do not accept or display real deposits until all of these are available and revi
 
 | Area | Current state | Safe next step |
 |---|---|---|
-| Large files | Not implemented; current frame cap is not a file protocol | Add a separate authenticated chunk manifest, bounded chunk window, resume bitmap, hash verification, cancellation, and quota controls |
-| Voice | Not implemented | Add explicit user-controlled recording, encrypted chunk streaming, consent and lifecycle controls |
-| Wi-Fi Aware / Wi-Fi Direct | Not implemented | Add transport abstraction and capability negotiation, then implement one transport at a time |
-| Congestion/adaptive routing | Only bounded BLE queues and TTL relay exist | Add per-peer metrics, backpressure, expiry-aware scheduling, and loop-safe route scoring |
+| Large files | Resumable 16 KiB file-transfer prototype is implemented; large-file streaming and transfer windows are not | Expand chunk windows with durable quotas, progress/cancel controls, and large-file streaming |
+| Voice | User-controlled 7-second AAC voice notes are transferred as encrypted files; live voice streaming is not implemented | Add encrypted low-latency streaming, jitter buffering, and explicit session controls |
+| Wi-Fi Aware / Wi-Fi Direct | Wi-Fi Direct group/discovery/TCP prototype is implemented; Wi-Fi Aware is not | Add Wi-Fi Aware capability negotiation and transport interoperability |
+| Congestion/adaptive routing | Per-peer BLE queue backoff and retry are implemented; multi-hop route scoring is not | Add per-peer route metrics, expiry-aware scheduling, and loop-safe next-hop selection |
 | iOS | Deferred by product direction | Keep postponed; do not start an iOS port |
 | Physical validation | Not performed | Build and run instrumented tests on at least two real Android phones and a three-node relay topology |
 
