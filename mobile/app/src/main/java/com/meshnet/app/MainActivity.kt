@@ -22,6 +22,7 @@ class MainActivity : Activity() {
     private lateinit var log: TextView
     private lateinit var keyInput: EditText
     private lateinit var messageInput: EditText
+    private lateinit var wifiAddress: EditText
     private var meshService: MeshForegroundService? = null
     private var bound = false
 
@@ -67,7 +68,24 @@ class MainActivity : Activity() {
             setOnClickListener { requestAndStart() }
         })
         root.addView(Button(this).apply {
-            text = "Stop BLE mesh"
+            text = "Create Wi-Fi Direct group"
+            setOnClickListener { runWifiAction { meshService?.createWifiDirectGroup() } }
+        })
+        root.addView(Button(this).apply {
+            text = "Discover Wi-Fi Direct peers"
+            setOnClickListener { runWifiAction { meshService?.discoverWifiDirect() } }
+        })
+        wifiAddress = EditText(this).apply { hint = "Wi-Fi Direct device address (AA:BB:CC:DD:EE:FF)" }
+        root.addView(wifiAddress)
+        root.addView(Button(this).apply {
+            text = "Connect to Wi-Fi Direct peer"
+            setOnClickListener {
+                val address = wifiAddress.text.toString().trim()
+                runWifiAction { meshService?.connectWifiDirect(address) }
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Stop BLE / Wi-Fi mesh"
             setOnClickListener {
                 startService(Intent(this@MainActivity, MeshForegroundService::class.java).apply {
                     action = MeshForegroundService.ACTION_STOP
@@ -140,7 +158,11 @@ class MainActivity : Activity() {
             mutableListOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT,
                 Manifest.permission.BLUETOOTH_ADVERTISE)
         } else mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        if (Build.VERSION.SDK_INT >= 33) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.S..32) permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (Build.VERSION.SDK_INT >= 33) {
+            permissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
         val missing = permissions.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) {
             requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS)
@@ -180,6 +202,12 @@ class MainActivity : Activity() {
             keyInput.text.clear()
         } catch (error: Exception) {
             toast(error.message ?: "Unable to start foreground service")
+        }
+    }
+
+    private fun runWifiAction(action: () -> Unit) {
+        try { action() } catch (error: Exception) {
+            toast(error.message ?: "Wi-Fi Direct action failed")
         }
     }
 
