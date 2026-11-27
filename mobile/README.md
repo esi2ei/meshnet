@@ -5,7 +5,7 @@ The native Android target uses real Android BLE advertising, scanning, and GATT.
 ## Implemented
 
 - BLE service UUID advertising, filtered scanning, GATT server/client connections, and reconnect discovery.
-- GATT frame fragmentation sized to the negotiated MTU, ordered per-peer writes, bounded write queues, bounded reassembly buffers, and reassembly expiry.
+- GATT frame fragmentation sized to the negotiated MTU, ordered per-peer writes, bounded write queues, bounded reassembly buffers, and reassembly expiry. Frames are capped at 640 bytes (64 chunks at the 23-byte default ATT MTU), with compact 128-bit node IDs to keep the maximum relay route within that budget.
 - Protocol v3 AES-256-GCM encrypted text and receipt frames with authenticated frame type, origin, frame ID, timestamp, receipt target, TTL, and route history; relays re-encrypt after updating route metadata. All participating phones must run the same protocol version.
 - Group-level application receipts: a sender retires its queued message when any member holding the shared group key receives it; receipt frames are themselves queued and relayed.
 - Persistent SQLite outbox (500-frame cap, 24-hour retention) and persistent receiver replay-ID cache (bounded to 4,096 IDs).
