@@ -693,6 +693,7 @@ class MainActivity : Activity() {
             log.append("\n$line")
             status.text = line.take(90)
             if (line.startsWith("File transfer progress:") ||
+                line.startsWith("Incoming file progress:") ||
                 line.startsWith("File transfer completed:") ||
                 line.contains("File transfer") && (line.contains("cancelled") || line.contains("paused"))
             ) transferStatus.text = line

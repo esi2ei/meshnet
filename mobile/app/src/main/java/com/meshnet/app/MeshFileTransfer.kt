@@ -51,7 +51,8 @@ class MeshFileTransfer(
         mkdirs()
         listFiles()?.filter {
             (it.name.endsWith(".part") || it.name.endsWith(".meta") ||
-                it.name.endsWith(".meta.tmp") || it.name.endsWith(".cancelled")) &&
+                it.name.endsWith(".meta.tmp") || it.name.endsWith(".cancelled") ||
+                it.name.endsWith(".cancelled.tmp")) &&
                 System.currentTimeMillis() - it.lastModified() > PARTIAL_TTL_MS
         }?.forEach { it.delete() }
     }
@@ -81,7 +82,8 @@ class MeshFileTransfer(
         activeSendThreads[id] = Thread.currentThread()
         try {
             val count = (size + CHUNK_BYTES - 1) / CHUNK_BYTES
-            onEvent("File transfer progress: $name · 0/$count chunks")
+            val startedAtMs = System.currentTimeMillis()
+            onEvent("File transfer progress: $name · 0/$count chunks · 0% · 0/$size bytes · 0 B/s")
             val safeName = Base64.encodeToString(
                 name.toByteArray(Charsets.UTF_8),
                 Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
@@ -131,7 +133,14 @@ class MeshFileTransfer(
                     return false
                 }
                 next = ack.coerceIn(next + 1, count)
-                onEvent("File transfer progress: $name · $next/$count chunks")
+                val acknowledgedBytes = minOf(size.toLong(), next.toLong() * CHUNK_BYTES)
+                val elapsedMs = (System.currentTimeMillis() - startedAtMs).coerceAtLeast(1L)
+                val averageBytesPerSecond = acknowledgedBytes * 1_000L / elapsedMs
+                val percentage = (acknowledgedBytes * 100L / size).toInt().coerceIn(0, 100)
+                onEvent(
+                    "File transfer progress: $name · $next/$count chunks · $percentage% · " +
+                        "$acknowledgedBytes/$size bytes · $averageBytesPerSecond B/s"
+                )
             }
 
             val afterSend = inspect(uri)
@@ -382,6 +391,8 @@ class MeshFileTransfer(
                 checkpoint(state)
                 state.lastAckNext = next
                 state.unackedChunks = 0
+                val percentage = (next * 100 / state.chunks).coerceIn(0, 100)
+                onEvent("Incoming file progress: ${state.name} · $next/${state.chunks} chunks · $percentage%")
                 sendAck(id, next)
             }
         } catch (error: Exception) {
@@ -552,14 +563,23 @@ class MeshFileTransfer(
         return root.listFiles()
             ?.filter { it.isFile && it.name.endsWith(".done") }
             ?.mapNotNull { marker ->
-                val record = runCatching { JSONObject(marker.readText()) }.getOrNull() ?: return@mapNotNull null
-                val name = record.optString("destination")
-                if (name.isBlank() || File(name).name != name) return@mapNotNull null
-                val file = runCatching { File(root, name).canonicalFile }.getOrNull()
-                    ?: return@mapNotNull null
-                if (file.parentFile == rootPath && file.isFile &&
-                    file.length() == record.optLong("size", -1L) && file.length() > 0L
-                ) marker to file else null
+                val record = runCatching { JSONObject(marker.readText()) }.getOrNull()
+                val name = record?.optString("destination").orEmpty()
+                val file = if (name.isNotBlank() && File(name).name == name) {
+                    runCatching { File(root, name).canonicalFile }.getOrNull()
+                } else null
+                val valid = file != null &&
+                    file.parentFile == rootPath &&
+                    file.isFile &&
+                    file.length() == record?.optLong("size", -1L) &&
+                    file.length() > 0L
+                if (valid) {
+                    marker to file!!
+                } else {
+                    // Discard stale/malformed markers so they cannot consume unbounded inbox metadata.
+                    marker.delete()
+                    null
+                }
             } ?: emptyList()
     }
 

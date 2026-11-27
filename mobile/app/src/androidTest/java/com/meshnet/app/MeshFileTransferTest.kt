@@ -16,7 +16,6 @@ import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 
 class MeshFileTransferTest {
     private val transfers = mutableListOf<MeshFileTransfer>()
@@ -240,6 +239,56 @@ class MeshFileTransferTest {
         receiver.accept(manifest)
         assertFalse(File(receivedDir, "abort_00001.part").exists())
         assertTrue(File(receivedDir, "abort_00001.cancelled").exists())
+    }
+
+    @Test fun rotatesTransferIdWhenRetryingAfterCancellation() {
+        val sent = CopyOnWriteArrayList<String>()
+        val firstManifest = CountDownLatch(1)
+        val firstSender = track(MeshFileTransfer(context, { message ->
+            sent.add(message)
+            if (message.startsWith("~F2M|")) firstManifest.countDown()
+            true
+        }, {}))
+        val first = Thread({ firstSender.send(Uri.fromFile(source)) }, "mesh-file-first-cancel")
+        first.start()
+        assertTrue(firstManifest.await(5, TimeUnit.SECONDS))
+        val firstId = sent.first { it.startsWith("~F2M|") }.split('|')[1]
+        assertTrue(firstSender.cancelOutgoing())
+        first.join(5_000)
+        assertFalse(first.isAlive)
+
+        val secondManifest = CountDownLatch(1)
+        val secondSender = track(MeshFileTransfer(context, { message ->
+            sent.add(message)
+            if (message.startsWith("~F2M|")) secondManifest.countDown()
+            true
+        }, {}))
+        val second = Thread({ secondSender.send(Uri.fromFile(source)) }, "mesh-file-second-cancel")
+        second.start()
+        assertTrue(secondManifest.await(5, TimeUnit.SECONDS))
+        val secondId = sent.last { it.startsWith("~F2M|") }.split('|')[1]
+        assertTrue("A cancelled transfer must use a fresh ID on retry", firstId != secondId)
+        assertTrue(secondSender.cancelOutgoing())
+        second.join(5_000)
+        assertFalse(second.isAlive)
+    }
+
+    @Test fun reportsAcknowledgedTransferProgressAndThroughput() {
+        val senderEvents = mutableListOf<String>()
+        val receiverEvents = mutableListOf<String>()
+        lateinit var sender: MeshFileTransfer
+        val receiver = track(
+            MeshFileTransfer(context, { message -> sender.accept(message); true }, { receiverEvents.add(it) })
+        )
+        sender = track(
+            MeshFileTransfer(context, { message ->
+                receiver.accept(message)
+                true
+            }, { senderEvents.add(it) })
+        )
+        assertTrue(sender.send(Uri.fromFile(source)))
+        assertTrue(senderEvents.any { it.contains("B/s") && it.contains("%") })
+        assertTrue(receiverEvents.any { it.startsWith("Incoming file progress:") })
     }
 
     @Test fun acceptsFileAt10MiBBoundaryUsingStreamingSource() {
