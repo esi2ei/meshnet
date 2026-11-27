@@ -324,10 +324,10 @@ class MeshWifiAwareTransport(
     }
 
     @Synchronized
-    fun sendToPeers(frame: ByteArray): Boolean {
+    fun sendToPeers(frame: ByteArray, excludePeer: String? = null): Boolean {
         if (frame.isEmpty() || frame.size > MeshFrame.MAX_FRAME_BYTES) return false
         var sent = false
-        sockets.toList().forEach { socket ->
+        sockets.toList().filter { it.inetAddress.hostAddress != excludePeer }.forEach { socket ->
             try {
                 synchronized(socket) {
                     val output = DataOutputStream(socket.getOutputStream())

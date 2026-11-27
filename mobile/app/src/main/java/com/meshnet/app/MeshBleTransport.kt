@@ -244,13 +244,13 @@ class MeshBleTransport(
         }
     }
 
-    fun sendToPeers(payload: ByteArray): Boolean {
+    fun sendToPeers(payload: ByteArray, excludePeer: String? = null): Boolean {
         if (payload.isEmpty() || payload.size > MeshFrame.MAX_FRAME_BYTES) {
             onState("Rejected oversized MeshNet frame")
             return false
         }
         var queuedAny = false
-        clients.entries.toList().forEach { (address, gatt) ->
+        clients.entries.toList().filter { it.key != excludePeer }.forEach { (address, gatt) ->
             val health = peerHealth.computeIfAbsent(address) { PeerHealth() }
             val now = System.currentTimeMillis()
             if (now < synchronized(health) { health.backoffUntil }) {

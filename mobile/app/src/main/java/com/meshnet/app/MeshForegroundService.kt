@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Binder
 import android.os.Build
@@ -22,6 +23,7 @@ class MeshForegroundService : Service() {
     private var wifiAwareTransport: MeshWifiAwareTransport? = null
     private var router: MeshRouter? = null
     private var fileTransfer: MeshFileTransfer? = null
+    private var liveVoiceCall: MeshLiveVoiceCall? = null
     private lateinit var outbox: MeshQueueStore
     private lateinit var secretStore: MeshSecretStore
     private var listener: ((String) -> Unit)? = null
@@ -79,7 +81,12 @@ class MeshForegroundService : Service() {
         }
 
         if (transport == null && !passphrase.isNullOrBlank()) {
-            startForeground(NOTIFICATION_ID, notification("Starting BLE mesh…"))
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(NOTIFICATION_ID, notification("Starting BLE mesh…"),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+            } else {
+                startForeground(NOTIFICATION_ID, notification("Starting BLE mesh…"))
+            }
             startMesh(passphrase)
         } else if (transport == null) {
             emit("No saved group credentials. Open MeshNet and enter the group passphrase.")
@@ -104,6 +111,46 @@ class MeshForegroundService : Service() {
     }
 
     fun latestReceivedVoiceNote(): java.io.File? = fileTransfer?.latestVoiceNote()
+    fun isLiveVoiceActive(): Boolean = liveVoiceCall?.isActive() == true
+
+    fun startLiveVoiceCall(): String {
+        val call = liveVoiceCall ?: throw IllegalStateException("Mesh service is not ready")
+        promoteForMicrophone()
+        return try { call.startOutgoing() } catch (error: Exception) {
+            demoteMicrophoneForeground()
+            throw error
+        }
+    }
+
+    fun joinIncomingLiveVoiceCall(): String {
+        val call = liveVoiceCall ?: throw IllegalStateException("Mesh service is not ready")
+        promoteForMicrophone()
+        return try { call.joinIncoming() } catch (error: Exception) {
+            demoteMicrophoneForeground()
+            throw error
+        }
+    }
+
+    fun endLiveVoiceCall() {
+        liveVoiceCall?.end()
+        demoteMicrophoneForeground()
+    }
+
+    private fun promoteForMicrophone() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            startForeground(
+                NOTIFICATION_ID, notification("MeshNet live voice active"),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            )
+        }
+    }
+
+    private fun demoteMicrophoneForeground() {
+        if (Build.VERSION.SDK_INT >= 29) {
+            startForeground(NOTIFICATION_ID, notification("MeshNet running"),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        }
+    }
 
     fun discoverWifiDirect() {
         wifiAwareTransport?.stop()
@@ -172,14 +219,46 @@ class MeshForegroundService : Service() {
             hasReceived = outbox::hasReceived,
             markReceived = outbox::markReceived,
             acknowledge = outbox::acknowledge,
-            onPayload = { plaintext -> fileTransfer?.accept(plaintext) == true }
+            onPayload = { plaintext -> fileTransfer?.accept(plaintext) == true },
+            sendEphemeralFrame = { frame ->
+                val bleSent = transport?.sendToPeers(frame) == true
+                val p2pSent = wifiTransport?.sendToPeers(frame) == true
+                val awareSent = wifiAwareTransport?.sendToPeers(frame) == true
+                bleSent || p2pSent || awareSent
+            },
+            onEphemeralPayload = { plaintext -> liveVoiceCall?.accept(plaintext) },
+            sendRelay = { frame, ingress ->
+                if (!outbox.enqueue(frame)) {
+                    emit("Relay frame could not be stored in the durable outbox")
+                    false
+                } else {
+                    transport?.sendToPeers(frame, ingress)
+                    wifiTransport?.sendToPeers(frame, ingress)
+                    wifiAwareTransport?.sendToPeers(frame, ingress)
+                    true
+                }
+            },
+            sendEphemeralRelay = { frame, ingress ->
+                val bleSent = transport?.sendToPeers(frame, ingress) == true
+                val p2pSent = wifiTransport?.sendToPeers(frame, ingress) == true
+                val awareSent = wifiAwareTransport?.sendToPeers(frame, ingress) == true
+                bleSent || p2pSent || awareSent
+            }
+        )
+        liveVoiceCall = MeshLiveVoiceCall(
+            context = this,
+            sendEphemeral = { text -> router?.sendEphemeral(text) ?: false },
+            onEvent = { message ->
+                emit(message)
+                if (message.contains("ended by another participant")) demoteMicrophoneForeground()
+            }
         )
         transport = MeshBleTransport(
             this,
             { address, connected ->
                 emit("${if (connected) "Connected" else "Disconnected"}: $address")
             },
-            { _, payload -> router?.receive(payload) },
+            { peer, payload -> router?.receive(payload, peer) },
             { state ->
                 emit(state)
                 handleTransportState(state)
@@ -189,7 +268,7 @@ class MeshForegroundService : Service() {
             transport?.start()
             wifiTransport = MeshWifiDirectTransport(
                 this,
-                { _, payload -> router?.receive(payload) },
+                { peer, payload -> router?.receive(payload, peer) },
                 { state ->
                     emit(state)
                     if (state.contains("data channel ready")) handleTransportState("Wi-Fi Direct channel ready")
@@ -198,7 +277,7 @@ class MeshForegroundService : Service() {
             wifiAwareTransport = MeshWifiAwareTransport(
                 this,
                 passphrase,
-                { _, payload -> router?.receive(payload) },
+                { peer, payload -> router?.receive(payload, peer) },
                 { state ->
                     emit(state)
                     if (state.contains("data channel ready")) handleTransportState("Wi-Fi Aware channel ready")
@@ -263,6 +342,8 @@ class MeshForegroundService : Service() {
 
     @Synchronized
     private fun stopMesh() {
+        liveVoiceCall?.end()
+        liveVoiceCall = null
         transport?.stop()
         transport = null
         wifiTransport?.stop()
