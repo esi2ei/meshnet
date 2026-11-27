@@ -213,14 +213,28 @@ class MeshBleTransport(
             .setIncludeDeviceName(false)
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
+        var advertisingStarted = false
+        var scanningStarted = false
         try {
             bt.bluetoothLeAdvertiser?.startAdvertising(settings, data, advertiseCallback)
+                ?: error("BLE advertiser is unavailable")
+            advertisingStarted = true
+        } catch (error: Exception) {
+            onState("BLE advertising failed: ${error.message}")
+        }
+        try {
             val filters = listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(SERVICE_UUID)).build())
             val scanSettings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
             bt.bluetoothLeScanner?.startScan(filters, scanSettings, scanCallback)
-            onState("BLE discovery started")
+                ?: error("BLE scanner is unavailable")
+            scanningStarted = true
         } catch (error: Exception) {
-            onState("Unable to start BLE advertising or scanning: ${error.message}")
+            onState("BLE scanning failed: ${error.message}")
+        }
+        if (advertisingStarted && scanningStarted) {
+            onState("BLE advertising and scanning active")
+        } else if (!advertisingStarted || !scanningStarted) {
+            onState("BLE is operating with a missing radio role; starting a local Wi-Fi fallback is recommended")
         }
     }
 
