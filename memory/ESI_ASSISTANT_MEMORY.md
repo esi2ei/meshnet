@@ -13,13 +13,14 @@ Working branch: fix/meshnet-ci-vite-20261127
 
 ## Branch state at review
 
-- Reviewed head before this update: 3f00d5e8fbde1fc8222421e8a2a650a9a1b6de53 (2026-11-27).
-- The branch was 137 commits ahead of main and 0 behind; merge base was e8a73a773797f36c0e6fde3d8e096f0e93b79b4d.
+- Reviewed head before implementation: 3f00d5e8fbde1fc8222421e8a2a650a9a1b6de53 (2026-11-27).
+- Implementation commit: 8cff55018cafd4907799fd8f408f73bdc383c310; this is the new branch head at the time of this memory update.
+- Before implementation the branch was 137 commits ahead of main and 0 behind; after the implementation commit it is 138 commits ahead and 0 behind. Merge base: e8a73a773797f36c0e6fde3d8e096f0e93b79b4d.
 - The branch was present and unprotected.
 - No assistant-memory branch and no memory/ESI_ASSISTANT_MEMORY.md file existed in this repository at review time. This memory is being kept on the owner's requested working branch so work remains on one branch.
 - No open pull requests or issues were found in the repository during review.
 - The workflow .github/workflows/webpack.yml is manual-only (workflow_dispatch). Do not dispatch it without explicit authorization.
-- The latest run visible during review was run 47, cancelled, on older SHA cfcab6cdd6eac6fccd9587c3355652c1b2665e17; it does not validate the reviewed branch head. No CI was started during this work.
+- The latest run visible during final verification was run 51, successful, on older SHA 0385f4f342f94fa760337510cbd5675139cb7aad; it does not validate the current branch head. Runs 50 and 49 were failed/cancelled on other older SHAs. No CI was started during this work.
 
 ## Implemented product scope
 
@@ -33,7 +34,7 @@ The topology map in the browser is a simulator, not a real radio scan. The Andro
 - Added a protocol guard that requires the transport chunk-envelope ID to match the signed voucher ID or signed acknowledgement's voucher ID.
 - Tightened chunk framing: non-final chunks must be exactly 48 characters and every chunk must be non-empty and no larger than 48 characters.
 - Added instrumentation test cases for matching IDs, mismatched payment IDs, mismatched acknowledgement IDs, and empty IDs.
-- CI has not been run. The new tests are source changes only and are not reported as passing until executed.
+- CI has not been run. The new tests are source changes only and are not reported as passing until executed. Current head 8cff55018cafd4907799fd8f408f73bdc383c310 is not covered by the previously observed run 51.
 
 ## Remaining work and release blockers
 
