@@ -158,13 +158,26 @@ class MainActivity : Activity() {
         if (requestCode == REQUEST_FILE && resultCode == RESULT_OK) {
             val uri = data?.data ?: return
             try {
-                val accepted = meshService?.sendFile(uri)
-                    ?: throw IllegalStateException("Mesh service is not connected")
-                if (!accepted) toast("File transfer could not be queued; check outbox capacity")
+                queueFile(uri)
             } catch (error: Exception) {
                 toast(error.message ?: "Unable to send file")
             }
         }
+    }
+
+    private fun queueFile(uri: Uri) {
+        Thread({
+            try {
+                val accepted = meshService?.sendFile(uri)
+                    ?: throw IllegalStateException("Mesh service is not connected")
+                runOnUiThread {
+                    if (accepted) toast("File queued for encrypted mesh transfer")
+                    else toast("File transfer could not be fully queued; check outbox capacity")
+                }
+            } catch (error: Exception) {
+                runOnUiThread { toast(error.message ?: "Unable to queue file transfer") }
+            }
+        }, "meshnet-file-send").start()
     }
 
     private fun requestVoiceRecording() {
@@ -217,10 +230,7 @@ class MainActivity : Activity() {
         try {
             media.stop()
             file?.let {
-                val accepted = meshService?.sendFile(Uri.fromFile(it))
-                    ?: throw IllegalStateException("Mesh service is not connected")
-                if (accepted) toast("Voice note queued for encrypted mesh transfer")
-                else toast("Voice note could not be queued; check outbox capacity")
+                queueFile(Uri.fromFile(it))
             }
         } catch (error: Exception) {
             file?.delete()
