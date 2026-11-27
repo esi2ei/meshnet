@@ -109,8 +109,8 @@ class MeshRouter(
             }
             val target = frame.ackFor ?: return
             val removed = acknowledge(target)
-            rememberBestRoute(frame)
-            relayIfNeeded(frame, plaintext)
+            rememberBestRoute(frame, viaPeer)
+            relayIfNeeded(frame, plaintext, viaPeer)
             markReceived(frame.id, frame.createdAt)
             remember(seen, frame.id)
             if (removed > 0) onMessage("Group receipt received for message $target")
