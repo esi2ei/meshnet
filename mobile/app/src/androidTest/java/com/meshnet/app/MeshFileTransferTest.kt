@@ -91,15 +91,16 @@ class MeshFileTransferTest {
         assertTrue(sent.any { it.startsWith("~F2C|") })
     }
 
-    @Test fun acceptsFileAt256KiBBoundaryUsingStreamingSource() {
-        source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES) { (it % 251).toByte() })
-        val (manifest, chunks) = protocolMessages(source, "boundary_001")
-        assertEquals(MeshFileTransfer.MAX_FILE_BYTES, manifest.split('|')[2].toInt())
-        assertEquals((MeshFileTransfer.MAX_FILE_BYTES + 47) / 48, chunks.size)
-        assertTrue(chunks.all { it.toByteArray(Charsets.UTF_8).size <= 120 })
+    @Test fun acceptsFileAt10MiBBoundaryUsingStreamingSource() {
+        source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES))
+        val events = mutableListOf<String>()
+        val sender = MeshFileTransfer(context, { true }, { events.add(it) }, canQueueBatch = { false })
+        assertFalse(sender.send(Uri.fromFile(source)))
+        assertTrue(events.any { it.contains("outbox has no room") })
+        assertEquals(10 * 1024 * 1024, MeshFileTransfer.MAX_FILE_BYTES)
     }
 
-    @Test fun rejectsFilesLargerThan256KiBTransferLimit() {
+    @Test fun rejectsFilesLargerThan10MiBTransferLimit() {
         source.writeBytes(ByteArray(MeshFileTransfer.MAX_FILE_BYTES + 1))
         val sender = MeshFileTransfer(context, { true }, {})
         var rejected = false

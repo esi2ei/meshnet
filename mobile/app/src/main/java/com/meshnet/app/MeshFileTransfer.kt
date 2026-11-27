@@ -13,7 +13,10 @@ import java.security.MessageDigest
 import java.util.BitSet
 import java.util.concurrent.ConcurrentHashMap
 
-/** Bounded streaming file transfer with receiver-acknowledged windows and durable resume checkpoints. */
+/**
+ * Bounded streaming file transfer with receiver-acknowledged windows and durable resume
+ * checkpoints. Sender I/O is streaming; receiver file data is checkpointed in batches.
+ */
 class MeshFileTransfer(
     private val context: Context,
     private val sendMessage: (String) -> Boolean,
@@ -21,10 +24,18 @@ class MeshFileTransfer(
     private val canQueueBatch: (Int) -> Boolean = { true }
 ) {
     private data class Incoming(
-        val name: String, val size: Int, val chunks: Int, val digest: String,
-        val file: File, val meta: File, val received: BitSet,
-        var lastAckNext: Int = 0, var unackedChunks: Int = 0
+        val name: String,
+        val size: Int,
+        val chunks: Int,
+        val digest: String,
+        val file: File,
+        val meta: File,
+        val received: BitSet,
+        var handle: RandomAccessFile?,
+        var lastAckNext: Int = 0,
+        var unackedChunks: Int = 0
     )
+
     private class SenderAck {
         val lock = java.lang.Object()
         var hasAck = false
@@ -33,6 +44,7 @@ class MeshFileTransfer(
 
     private val incoming = ConcurrentHashMap<String, Incoming>()
     private val senderAcks = ConcurrentHashMap<String, SenderAck>()
+    private val activeSends = ConcurrentHashMap.newKeySet<String>()
     private val root = File(context.filesDir, "meshnet-received").apply {
         mkdirs()
         listFiles()?.filter {
@@ -54,73 +66,82 @@ class MeshFileTransfer(
             .let { if (it.isBlank() || it == "." || it == "..") "mesh-file.bin" else it }
         val inspected = inspect(uri)
         require(inspected.first in 1..MAX_FILE_BYTES.toLong()) {
-            "File must be between 1 byte and 256 KiB"
+            "File must be between 1 byte and 10 MiB"
         }
         val size = inspected.first.toInt()
         val digest = inspected.second
         val id = transferIdFor(digest, name)
-        val count = (size + CHUNK_BYTES - 1) / CHUNK_BYTES
-        val safeName = Base64.encodeToString(
-            name.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
-        )
+        if (!activeSends.add(id)) {
+            onEvent("File transfer $id is already active on this device")
+            return false
+        }
         val ackState = senderAcks.computeIfAbsent(id) { SenderAck() }
-        synchronized(ackState.lock) {
-            ackState.hasAck = false
-            ackState.nextChunk = 0
-        }
-
-        if (!canQueueBatch(1)) {
-            onEvent("File not started: the durable outbox has no room for its manifest")
-            return false
-        }
-        if (!sendMessage("~F2M|$id|$size|$count|$digest|$safeName")) {
-            onEvent("File manifest could not be queued")
-            return false
-        }
-        var next = awaitCheckpoint(ackState, null, INITIAL_ACK_TIMEOUT_MS)
-        if (next == null) {
-            onEvent("File transfer $id paused: receiver checkpoint was not received; retry with the same file")
-            return false
-        }
-        next = next.coerceIn(0, count)
-
-        while (next < count) {
-            if (Thread.currentThread().isInterrupted) {
-                onEvent("File transfer $id interrupted at chunk $next/$count")
+        try {
+            val count = (size + CHUNK_BYTES - 1) / CHUNK_BYTES
+            val safeName = Base64.encodeToString(
+                name.toByteArray(Charsets.UTF_8),
+                Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+            )
+            synchronized(ackState.lock) {
+                ackState.hasAck = false
+                ackState.nextChunk = 0
+            }
+            if (!canQueueBatch(1)) {
+                onEvent("File not started: the durable outbox has no room for its manifest")
                 return false
             }
-            val end = minOf(next + WINDOW_SIZE, count)
-            val windowCount = end - next
-            if (!waitForOutboxCapacity(windowCount)) {
-                onEvent("File transfer $id paused at chunk $next/$count: outbox remained full")
+            if (!sendMessage("~F2M|$id|$size|$count|$digest|$safeName")) {
+                onEvent("File manifest could not be queued")
                 return false
             }
-            var ack: Int? = null
-            var retry = 0
-            while (ack == null && retry <= MAX_WINDOW_RETRIES) {
-                if (!sendWindow(uri, id, size, count, next, end)) {
-                    onEvent("File transfer $id paused at chunk $next/$count: source changed or a chunk could not be queued")
+
+            var next = awaitCheckpoint(ackState, null, INITIAL_ACK_TIMEOUT_MS)
+            if (next == null) {
+                onEvent("File transfer $id paused: receiver checkpoint was not received; retry with the same file")
+                return false
+            }
+            next = next.coerceIn(0, count)
+
+            while (next < count) {
+                if (Thread.currentThread().isInterrupted) {
+                    onEvent("File transfer $id interrupted at chunk $next/$count")
                     return false
                 }
-                ack = awaitCheckpoint(ackState, next, ACK_TIMEOUT_MS)
-                if (ack == null) retry++
+                val end = minOf(next + WINDOW_SIZE, count)
+                val windowCount = end - next
+                if (!waitForOutboxCapacity(windowCount)) {
+                    onEvent("File transfer $id paused at chunk $next/$count: outbox remained full")
+                    return false
+                }
+                var ack: Int? = null
+                var retry = 0
+                while (ack == null && retry <= MAX_WINDOW_RETRIES) {
+                    if (!sendWindow(uri, id, size, count, next, end)) {
+                        onEvent("File transfer $id paused at chunk $next/$count: source changed or a chunk could not be queued")
+                        return false
+                    }
+                    ack = awaitCheckpoint(ackState, next, ACK_TIMEOUT_MS)
+                    if (ack == null) retry++
+                }
+                if (ack == null) {
+                    onEvent("File transfer $id paused at chunk $next/$count after $MAX_WINDOW_RETRIES retries; reselect the same file to resume")
+                    return false
+                }
+                next = ack.coerceIn(next + 1, count)
+                onEvent("File transfer progress: $name · $next/$count chunks")
             }
-            if (ack == null) {
-                onEvent("File transfer $id paused at chunk $next/$count after $MAX_WINDOW_RETRIES retries; reselect the same file to resume")
+
+            val afterSend = inspect(uri)
+            if (afterSend.first != inspected.first || afterSend.second != inspected.second) {
+                onEvent("File source changed while sending; receiver will reject the digest")
                 return false
             }
-            next = ack.coerceIn(next + 1, count)
-            onEvent("File transfer progress: $name · $next/$count chunks")
+            onEvent("File transfer completed: $name ($size bytes, $count acknowledged chunks)")
+            return true
+        } finally {
+            activeSends.remove(id)
+            senderAcks.remove(id, ackState)
         }
-
-        val afterSend = inspect(uri)
-        if (afterSend.first != inspected.first || afterSend.second != inspected.second) {
-            onEvent("File source changed while sending; receiver will reject the digest")
-            return false
-        }
-        senderAcks.remove(id, ackState)
-        onEvent("File transfer completed: $name ($size bytes, $count acknowledged chunks)")
-        return true
     }
 
     fun latestVoiceNote(): File? = root.listFiles()
@@ -158,6 +179,17 @@ class MeshFileTransfer(
         val name = compactName(decodedName.replace(Regex("[^A-Za-z0-9._-]"), "_"))
             .let { if (it.isBlank() || it == "." || it == "..") "mesh-file.bin" else it }
 
+        incoming[id]?.let { existing ->
+            if (existing.name == name && existing.size == size &&
+                existing.chunks == count && existing.digest == digest
+            ) {
+                sendAck(id, existing.lastAckNext)
+                return true
+            }
+            closeHandle(existing)
+            incoming.remove(id)
+        }
+
         val done = File(root, "$id.done")
         if (done.exists()) {
             val completed = runCatching { JSONObject(done.readText()) }.getOrNull()
@@ -176,38 +208,61 @@ class MeshFileTransfer(
         if (incoming.size >= MAX_ACTIVE && !incoming.containsKey(id)) return true
 
         try {
-            val restored = if (partial.exists() && meta.exists()) runCatching {
-                val saved = JSONObject(meta.readText())
-                if (saved.optString("name") == name && saved.optInt("size") == size &&
-                    saved.optInt("chunks") == count && saved.optString("digest") == digest
-                ) BitSet.valueOf(Base64.decode(saved.optString("received"), Base64.DEFAULT))
-                else null
+            val saved = if (partial.exists() && meta.exists()) runCatching {
+                JSONObject(meta.readText())
             }.getOrNull() else null
-            val bits = restored ?: run {
+            val matches = saved != null && saved.optString("name") == name &&
+                saved.optInt("size") == size && saved.optInt("chunks") == count &&
+                saved.optString("digest") == digest
+            val bits = if (matches) restoreReceivedBits(saved!!, count) else {
                 partial.delete()
                 meta.delete()
-                RandomAccessFile(partial, "rw").use { it.setLength(size.toLong()) }
                 BitSet()
             }
+            val handle = RandomAccessFile(partial, "rw")
+            if (!matches || handle.length() != size.toLong()) {
+                handle.setLength(size.toLong())
+                bits.clear()
+            }
             if (bits.nextSetBit(count) >= 0) bits.clear(count, bits.length())
-            val state = Incoming(name, size, count, digest, partial, meta, bits)
+            val state = Incoming(name, size, count, digest, partial, meta, bits, handle)
             incoming[id] = state
-            persistMetadata(state)
-            val resumeAt = nextContiguous(state)
-            state.lastAckNext = resumeAt
-            sendAck(id, resumeAt)
+            checkpoint(state)
+            state.lastAckNext = nextContiguous(state)
+            sendAck(id, state.lastAckNext)
             onEvent(
                 if (bits.cardinality() == 0) "Incoming file: $name ($size bytes)"
                 else "Resuming file: $name (${bits.cardinality()}/$count chunks already stored)"
             )
             if (state.received.cardinality() == state.chunks) finishIfComplete(id, state)
         } catch (error: Exception) {
-            incoming.remove(id)
+            incoming.remove(id)?.let(::closeHandle)
             partial.delete()
             meta.delete()
             onEvent("Unable to create private transfer checkpoint: ${error.message}")
         }
         return true
+    }
+
+    private fun restoreReceivedBits(saved: JSONObject, count: Int): BitSet {
+        val contiguous = saved.optInt("contiguous", -1)
+        if (contiguous >= 0) {
+            val bits = BitSet(count)
+            bits.set(0, contiguous.coerceIn(0, count))
+            val sparse = runCatching {
+                BitSet.valueOf(Base64.decode(saved.optString("sparse", ""), Base64.DEFAULT))
+            }.getOrDefault(BitSet())
+            var bit = sparse.nextSetBit(0)
+            while (bit >= 0 && contiguous + bit < count) {
+                bits.set(contiguous + bit)
+                bit = sparse.nextSetBit(bit + 1)
+            }
+            return bits
+        }
+        // Compatibility with checkpoints written by the earlier F2 implementation.
+        return runCatching {
+            BitSet.valueOf(Base64.decode(saved.optString("received", ""), Base64.DEFAULT))
+        }.getOrDefault(BitSet())
     }
 
     private fun receiveChunk(fields: List<String>): Boolean {
@@ -229,61 +284,101 @@ class MeshFileTransfer(
             data.size != minOf(CHUNK_BYTES, state.size - index * CHUNK_BYTES)
         ) return
         if (state.received[index]) {
-            sendAck(id, nextContiguous(state))
+            sendAck(id, state.lastAckNext)
             return
         }
         try {
-            RandomAccessFile(state.file, "rw").use {
-                it.seek((index * CHUNK_BYTES).toLong())
-                it.write(data)
-                it.fd.sync()
-            }
+            val handle = state.handle ?: throw IllegalStateException("Transfer file handle is closed")
+            handle.seek((index * CHUNK_BYTES).toLong())
+            handle.write(data)
             state.received.set(index)
-            persistMetadata(state)
             state.unackedChunks++
             val next = nextContiguous(state)
             if (next - state.lastAckNext >= ACK_EVERY_CHUNKS ||
                 next == state.chunks || state.unackedChunks >= ACK_EVERY_CHUNKS
             ) {
+                // ACK only after both file bytes and the compact resume checkpoint are durable.
+                checkpoint(state)
                 state.lastAckNext = next
                 state.unackedChunks = 0
                 sendAck(id, next)
             }
             if (state.received.cardinality() == state.chunks) finishIfComplete(id, state)
         } catch (error: Exception) {
-            onEvent("File chunk could not be stored durably: ${error.message}")
+            onEvent("File chunk could not be checkpointed durably: ${error.message}")
+        }
+    }
+
+    private fun checkpoint(state: Incoming) {
+        val handle = state.handle ?: throw IllegalStateException("Transfer file handle is closed")
+        handle.fd.sync()
+        val contiguous = nextContiguous(state)
+        val sparse = state.received.get(contiguous, state.chunks)
+        val json = JSONObject()
+            .put("name", state.name)
+            .put("size", state.size)
+            .put("chunks", state.chunks)
+            .put("digest", state.digest)
+            .put("contiguous", contiguous)
+            .put("sparse", Base64.encodeToString(sparse.toByteArray(), Base64.NO_WRAP))
+        persistMetadata(state.meta, json)
+    }
+
+    private fun persistMetadata(meta: File, json: JSONObject) {
+        val temp = File(root, "${meta.name}.tmp")
+        FileOutputStream(temp).use { output ->
+            output.write(json.toString().toByteArray(Charsets.UTF_8))
+            output.fd.sync()
+        }
+        if (meta.exists() && !meta.delete()) {
+            temp.delete()
+            throw IllegalStateException("Unable to replace transfer checkpoint")
+        }
+        if (!temp.renameTo(meta)) {
+            temp.delete()
+            throw IllegalStateException("Unable to persist transfer resume state")
         }
     }
 
     private fun finishIfComplete(id: String, state: Incoming) {
         if (state.received.cardinality() != state.chunks) return
-        if (digestFile(state.file) != state.digest) {
-            state.file.delete()
-            state.meta.delete()
-            incoming.remove(id)
-            onEvent("File integrity check failed: ${state.name}")
-            return
-        }
-        val destination = uniqueDestination(state.name)
-        if (state.file.renameTo(destination)) {
-            val done = File(root, "$id.done")
-            val record = JSONObject()
-                .put("name", state.name)
-                .put("size", state.size)
-                .put("chunks", state.chunks)
-                .put("digest", state.digest)
-            runCatching {
-                FileOutputStream(done).use { output ->
-                    output.write(record.toString().toByteArray(Charsets.UTF_8))
-                    output.fd.sync()
-                }
+        try {
+            checkpoint(state)
+            closeHandle(state)
+            if (digestFile(state.file) != state.digest) {
+                state.file.delete()
+                state.meta.delete()
+                incoming.remove(id)
+                onEvent("File integrity check failed: ${state.name}")
+                return
             }
-            state.meta.delete()
-            incoming.remove(id)
-            sendAck(id, state.chunks)
-            onEvent("File received and verified: ${destination.name} (${state.size} bytes)")
-        } else {
-            onEvent("Verified file could not be moved; transfer checkpoint retained for retry")
+            val destination = uniqueDestination(state.name)
+            if (state.file.renameTo(destination)) {
+                val done = File(root, "$id.done")
+                val record = JSONObject()
+                    .put("name", state.name)
+                    .put("size", state.size)
+                    .put("chunks", state.chunks)
+                    .put("digest", state.digest)
+                runCatching {
+                    FileOutputStream(done).use { output ->
+                        output.write(record.toString().toByteArray(Charsets.UTF_8))
+                        output.fd.sync()
+                    }
+                }
+                state.meta.delete()
+                incoming.remove(id)
+                sendAck(id, state.chunks)
+                onEvent("File received and verified: ${destination.name} (${state.size} bytes)")
+            } else {
+                state.handle = RandomAccessFile(state.file, "rw")
+                onEvent("Verified file could not be moved; transfer checkpoint retained for retry")
+            }
+        } catch (error: Exception) {
+            if (state.file.exists() && state.handle == null) {
+                state.handle = runCatching { RandomAccessFile(state.file, "rw") }.getOrNull()
+            }
+            onEvent("File completion could not be persisted: ${error.message}")
         }
     }
 
@@ -303,7 +398,7 @@ class MeshFileTransfer(
     private fun cancelIncoming(fields: List<String>): Boolean {
         if (fields.size != 2 || !validTransferId(fields[1])) return true
         val id = fields[1]
-        incoming.remove(id)
+        incoming.remove(id)?.let(::closeHandle)
         File(root, "$id.part").delete()
         File(root, "$id.meta").delete()
         onEvent("Incoming file transfer $id cancelled")
@@ -364,7 +459,7 @@ class MeshFileTransfer(
                 if (read < 0) break
                 if (read == 0) continue
                 size += read
-                require(size <= MAX_FILE_BYTES) { "File exceeds the 256 KiB transfer limit" }
+                require(size <= MAX_FILE_BYTES) { "File exceeds the 10 MiB transfer limit" }
                 digest.update(buffer, 0, read)
             }
         }
@@ -388,26 +483,30 @@ class MeshFileTransfer(
         )
     }
 
+    /** Flushes checkpointed receiver state and closes open file descriptors when the mesh stops. */
+    @Synchronized
+    fun close() {
+        incoming.values.toList().forEach { state ->
+            runCatching { checkpoint(state) }
+                .onFailure { onEvent("Final file checkpoint failed: ${it.message}") }
+            closeHandle(state)
+        }
+        incoming.clear()
+    }
+
+    private fun closeHandle(state: Incoming) {
+        runCatching { state.handle?.close() }
+        state.handle = null
+    }
+
     private fun persistMetadata(state: Incoming) {
-        val temp = File(root, "${state.file.name}.meta.tmp")
         val json = JSONObject()
             .put("name", state.name)
             .put("size", state.size)
             .put("chunks", state.chunks)
             .put("digest", state.digest)
             .put("received", Base64.encodeToString(state.received.toByteArray(), Base64.NO_WRAP))
-        FileOutputStream(temp).use { output ->
-            output.write(json.toString().toByteArray(Charsets.UTF_8))
-            output.fd.sync()
-        }
-        if (state.meta.exists() && !state.meta.delete()) {
-            temp.delete()
-            throw IllegalStateException("Unable to replace transfer checkpoint")
-        }
-        if (!temp.renameTo(state.meta)) {
-            temp.delete()
-            throw IllegalStateException("Unable to persist transfer resume state")
-        }
+        persistMetadata(state.meta, json)
     }
 
     @Synchronized
@@ -488,11 +587,11 @@ class MeshFileTransfer(
     }
 
     companion object {
-        const val MAX_FILE_BYTES = 256 * 1024
+        const val MAX_FILE_BYTES = 10 * 1024 * 1024
         private const val CHUNK_BYTES = 48
         private const val MAX_CHUNKS = (MAX_FILE_BYTES + CHUNK_BYTES - 1) / CHUNK_BYTES
         private const val MAX_NAME_CHARS = 20
-        private const val MAX_ACTIVE = 4
+        private const val MAX_ACTIVE = 2
         private const val WINDOW_SIZE = 16
         private const val ACK_EVERY_CHUNKS = 8
         private const val MAX_WINDOW_RETRIES = 3

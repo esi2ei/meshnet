@@ -189,7 +189,7 @@ class MainActivity : Activity() {
         }
         root.addView(joinVoiceButton)
         root.addView(Button(this).apply {
-            text = "Send file (max 256 KiB)"
+            text = "Send file (max 10 MiB)"
             setOnClickListener {
                 val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)

@@ -345,6 +345,8 @@ class MeshForegroundService : Service() {
     private fun stopMesh() {
         liveVoiceCall?.end()
         liveVoiceCall = null
+        fileTransfer?.close()
+        fileTransfer = null
         transport?.stop()
         transport = null
         wifiTransport?.stop()
@@ -352,7 +354,6 @@ class MeshForegroundService : Service() {
         wifiAwareTransport?.stop()
         wifiAwareTransport = null
         router = null
-        fileTransfer = null
         replayFrames = emptyList()
         replayIndex = 0
         replayActive = false
