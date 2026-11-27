@@ -90,9 +90,10 @@ class MainActivity : Activity() {
             text = "Queue encrypted message"
             setOnClickListener {
                 try {
-                    meshService?.sendMessage(messageInput.text.toString())
+                    val accepted = meshService?.sendMessage(messageInput.text.toString())
                         ?: throw IllegalStateException("Mesh service is not connected")
-                    messageInput.text.clear()
+                    if (accepted) messageInput.text.clear()
+                    else toast("Message was not accepted into the durable outbox")
                 } catch (error: Exception) {
                     toast(error.message ?: "Unable to queue message")
                 }
