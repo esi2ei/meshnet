@@ -1,20 +1,25 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# MeshNet
 
-# Run and deploy your AI Studio app
+MeshNet is being developed as an offline-first peer-to-peer messaging and connectivity project. The repository currently contains two distinct parts:
 
-This contains everything you need to run your app locally.
+- Web dashboard (src/): a React/Vite UI prototype and code workspace. Its simulated nodes and topology are not connected to phone radios and must not be treated as live network status.
+- Native Android prototype (mobile/): the first BLE/GATT implementation, with encrypted text frames and TTL-based relay. See mobile/README.md for setup and limitations.
 
-View your app in AI Studio: https://ai.studio/apps/742c8eee-90eb-45e0-a649-1271de28ddab
+## Web dashboard
 
-## Run Locally
+Requirements: Node.js 20+.
 
-**Prerequisites:**  Node.js
+    npm install
+    npm run dev
 
+The dashboard does not require a Gemini API key for its core UI. Do not put private API keys in client-side environment variables.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Native Android
+
+Requirements: JDK 17 and Android SDK Platform 35. See mobile/README.md.
+
+## Development status
+
+The Android BLE prototype is an initial transport milestone, not a production release. Group-key bootstrap, durable offline queue, background execution, large-file transfer, Wi-Fi transports, iOS, and payment/escrow remain outstanding. The browser dashboard remains a simulator and is not proof of real radio connectivity.
+
+No automated CI workflow is run for feature-branch pushes. The workflow is limited to main pushes, pull requests targeting main, and manual dispatch.
