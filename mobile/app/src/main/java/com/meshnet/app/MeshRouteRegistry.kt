@@ -31,7 +31,10 @@ internal class MeshRouteRegistry {
         if (previous == null) {
             routes[id] = Route(id, path, now, 1)
         } else {
-            routes[id] = previous.copy(observedAt = now, observations = (previous.observations + 1).coerceAtMost(Int.MAX_VALUE))
+            routes[id] = previous.copy(
+                observedAt = now,
+                observations = if (previous.observations == Int.MAX_VALUE) Int.MAX_VALUE else previous.observations + 1
+            )
         }
         trim()
         return previous == null
