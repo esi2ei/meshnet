@@ -102,6 +102,7 @@ class MeshFrameTest {
         val legacyBytes = encoded.replace("\"v\":5", "\"v\":1").toByteArray(Charsets.UTF_8)
         val protocolV2Bytes = encoded.replace("\"v\":5", "\"v\":2").toByteArray(Charsets.UTF_8)
         val protocolV3Bytes = encoded.replace("\"v\":5", "\"v\":3").toByteArray(Charsets.UTF_8)
+        val protocolV4Bytes = encoded.replace("\"v\":5", "\"v\":4").toByteArray(Charsets.UTF_8)
         assertThrows(IllegalArgumentException::class.java) {
             MeshFrame.decode(legacyBytes)
         }
@@ -110,6 +111,9 @@ class MeshFrameTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             MeshFrame.decode(protocolV3Bytes)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            MeshFrame.decode(protocolV4Bytes)
         }
     }
 
