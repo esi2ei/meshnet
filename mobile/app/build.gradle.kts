@@ -25,7 +25,7 @@ val bundleWebDashboard = tasks.register<Sync>("bundleWebDashboard") {
     description = "Package the Vite dashboard inside the Android application assets."
     dependsOn(buildWebDashboard)
     from(repositoryRoot.resolve("dist"))
-    into(bundledWebAssets)
+    into(bundledWebAssets.map { it.dir("web") })
 }
 
 val releaseStoreFilePath = providers.environmentVariable("MESHNET_RELEASE_STORE_FILE").orNull?.takeIf { it.isNotBlank() }
