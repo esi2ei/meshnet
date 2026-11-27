@@ -100,5 +100,5 @@ class MeshFileTransfer(private val context: Context, private val sendMessage: (S
     private fun queryName(uri:Uri):String=try{
         context.contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use{c->if(c.moveToFirst())c.getString(0)?:"mesh-file.bin" else "mesh-file.bin"}?:"mesh-file.bin"
     }catch(_:Exception){"mesh-file.bin"}
-    companion object{const val MAX_FILE_BYTES=16*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=48;private const val MAX_ACTIVE=4;private const val MAX_PENDING_BYTES=MAX_FILE_BYTES*MAX_ACTIVE}
+    companion object{const val MAX_FILE_BYTES=16*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=32;private const val MAX_ACTIVE=4;private const val MAX_PENDING_BYTES=MAX_FILE_BYTES*MAX_ACTIVE}
 }
