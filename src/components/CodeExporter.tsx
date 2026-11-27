@@ -24,7 +24,7 @@ const bundledSources = import.meta.glob(sourcePatterns, {
 }) as Record<string, string>;
 const sourceFiles = Object.entries(bundledSources)
   .map(([path, content]) => ({
-    path: path.replace(/^\.\.\//, ''),
+    path: path.replace(/^(?:\.\.\/)+/, ''),
     content,
   }))
   .sort((a, b) => a.path.localeCompare(b.path));
