@@ -116,6 +116,123 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         return receipt
     }
 
+    data class OutgoingTransfer(
+        val id: String,
+        val recipient: String,
+        val amountMinor: Long,
+        val createdAt: Long,
+        val status: String
+    )
+
+    /** Persist the signed voucher before any radio send is attempted. */
+    @Synchronized
+    fun recordOutgoing(payload: String) {
+        require(payload.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) { "Payment payload is too large" }
+        val json = JSONObject(payload)
+        require(json.optInt("version", -1) == VERSION) { "Unsupported offline payment version" }
+        require(json.optString("sender") == address()) { "Outgoing voucher belongs to another wallet" }
+        val id = json.getString("id")
+        val recipient = json.getString("recipient")
+        val amount = json.getLong("amountMinor")
+        val createdAt = json.getLong("createdAt")
+        require(id.isNotBlank() && recipient.matches(Regex("[0-9a-f]{64}")) && amount in 1..MAX_AMOUNT_MINOR)
+        val entries = readOutgoing()
+        require((0 until entries.length()).none { entries.optJSONObject(it)?.optString("id") == id }) {
+            "Outgoing voucher is already recorded"
+        }
+        entries.put(JSONObject()
+            .put("id", id)
+            .put("recipient", recipient)
+            .put("amountMinor", amount)
+            .put("createdAt", createdAt)
+            .put("status", "QUEUED"))
+        check(preferences.edit().putString(KEY_OUTGOING, entries.toString()).commit()) {
+            "Could not persist outgoing offline transfer"
+        }
+    }
+
+    /** The recipient signs an application-level acknowledgement after its receipt is durable. */
+    @Synchronized
+    fun createAcknowledgement(receipt: Receipt): String {
+        require(receipt.recipient == address()) { "Receipt belongs to another recipient wallet" }
+        val pair = identity()
+        val unsigned = JSONObject()
+            .put("version", VERSION)
+            .put("voucherId", receipt.id)
+            .put("sender", receipt.sender)
+            .put("recipient", receipt.recipient)
+            .put("amountMinor", receipt.amountMinor)
+            .put("recipientPublicKey", encode(pair.public.encoded))
+            .put("acknowledgedAt", System.currentTimeMillis())
+        val signature = Signature.getInstance(SIGNATURE_ALGORITHM).run {
+            initSign(pair.private)
+            update(canonicalAcknowledgement(unsigned))
+            sign()
+        }
+        return JSONObject(unsigned.toString()).put("signature", encode(signature)).toString()
+    }
+
+    /** Verify that the actual recipient wallet acknowledged the exact queued voucher. */
+    @Synchronized
+    fun acceptAcknowledgement(payload: String): OutgoingTransfer {
+        require(payload.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) { "Acknowledgement is too large" }
+        val json = JSONObject(payload)
+        require(json.optInt("version", -1) == VERSION) { "Unsupported acknowledgement version" }
+        val id = json.getString("voucherId")
+        val sender = json.getString("sender")
+        val recipient = json.getString("recipient")
+        val amount = json.getLong("amountMinor")
+        val acknowledgedAt = json.getLong("acknowledgedAt")
+        require(sender == address()) { "Acknowledgement is addressed to another sender wallet" }
+        require(amount in 1..MAX_AMOUNT_MINOR && acknowledgedAt > 0L)
+        val recipientKey = Base64.decode(json.getString("recipientPublicKey"), Base64.URL_SAFE or Base64.NO_WRAP)
+        require(addressFor(recipientKey) == recipient) { "Recipient wallet address does not match its public key" }
+        val publicKey = KeyFactory.getInstance(KEY_ALGORITHM).generatePublic(X509EncodedKeySpec(recipientKey))
+        val signatureBytes = Base64.decode(json.getString("signature"), Base64.URL_SAFE or Base64.NO_WRAP)
+        val unsigned = JSONObject(json.toString()).apply { remove("signature") }
+        val valid = Signature.getInstance(SIGNATURE_ALGORITHM).run {
+            initVerify(publicKey)
+            update(canonicalAcknowledgement(unsigned))
+            verify(signatureBytes)
+        }
+        require(valid) { "Recipient acknowledgement signature is invalid" }
+
+        val entries = readOutgoing()
+        val index = (0 until entries.length()).firstOrNull { entries.optJSONObject(it)?.optString("id") == id }
+            ?: throw IllegalArgumentException("Acknowledgement does not match a queued outgoing voucher")
+        val item = entries.getJSONObject(index)
+        require(item.getString("recipient") == recipient && item.getLong("amountMinor") == amount) {
+            "Acknowledgement does not match the queued recipient and amount"
+        }
+        item.put("status", "RECEIVED").put("acknowledgedAt", acknowledgedAt)
+        check(preferences.edit().putString(KEY_OUTGOING, entries.toString()).commit()) {
+            "Could not persist recipient acknowledgement"
+        }
+        return OutgoingTransfer(id, recipient, amount, item.getLong("createdAt"), "RECEIVED")
+    }
+
+    @Synchronized
+    fun outgoingHistory(): List<OutgoingTransfer> {
+        val array = readOutgoing()
+        return (0 until array.length()).mapNotNull { index ->
+            runCatching {
+                val item = array.getJSONObject(index)
+                OutgoingTransfer(
+                    item.getString("id"), item.getString("recipient"), item.getLong("amountMinor"),
+                    item.getLong("createdAt"), item.getString("status")
+                )
+            }.getOrNull()
+        }
+    }
+
+    private fun readOutgoing(): JSONArray =
+        runCatching { JSONArray(preferences.getString(KEY_OUTGOING, "[]")) }.getOrDefault(JSONArray())
+
+    private fun canonicalAcknowledgement(json: JSONObject): ByteArray {
+        val fields = listOf("version", "voucherId", "sender", "recipient", "amountMinor", "recipientPublicKey", "acknowledgedAt")
+        return fields.joinToString("\\n") { key -> "$key=${json.get(key)}" }.toByteArray(Charsets.UTF_8)
+    }
+
     @Synchronized
     fun history(): List<Receipt> {
         val array = readHistory()
@@ -178,6 +295,7 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         private const val PREFERENCES = "meshnet-offline-wallet-v1"
         private const val KEY_RECEIVED_IDS = "received_payment_ids"
         private const val KEY_HISTORY = "received_payment_history"
+        private const val KEY_OUTGOING = "outgoing_payment_history"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALGORITHM = "EC"
         private const val SIGNATURE_ALGORITHM = "SHA256withECDSA"
