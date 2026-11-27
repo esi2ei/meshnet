@@ -102,6 +102,8 @@ class MeshForegroundService : Service() {
         return transfer.send(uri)
     }
 
+    fun latestReceivedVoiceNote(): java.io.File? = fileTransfer?.latestVoiceNote()
+
     fun discoverWifiDirect() { wifiTransport?.discover() ?: throw IllegalStateException("Wi-Fi Direct is not ready") }
     fun createWifiDirectGroup() { wifiTransport?.createGroup() ?: throw IllegalStateException("Wi-Fi Direct is not ready") }
     fun connectWifiDirect(address: String) { wifiTransport?.connect(address) ?: throw IllegalStateException("Wi-Fi Direct is not ready") }
