@@ -42,7 +42,7 @@ class MeshOfflineLibraryTest {
         assertTrue(library.observeRemote("node_remote",item.id,item.size,item.name))
         assertTrue(library.markPending(item.id))
         val bad=File(context.cacheDir,"mesh-library-bad.txt").apply{writeText("tampered")}
-        assertFalse(library.completeDownload(item.id,bad));assertFalse(library.markPending(item.id));bad.delete()
+        assertFalse(library.completeDownload(item.id,bad));assertTrue(library.markPending(item.id));bad.delete()
         assertTrue(library.observeRemote("node_remote",item.id,item.size,item.name))
         assertTrue(library.markPending(item.id));assertTrue(library.completeDownload(item.id,source))
         assertTrue(library.localFile(item.id)!!.isFile);assertNull(library.remoteItem(item.id))

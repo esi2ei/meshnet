@@ -56,6 +56,7 @@ class MeshForegroundService : Service() {
         secretStore = MeshSecretStore(this)
         offlineWallet = MeshOfflineWalletStore(this)
         offlineLibrary = MeshOfflineLibrary(this)
+        offlineLibrary.items().filter { it.pending }.forEach { pendingOfflineDownloadIds.add(it.id) }
         walletEnvelopePreferences = getSharedPreferences(WALLET_ENVELOPE_PREFERENCES, MODE_PRIVATE)
         restorePendingOfflinePayments()
         createNotificationChannel()

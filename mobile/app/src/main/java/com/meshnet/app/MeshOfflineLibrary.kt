@@ -49,13 +49,14 @@ internal class MeshOfflineLibrary(context: Context) {
         require(id.matches(Regex("[a-f0-9]{64}"))){ "Invalid content digest" }
         require(size in 1..MAX_FILE_BYTES.toLong()){ "Invalid advertised content size" }
         if(local.containsKey(id))return false
+        val previous=remote[id]
         remote[id]=Item(id,safeName(name),size,now,false,origin)
         pruneRemote(now)
         while(remote.size>MAX_REMOTE_ITEMS){val oldest=remote.values.minByOrNull{it.createdAt}?:break;remote.remove(oldest.id)}
-        persist();return true
+        persist();return previous==null
     }
 
-    @Synchronized fun remoteItem(id:String):Item?=remote[id]
+    @Synchronized fun remoteItem(id:String):Item? { pruneRemote(System.currentTimeMillis()); return remote[id] }
     @Synchronized fun localFile(id:String):File? {
         val item=local[id]?:return null
         val file=fileFor(id)
@@ -100,14 +101,23 @@ internal class MeshOfflineLibrary(context: Context) {
         runCatching{
             val json=JSONObject(index.readText());val locals=json.optJSONArray("local")?:JSONArray()
             for(i in 0 until locals.length()){
-                val e=locals.getJSONObject(i);val id=e.getString("id");val file=fileFor(id)
+                val e=locals.getJSONObject(i);val id=e.getString("id")
+                if(!id.matches(Regex("[a-f0-9]{64}")))continue
+                val file=fileFor(id)
                 val item=Item(id,safeName(e.getString("name")),e.getLong("size"),e.getLong("createdAt"),true,null)
-                if(id.matches(Regex("[a-f0-9]{64}"))&&file.isFile&&file.length()==item.size&&runCatching{digest(file)}.getOrNull()==id)local[id]=item
+                if(file.isFile&&file.length()==item.size&&runCatching{digest(file)}.getOrNull()==id)local[id]=item
             }
             val remotes=json.optJSONArray("remote")?:JSONArray()
             for(i in 0 until remotes.length()){
                 val e=remotes.getJSONObject(i)
-                runCatching{observeRemote(e.getString("origin"),e.getString("id"),e.getLong("size"),e.getString("name"),e.getLong("createdAt"))}
+                val id=e.getString("id")
+                val origin=e.getString("origin")
+                val size=e.getLong("size")
+                val createdAt=e.getLong("createdAt")
+                if(id.matches(Regex("[a-f0-9]{64}")) &&
+                    origin.matches(Regex("[A-Za-z0-9_-]{1,32}")) &&
+                    size in 1..MAX_FILE_BYTES.toLong() && !local.containsKey(id)
+                ) remote[id]=Item(id,safeName(e.getString("name")),size,createdAt,false,origin)
             }
             val pend=json.optJSONArray("pending")?:JSONArray()
             for(i in 0 until pend.length()){val id=pend.optString(i);if(remote.containsKey(id)&&pending.size<MAX_PENDING_DOWNLOADS)pending.add(id)}
