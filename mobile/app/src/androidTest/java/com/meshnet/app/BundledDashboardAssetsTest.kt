@@ -33,7 +33,7 @@ class BundledDashboardAssetsTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val html = context.assets.open("web/index.html").bufferedReader().use { it.readText() }
 
-        assertTrue("The local dashboard entry point must be included in the APK", html.contains("id=\\"root\\""))
+        assertTrue("The local dashboard entry point must be included in the APK", html.contains("id=\"root\""))
         assertTrue("The dashboard must load a relative bundled script", html.contains("./assets/"))
         assertTrue("The dashboard must ship with a restrictive content security policy", html.contains("connect-src 'none'"))
 
