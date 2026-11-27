@@ -58,6 +58,14 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Node.js for the bundled dashboard
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22.x
+
+      - name: Install dashboard dependencies
+        run: npm install --no-audit --no-fund
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4.0.4
 
