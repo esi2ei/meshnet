@@ -63,7 +63,7 @@ class MeshRouter(
                 return
             }
             if (frame.id in seen || hasReceived(frame.id)) {
-                relayIfNeeded(frame)
+                relayIfNeeded(frame, plaintext)
                 return
             }
             val target = frame.ackFor ?: return
@@ -117,9 +117,13 @@ class MeshRouter(
         }
     }
 
-    private fun relayIfNeeded(frame: MeshFrame) {
+    private fun relayIfNeeded(frame: MeshFrame, plaintext: String) {
         if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
-        val relayed = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId).encode()
+        val nextHopFrame = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId)
+        // TTL and route are authenticated in protocol v3, so a relay must re-encrypt
+        // the already-authenticated plaintext under the updated route metadata.
+        val (nonce, ciphertext) = crypto.encrypt(plaintext, MeshFrame.aad(nextHopFrame))
+        val relayed = nextHopFrame.copy(nonce = nonce, ciphertext = ciphertext).encode()
         if (!send(relayed)) onMessage("Relay deferred: local outbox is unavailable or full")
     }
 
