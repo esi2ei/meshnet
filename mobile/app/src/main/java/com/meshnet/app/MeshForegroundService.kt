@@ -41,6 +41,7 @@ class MeshForegroundService : Service() {
     private var replayFrames: List<ByteArray> = emptyList()
     private var replayIndex = 0
     private var replayActive = false
+    private var lastWalletRetryAt = 0L
     private var wifiDirectFallbackAttempted = false
 
     override fun onCreate() {
@@ -146,6 +147,9 @@ class MeshForegroundService : Service() {
     }
 
     private fun retryPendingOfflineWalletTransfers() {
+        val now = System.currentTimeMillis()
+        if (now - lastWalletRetryAt < WALLET_AUTO_RETRY_INTERVAL_MS) return
+        lastWalletRetryAt = now
         val pending = runCatching { offlineWallet.pendingOutgoingVouchers() }.getOrDefault(emptyList())
         pending.forEach { voucher ->
             if (sendOfflineWalletEnvelope(OFFLINE_PAYMENT_PREFIX, voucher.id, voucher.payload)) {
@@ -663,6 +667,7 @@ class MeshForegroundService : Service() {
         private const val WALLET_ENVELOPE_PREFERENCES = "meshnet_wallet_envelope_v1"
         private const val KEY_PENDING_WALLET_ENVELOPES = "pending_envelopes"
         private const val WALLET_ENVELOPE_TTL_MS = 24L * 60L * 60L * 1000L
+        private const val WALLET_AUTO_RETRY_INTERVAL_MS = 30_000L
         private const val OFFLINE_PAYMENT_CHUNK_SIZE = 48
         private const val MAX_OFFLINE_PAYMENT_CHUNKS = 32
         private const val MAX_PENDING_OFFLINE_PAYMENTS = 16
