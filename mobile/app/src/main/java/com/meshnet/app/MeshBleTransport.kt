@@ -331,14 +331,23 @@ class MeshBleTransport(
         if (!assemblies.containsKey(key) && assemblies.size >= MAX_ASSEMBLIES) {
             assemblies.entries.minByOrNull { it.value.createdAt }?.let { assemblies.remove(it.key) }
         }
-        val assembly = assemblies.compute(key) { _, current ->
-            if (current == null || current.count != count) Assembly(count, arrayOfNulls(count))
-            else current
-        } ?: return false
+        val existing = assemblies[key]
+        val assembly = existing ?: run {
+            val fresh = Assembly(count, arrayOfNulls(count))
+            assemblies.putIfAbsent(key, fresh) ?: fresh
+        }
+        if (assembly.count != count) return false
         synchronized(assembly) {
-            if (assembly.chunks[index] != null) return true
             val chunk = ByteArray(buffer.remaining())
             buffer.get(chunk)
+            val previous = assembly.chunks[index]
+            if (previous != null) {
+                if (!previous.contentEquals(chunk)) {
+                    assemblies.remove(key)
+                    return false
+                }
+                return true
+            }
             assembly.totalBytes += chunk.size
             if (assembly.totalBytes > MeshFrame.MAX_FRAME_BYTES) {
                 assemblies.remove(key)
