@@ -57,4 +57,26 @@ class MeshRouteRegistryTest {
         assertEquals(500L, item.getLong("observedAt"))
         assertEquals(1, item.getInt("observations"))
     }
+    @Test
+    fun learnsAndRanksMultipleNextHopAlternatives() {
+        val registry = MeshRouteRegistry()
+        registry.observe(listOf("origin_01", "relay_01", "local_01"), 100L, "BLE/aa:bb")
+        registry.observe(listOf("origin_01", "local_01"), 200L, "P2P/192.0.2.2")
+        registry.observe(listOf("origin_01", "relay_02", "local_01"), 300L, "AWARE/fe80::2")
+
+        assertEquals(
+            listOf("P2P/192.0.2.2", "AWARE/fe80::2", "BLE/aa:bb"),
+            registry.nextHopsFor("origin_01", 300L)
+        )
+    }
+
+    @Test
+    fun nextHopCandidatesExpireWithTheirAuthenticatedObservations() {
+        val registry = MeshRouteRegistry()
+        registry.observe(listOf("origin_01", "local_01"), 100L, "BLE/aa:bb")
+
+        assertEquals(listOf("BLE/aa:bb"), registry.nextHopsFor("origin_01", 100L))
+        assertTrue(registry.nextHopsFor("origin_01", 100L + 30L * 60L * 1000L + 1L).isEmpty())
+    }
+
 }
