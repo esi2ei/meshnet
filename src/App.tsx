@@ -66,16 +66,7 @@ export default function App() {
   const [simulatedPath, setSimulatedPath] = useState<string[]>([]);
   const [currentHopNodeId, setCurrentHopNodeId] = useState<string | null>(null);
 
-  const [blockchainLogs, setBlockchainLogs] = useState<BlockchainLog[]>([
-    {
-      id: 'seed-log-1',
-      timestamp: '17:34:09 PM',
-      event: 'MESH_NETWORK_SETUP',
-      details: 'MeshNet local radio instances configured over Wi-Fi Direct and BLE interface stubs.',
-      txHash: 'ready-state-hash',
-      network: 'Solana'
-    }
-  ]);
+  const [blockchainLogs, setBlockchainLogs] = useState<BlockchainLog[]>([]);
 
   const handleAddBlockchainLog = (newLog: BlockchainLog) => {
     setBlockchainLogs(prev => [...prev, newLog]);
@@ -190,21 +181,7 @@ export default function App() {
             </div>
 
             {/* Simulated hardware wrapper */}
-            <PhoneWorkspace
-              nodes={nodes}
-              onNodesUpdate={setNodes}
-              messages={messages}
-              onMessagesUpdate={setMessages}
-              activeNodeId={activeNodeId}
-              isSimulatingHop={isSimulatingHop}
-              setIsSimulatingHop={setIsSimulatingHop}
-              simulatedPath={simulatedPath}
-              setSimulatedPath={setSimulatedPath}
-              currentHopNodeId={currentHopNodeId}
-              setCurrentHopNodeId={setCurrentHopNodeId}
-              blockchainLogs={blockchainLogs}
-              onAddBlockchainLog={handleAddBlockchainLog}
-            />
+            <PhoneWorkspace activeNodeId={activeNodeId} />
           </div>
         </div>
 
