@@ -28,7 +28,7 @@ Google Play has required new apps and updates to target Android 16 (API 36) or h
 
 On Windows PowerShell, the repository helper performs the same local build, checks JDK/Gradle/Android SDK prerequisites, verifies the APK signature when `apksigner` is installed, and copies the result to `mobile/dist/MeshNet-debug.apk`:
 
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\Build-DebugApk.ps1
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Build-DebugApk.ps1
 
 Instrumented protocol and SQLite tests are included under `app/src/androidTest`. Run them locally on a connected Android device or emulator with:
 
