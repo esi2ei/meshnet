@@ -71,6 +71,7 @@ const primaryClass = 'inline-flex min-h-11 items-center justify-center gap-2 rou
 
 export default function PhoneWorkspace() {
   const [runtime, setRuntime] = useState(initialStatus);
+  const [activeTab, setActiveTab] = useState<'network' | 'messages' | 'wallet' | 'activity'>('network');
   const [passphrase, setPassphrase] = useState('');
   const [message, setMessage] = useState('');
   const [directDestination, setDirectDestination] = useState('');
@@ -141,7 +142,8 @@ export default function PhoneWorkspace() {
         </div>
         <div className="rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
           <div className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4 text-cyan-400" /> Local security</div>
-          <div className="mt-2 text-sm font-semibold text-slate-200">Encrypted group frames</div>
+          <div className="mt-2 text-xs font-semibold text-amber-200">Shared-key AES-GCM</div>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-500">No per-device identity or forward secrecy yet</p>
         </div>
       </div>
 
@@ -151,6 +153,31 @@ export default function PhoneWorkspace() {
         </div>
       )}
 
+      <nav aria-label="MeshNet control sections" className="grid grid-cols-4 gap-1 rounded-2xl border border-slate-800 bg-slate-950 p-1">
+        {[
+          { id: 'network', label: 'Network' },
+          { id: 'messages', label: 'Chat & media' },
+          { id: 'wallet', label: 'Wallet' },
+          { id: 'activity', label: 'Activity' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            aria-pressed={activeTab === tab.id}
+            onClick={() => setActiveTab(tab.id as typeof activeTab)}
+            className={`min-h-11 rounded-xl px-2 py-2 text-xs font-semibold transition ${activeTab === tab.id
+              ? 'bg-cyan-500/15 text-cyan-200 ring-1 ring-inset ring-cyan-400/30'
+              : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+      <p className="text-[11px] leading-relaxed text-slate-500">
+        Features are grouped by task. Network controls remain local; online wallet actions are optional and require internet.
+      </p>
+
+<div hidden={activeTab !== 'network'}>
       <div className="space-y-2 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><Power className="h-4 w-4 text-cyan-400" /> Mesh controls</div>
         <label className="block text-xs text-slate-400" htmlFor="mesh-passphrase">Shared group passphrase (24+ characters)</label>
@@ -171,7 +198,9 @@ export default function PhoneWorkspace() {
         </div>
         <p className="text-[11px] leading-relaxed text-slate-500">The passphrase is sent directly to Android and is not saved in the web dashboard or browser storage. Enter the same high-entropy secret on every participating phone.</p>
       </div>
+      </div>
 
+<div hidden={activeTab !== 'messages'}>
       <div className="space-y-2 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><Activity className="h-4 w-4 text-cyan-400" /> Encrypted messaging</div>
         <textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={2} maxLength={120}
@@ -186,7 +215,9 @@ export default function PhoneWorkspace() {
           }}>Queue encrypted message</button>
         </div>
       </div>
+      </div>
 
+<div hidden={activeTab !== 'messages'}>
       <div className="space-y-2 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="text-sm font-semibold text-white">Destination-aware routing</div>
         <p className="text-[11px] leading-relaxed text-slate-400">Your node ID: <span className="break-all font-mono text-cyan-200">{runtime.localNodeId || "Available when the mesh is running"}</span></p>
@@ -206,7 +237,9 @@ export default function PhoneWorkspace() {
             }}>Send to node</button>
         </div>
       </div>
+      </div>
 
+<div hidden={activeTab !== 'messages'}>
       <div className="space-y-2 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><FileUp className="h-4 w-4 text-cyan-400" /> Files and voice</div>
         <div className="grid grid-cols-2 gap-2">
@@ -221,7 +254,9 @@ export default function PhoneWorkspace() {
         </div>
         <p className="text-[11px] leading-relaxed text-slate-500">File transfer is limited to 10 MiB per file. Microphone and file permissions are requested only after you invoke the corresponding action.</p>
       </div>
+      </div>
 
+<div hidden={activeTab !== 'network'}>
       <div className="space-y-3 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><Wifi className="h-4 w-4 text-cyan-400" /> Local radio options</div>
         <div className="grid grid-cols-2 gap-2">
@@ -236,7 +271,9 @@ export default function PhoneWorkspace() {
           <button className={actionClass} disabled={!runtime.native || !runtime.running || !wifiAddress.trim()} onClick={() => native?.connectWifiDirect(wifiAddress.trim())}>Connect</button>
         </div>
       </div>
+      </div>
 
+<div hidden={activeTab !== 'wallet'}>
       <div className="space-y-3 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><Wallet className="h-4 w-4 text-cyan-400" /> Offline wallet-to-wallet transfer</div>
         <p className="break-all text-[11px] text-slate-400">This device address: {runtime.offlineWalletAddress || (native ? "Creating local key…" : "Available in the Android APK")}</p>
@@ -275,7 +312,9 @@ export default function PhoneWorkspace() {
           </div>
         )}
       </div>
+      </div>
 
+<div hidden={activeTab !== 'wallet'}>
       <div className="space-y-3 rounded-xl border border-slate-800 bg-[#0A0B0D] p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-white"><Settings2 className="h-4 w-4 text-cyan-400" /> Online integrations</div>
         <label className="flex items-start gap-3 text-sm text-slate-200">
@@ -311,11 +350,14 @@ export default function PhoneWorkspace() {
         )}
         <p className="text-[11px] leading-relaxed text-slate-500">Online integrations are off by default. Enabling this setting permits the explicitly requested wallet adapter and Devnet RPC flow only; it does not enable cloud messaging, analytics, telemetry, remote fonts, or automatic uploads.</p>
       </div>
+      </div>
 
+<div hidden={activeTab !== 'activity'}>
       <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400"><Network className="h-4 w-4 text-cyan-400" /> Latest native event</div>
         <p className="mt-2 break-words text-xs leading-relaxed text-slate-300">{lastEvent}</p>
         <button className="mt-3 text-xs text-cyan-300 underline underline-offset-4" onClick={refresh}>Refresh device status</button>
+      </div>
       </div>
     </section>
   );

@@ -333,4 +333,56 @@ class MeshRouterReceiptTest {
         assertEquals("target_01", outgoing.destination)
     }
 
+
+    @Test
+    fun directedDestinationConsumesMessageAndReceiptWithoutForwarding() {
+        val passphrase = "a sufficiently long group passphrase"
+        val sourceFrames = mutableListOf<ByteArray>()
+        val destinationFrames = mutableListOf<ByteArray>()
+        val sourceRelays = mutableListOf<ByteArray>()
+        val destinationRelays = mutableListOf<ByteArray>()
+        val sourceSeen = mutableSetOf<String>()
+        val destinationSeen = mutableSetOf<String>()
+        val sourceEvents = mutableListOf<String>()
+        val destinationEvents = mutableListOf<String>()
+
+        val source = MeshRouter(
+            nodeId = "source_01",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { sourceFrames.add(it); true },
+            onMessage = { sourceEvents.add(it) },
+            hasReceived = { it in sourceSeen },
+            markReceived = { id, _ -> !sourceSeen.add(id) },
+            acknowledge = { 1 },
+            sendRelay = { bytes, _ -> sourceRelays.add(bytes); true }
+        )
+        val destination = MeshRouter(
+            nodeId = "target_01",
+            crypto = MeshCrypto(passphrase.toCharArray()),
+            send = { destinationFrames.add(it); true },
+            onMessage = { destinationEvents.add(it) },
+            hasReceived = { it in destinationSeen },
+            markReceived = { id, _ -> !destinationSeen.add(id) },
+            acknowledge = { 0 },
+            sendRelay = { bytes, _ -> destinationRelays.add(bytes); true }
+        )
+
+        assertTrue(source.sendMessageTo("target_01", "private directed delivery"))
+        val directed = sourceFrames.map { MeshFrame.decode(it) }
+            .single { it.kind == MeshFrame.KIND_MESSAGE && it.destination == "target_01" }
+
+        destination.receive(directed.encode(), "wifi-peer-source")
+
+        assertTrue(destinationEvents.any { it.contains("private directed delivery") })
+        assertTrue("The final destination re-forwarded the directed message", destinationRelays.isEmpty())
+        val receipt = destinationFrames.map { MeshFrame.decode(it) }
+            .single { it.kind == MeshFrame.KIND_ACK && it.ackFor == directed.id }
+        assertEquals("source_01", receipt.destination)
+
+        source.receive(receipt.encode(), "wifi-peer-target")
+
+        assertTrue(sourceEvents.any { it.contains("Group receipt received") })
+        assertTrue("The ACK destination re-forwarded the receipt", sourceRelays.isEmpty())
+    }
+
 }

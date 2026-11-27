@@ -235,6 +235,9 @@ class MeshRouter(
     }
 
     private fun relayIfNeeded(frame: MeshFrame, plaintext: String, viaPeer: String?) {
+        // Directed traffic is consumed at the final destination; never forward a
+        // delivered message or its receipt beyond the node it targets.
+        if (frame.destination == nodeId) return
         if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
         val nextHopFrame = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId)
         // TTL and route are authenticated; relays re-encrypt after updating route metadata.
