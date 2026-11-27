@@ -77,9 +77,11 @@ class MeshRouter(
         val encoded = encryptedFrame.encode()
         val accepted = if (destination == null) send(encoded) else {
             val candidates = resolveNextHops(destination)
-            var routed = false
-            for (peer in candidates) if (sendToPeer(encoded, peer)) { routed = true; break }
-            routed || send(encoded)
+            if (candidates.isEmpty()) send(encoded) else {
+                var routed = false
+                for (peer in candidates) if (sendToPeer(encoded, peer)) { routed = true; break }
+                routed || sendRelay(encoded, null)
+            }
         }
         if (!accepted) {
             seen.remove(id)
@@ -184,8 +186,9 @@ class MeshRouter(
         )
         val (nonce, ciphertext) = crypto.encrypt("", MeshFrame.aad(frame))
         val encoded = frame.copy(nonce = nonce, ciphertext = ciphertext).encode()
-        val routed = resolveNextHops(destination).any { peer -> sendToPeer(encoded, peer) }
-        if (routed || send(encoded)) {
+        val candidates = resolveNextHops(destination)
+        val routed = candidates.any { peer -> sendToPeer(encoded, peer) }
+        if (routed || if (candidates.isEmpty()) send(encoded) else sendRelay(encoded, null)) {
             remember(seen, ackId)
             markReceived(ackId, createdAt)
         } else {
