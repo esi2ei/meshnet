@@ -12,8 +12,7 @@ import android.os.IBinder
 
 /**
  * User-started connected-device foreground service. The group credential is persisted only
- * after encryption with a non-exportable Android Keystore key, so START_STICKY can recover
- * the transport after process recreation without putting the passphrase in a notification.
+ * after encryption with a non-exportable Android Keystore key.
  */
 class MeshForegroundService : Service() {
     inner class LocalBinder : Binder() {
@@ -72,9 +71,8 @@ class MeshForegroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder = binder
 
-    fun setListener(callback: ((String) -> Unit)?) {
-        listener = callback
-    }
+    fun setListener(callback: ((String) -> Unit)?) { listener = callback }
+    fun isRunning(): Boolean = transport != null
 
     fun sendMessage(message: String) {
         val activeRouter = router ?: throw IllegalStateException("Mesh service is not ready")
@@ -144,8 +142,8 @@ class MeshForegroundService : Service() {
 
     private fun emit(message: String) {
         listener?.invoke(message)
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, notification(message.take(80)))
+        getSystemService(NotificationManager::class.java)
+            .notify(NOTIFICATION_ID, notification(message.take(80)))
     }
 
     private fun createNotificationChannel() {
