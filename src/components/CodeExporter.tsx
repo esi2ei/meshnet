@@ -1,14 +1,32 @@
 import React, { useMemo, useState } from 'react';
 import { Copy, FileCode2, Search } from 'lucide-react';
 
-// These modules are read from this checkout at Vite build time and bundled locally.
-// No remote repository, CDN, or hosted source endpoint is used at runtime.
-const frontendSources = import.meta.glob('../**/*.{ts,tsx,css}', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
-const nativeSources = import.meta.glob('../../mobile/app/src/{main,androidTest}/**/*.{kt,xml}', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
-const buildSources = import.meta.glob('../../mobile/**/*.{gradle,gradle.kts,properties}', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
-const rootSources = import.meta.glob('../../*.{json,ts,md}', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
-const sourceFiles = Object.entries({ ...frontendSources, ...nativeSources, ...buildSources, ...rootSources })
-  .map(([path, content]) => ({ path: path.replace(/^\.\.\//, ''), content }))
+// Every tracked-style text source family is discovered from this repository checkout at build time.
+// Explicit hidden-file patterns include project automation and root ignore/config files.
+// Generated output, dependency caches and local build directories are intentionally excluded.
+const sourcePatterns = [
+  '../../**/*.{ts,tsx,js,jsx,mjs,cjs,css,html,json,md,yml,yaml,properties,gradle,kts,kt,xml,rs,toml,ps1,sh,bat,cmd,txt}',
+  '../../.gitignore',
+  '../../.github/**/*.{yml,yaml}',
+  '!../../**/node_modules/**',
+  '!../../**/.git/**',
+  '!../../**/.gradle/**',
+  '!../../**/build/**',
+  '!../../**/dist/**',
+  '!../../**/coverage/**',
+  '!../../**/.idea/**',
+  '!../../**/.vite/**',
+];
+const bundledSources = import.meta.glob(sourcePatterns, {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+}) as Record<string, string>;
+const sourceFiles = Object.entries(bundledSources)
+  .map(([path, content]) => ({
+    path: path.replace(/^\.\.\//, ''),
+    content,
+  }))
   .sort((a, b) => a.path.localeCompare(b.path));
 
 export default function CodeExporter() {
@@ -24,7 +42,7 @@ export default function CodeExporter() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><FileCode2 className="h-4 w-4 text-cyan-300" /> Bundled project source</h3>
-          <p className="mt-1 text-xs text-slate-500">Actual React, Kotlin, Android XML, instrumentation-test and Gradle source files included at build time.</p>
+          <p className="mt-1 text-xs text-slate-500">Local application, Android, test, Rust/Anchor, build, automation and documentation files bundled from this checkout.</p>
         </div>
         <span className="rounded-lg border border-emerald-500/30 px-2.5 py-1 text-[11px] text-emerald-300">{sourceFiles.length} local files</span>
       </div>
@@ -45,7 +63,7 @@ export default function CodeExporter() {
           <pre className="max-h-[370px] overflow-auto p-3 text-[10px] leading-5 text-slate-300"><code>{current?.content ?? 'No source files were discovered by the local build.'}</code></pre>
         </div>
       </div>
-      <p className="mt-3 text-[11px] leading-5 text-slate-500">This is a read-only source viewer. The APK executes compiled Kotlin and bundled JavaScript; viewing source here does not replace native compilation or tests.</p>
+      <p className="mt-3 text-[11px] leading-5 text-slate-500">Read-only snapshot of repository text sources captured at Vite build time. Binary assets and generated outputs are excluded; viewing source does not replace native compilation or tests.</p>
     </section>
   );
 }
