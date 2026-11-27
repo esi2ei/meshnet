@@ -57,6 +57,11 @@ class MeshRouter(
         }
 
         if (frame.kind == MeshFrame.KIND_ACK) {
+            if (frame.origin == nodeId) {
+                markReceived(frame.id, frame.createdAt)
+                remember(seen, frame.id)
+                return
+            }
             if (frame.id in seen || hasReceived(frame.id)) {
                 relayIfNeeded(frame)
                 return
