@@ -523,8 +523,8 @@ class MainActivity : Activity() {
     /**
      * Connects to a user-selected MWA-compatible wallet on Solana Devnet.
      * The authorization token is persisted only as ciphertext with an Android Keystore key.
-     * It is used for wallet deauthorization; no payment transaction is constructed or sent,
-     * because the escrow program is still a non-deployed, unaudited draft.
+     * Native SOL Devnet transfers are a separate, explicit wallet-approved action; no mainnet,
+     * SPL-token, or escrow transaction is constructed or submitted by this flow.
      */
     private fun connectSolanaWalletDevnet() {
         if (walletAuthToken != null) {
