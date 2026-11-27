@@ -194,6 +194,32 @@ class MeshIpPacketRouterTest {
         assertEquals(MeshIpPacketRouter.DNS_SERVICE_IP, MeshIpAddress.format(response, 12))
     }
 
+    @Test fun expiresStaleNodeAddressesAndAllowsFreshAnnouncements() {
+        val local = "local_node_12345678"
+        val remote = "remote_node_12345678"
+        val localIp = MeshIpAddress.forNodeId(local)
+        val remoteIp = MeshIpAddress.forNodeId(remote)
+        var now = 1_000L
+        val router = MeshIpPacketRouter(
+            local,
+            localIp,
+            { _, _ -> true },
+            nowMillis = { now },
+            deliverPacket = {}
+        )
+
+        assertTrue(router.accept(remote, "~IP1A|$remoteIp"))
+        assertEquals(1, router.knownNodeCount())
+        assertEquals(remoteIp, router.addressForNode(remote))
+
+        now += 180_001L
+        assertEquals(0, router.knownNodeCount())
+        assertNull(router.addressForNode(remote))
+
+        assertTrue(router.accept(remote, "~IP1A|$remoteIp"))
+        assertEquals(1, router.knownNodeCount())
+    }
+
     @Test fun returnsServFailForPublicDnsWhenNoUpstreamResolverExists() {
         val node = "AAAAAAAAAAAAAAAAAAAAAA"
         val localIp = MeshIpAddress.forNodeId(node)
