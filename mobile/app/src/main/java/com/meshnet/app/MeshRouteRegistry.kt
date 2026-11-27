@@ -20,7 +20,7 @@ internal class MeshRouteRegistry {
 
     @Synchronized
     fun observe(nodes: List<String>, now: Long = System.currentTimeMillis()): Boolean {
-        val path = nodes.map(String::trim)
+        val path = nodes.map { it.trim() }
         if (path.size !in 2..MAX_ROUTE_NODES) return false
         if (path.any { it.isEmpty() || !it.matches(Regex("[A-Za-z0-9_-]{1,32}")) }) return false
         if (path.distinct().size != path.size) return false
