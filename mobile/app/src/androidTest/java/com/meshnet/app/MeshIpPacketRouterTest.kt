@@ -188,7 +188,7 @@ class MeshIpPacketRouterTest {
         assertTrue(router.send(queryPacket))
         assertTrue(forwardedQuery != null)
         val response = responses.single()
-        assertContentEquals(
+        assertArrayEquals(
             upstreamAnswer,
             response.copyOfRange(28, response.size)
         )

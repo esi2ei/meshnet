@@ -313,7 +313,7 @@ internal class MeshIpPacketRouter(
         const val FRAGMENT_BYTES = 64
         const val MAX_PAYLOAD_BYTES = 120
         const val DNS_SERVICE_IP = "100.64.0.1"
-        const val MAX_DNS_PAYLOAD_BYTES = MAX_PACKET_BYTES - IPV4_HEADER_BYTES - UDP_HEADER_BYTES
+        const val MAX_DNS_PAYLOAD_BYTES = 1_472
         private const val IP_PROTOCOL_UDP = 17
         private const val DNS_PORT = 53
         private const val DNS_TYPE_A = 1
