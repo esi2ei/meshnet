@@ -20,7 +20,11 @@ class MeshFileTransfer(
     private val incoming=ConcurrentHashMap<String,Incoming>()
     private val pending=ConcurrentHashMap<String,MutableMap<Int,Pair<Int,ByteArray>>>()
     private var pendingBytes=0
-    private val root=File(context.filesDir,"meshnet-received").apply{mkdirs()}
+    private val root=File(context.filesDir,"meshnet-received").apply{
+        mkdirs()
+        listFiles()?.filter { it.name.endsWith(".part") && System.currentTimeMillis()-it.lastModified()>PARTIAL_TTL_MS }
+            ?.forEach { it.delete() }
+    }
 
     @Synchronized fun send(uri:Uri):Boolean {
         val name=queryName(uri).take(MAX_NAME_CHARS).ifBlank{"mesh-file.bin"}.replace(Regex("[^A-Za-z0-9._-]"),"_")
@@ -77,7 +81,7 @@ class MeshFileTransfer(
         val s=incoming[id]
         if(s==null){
             if(count !in 1..MAX_CHUNKS || index !in 0 until count || data.size !in 1..CHUNK_BYTES ||
-                pendingBytes+data.size>MAX_PENDING_BYTES || pending.size>=MAX_ACTIVE)return true
+                pendingBytes+data.size>MAX_PENDING_BYTES || (pending.size>=MAX_ACTIVE && !pending.containsKey(id)))return true
             val chunks=pending.getOrPut(id){linkedMapOf()}
             if(!chunks.containsKey(index)){chunks[index]=count to data;pendingBytes+=data.size}
             return true
@@ -113,5 +117,5 @@ class MeshFileTransfer(
                 ?.use{c->if(c.moveToFirst())c.getString(0)?:"mesh-file.bin" else "mesh-file.bin"}?:"mesh-file.bin"
         } catch(_:Exception) { "mesh-file.bin" }
     }
-    companion object{const val MAX_FILE_BYTES=16*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=20;private const val MAX_ACTIVE=4;private const val MAX_PENDING_BYTES=MAX_FILE_BYTES*MAX_ACTIVE}
+    companion object{const val MAX_FILE_BYTES=16*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=20;private const val MAX_ACTIVE=4;private const val MAX_PENDING_BYTES=MAX_FILE_BYTES*MAX_ACTIVE;private const val PARTIAL_TTL_MS=24L*60L*60L*1000L}
 }
