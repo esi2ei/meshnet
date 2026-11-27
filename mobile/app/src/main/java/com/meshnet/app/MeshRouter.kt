@@ -20,7 +20,8 @@ class MeshRouter(
     private val sendEphemeralFrame: (ByteArray) -> Boolean = send,
     private val onEphemeralPayload: (String, String) -> Unit = { _, _ -> },
     private val sendRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> send(bytes) },
-    private val sendEphemeralRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> sendEphemeralFrame(bytes) }
+    private val sendEphemeralRelay: (ByteArray, String?) -> Boolean = { bytes, _ -> sendEphemeralFrame(bytes) },
+    private val onRouteObserved: (List<String>) -> Unit = {}
 ) {
     private val seen = LinkedHashSet<String>()
     private val displayed = LinkedHashSet<String>()
@@ -81,6 +82,11 @@ class MeshRouter(
         } catch (_: Exception) {
             onMessage("Rejected frame: authentication failed")
             return
+        }
+
+        // Record only authenticated, non-looping packet paths that actually reached this node.
+        if (viaPeer != null && frame.origin != nodeId && nodeId !in frame.hops) {
+            onRouteObserved(frame.hops + nodeId)
         }
 
         if (frame.kind == MeshFrame.KIND_EPHEMERAL) {
