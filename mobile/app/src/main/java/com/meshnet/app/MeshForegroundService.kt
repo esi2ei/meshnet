@@ -51,12 +51,12 @@ class MeshForegroundService : Service() {
                 stopSelf(startId)
                 return START_NOT_STICKY
             }
-            null // A new user-supplied passphrase can replace an unreadable old credential.
+            null
         }
 
         val passphrase = try {
             if (supplied != null) {
-                if (stored != null && stored != supplied) {
+                if (stored != supplied) {
                     stopMesh()
                     outbox.clearAll()
                     emit("Group changed; old encrypted frames and replay IDs were discarded")
