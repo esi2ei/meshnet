@@ -3,7 +3,7 @@
 MeshNet is an offline-first peer-to-peer messaging and connectivity project with two distinct parts:
 
 - **Web dashboard (src/)**: a React/Vite prototype. Its simulated nodes and topology are not connected to phone radios.
-- **Native Android (mobile/)**: a prototype with BLE/GATT, optional Wi-Fi Aware, and user-controlled Wi-Fi Direct transports, encrypted text and bounded 256 KiB file/voice-note frames, TTL relay, adaptive BLE queue backoff, a foreground service, a persistent SQLite outbox with group-level receipts, replay protection, and Android Keystore-protected group credentials.
+- **Native Android (mobile/)**: a prototype with BLE/GATT, optional Wi-Fi Aware, and user-controlled Wi-Fi Direct transports, encrypted text and bounded 256 KiB file/voice-note frames, TTL relay with shortest-observed-route duplicate suppression, adaptive BLE queue backoff, a foreground service, a persistent SQLite outbox with group-level receipts, replay protection, and Android Keystore-protected group credentials.
 
 ## Web dashboard
 
