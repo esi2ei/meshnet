@@ -33,6 +33,8 @@ class MeshWifiDirectTransport(
     private var channel: WifiP2pManager.Channel? = null
     private var registered = false
     private val running = AtomicBoolean(false)
+    private val serverStarting = AtomicBoolean(false)
+    private val clientConnecting = AtomicBoolean(false)
     private val sockets = CopyOnWriteArrayList<Socket>()
     @Volatile private var server: ServerSocket? = null
 
@@ -63,10 +65,17 @@ class MeshWifiDirectTransport(
             addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
             addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
         }
-        if (Build.VERSION.SDK_INT >= 33) app.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        else @Suppress("DEPRECATION") app.registerReceiver(receiver, filter)
+        if (Build.VERSION.SDK_INT >= 33) {
+            app.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            app.registerReceiver(receiver, filter)
+        }
         registered = true
-        discover()
+        try { discover() } catch (error: Exception) {
+            stop()
+            throw error
+        }
     }
 
     fun discover() {
@@ -110,14 +119,15 @@ class MeshWifiDirectTransport(
         val p2p = manager ?: return
         val ch = channel ?: return
         p2p.requestConnectionInfo(ch) { info ->
-            if (!running.get() || !info.groupFormed) return@requestConnectionInfo
-            if (info.isGroupOwner) startServer()
-            else connectToOwner(info.groupOwnerAddress)
+            if (running.get() && info.groupFormed) {
+                if (info.isGroupOwner) startServer()
+                else info.groupOwnerAddress?.let(::connectToOwner)
+            }
         }
     }
 
     private fun startServer() {
-        if (server != null) return
+        if (server != null || !serverStarting.compareAndSet(false, true)) return
         Thread({
             try {
                 val listener = ServerSocket(PORT)
@@ -132,12 +142,14 @@ class MeshWifiDirectTransport(
                 }
             } catch (error: Exception) {
                 if (running.get()) onState("Wi-Fi Direct server stopped: ${error.message}")
+            } finally {
+                serverStarting.set(false)
             }
         }, "meshnet-wifi-p2p-accept").apply { isDaemon = true; start() }
     }
 
     private fun connectToOwner(address: InetAddress) {
-        if (sockets.any { !it.isClosed }) return
+        if (sockets.any { !it.isClosed } || !clientConnecting.compareAndSet(false, true)) return
         Thread({
             try {
                 val socket = Socket()
@@ -148,6 +160,8 @@ class MeshWifiDirectTransport(
                 startReader(socket)
             } catch (error: Exception) {
                 if (running.get()) onState("Wi-Fi Direct socket connection failed: ${error.message}")
+            } finally {
+                clientConnecting.set(false)
             }
         }, "meshnet-wifi-p2p-connect").apply { isDaemon = true; start() }
     }
