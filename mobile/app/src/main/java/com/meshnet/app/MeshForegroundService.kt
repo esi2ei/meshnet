@@ -85,9 +85,9 @@ class MeshForegroundService : Service() {
     fun setListener(callback: ((String) -> Unit)?) { listener = callback }
     fun isRunning(): Boolean = transport != null
 
-    fun sendMessage(message: String) {
+    fun sendMessage(message: String): Boolean {
         val activeRouter = router ?: throw IllegalStateException("Mesh service is not ready")
-        activeRouter.sendMessage(message)
+        return activeRouter.sendMessage(message)
     }
 
     private fun startMesh(passphrase: String) {
