@@ -176,10 +176,20 @@ class MainActivity : Activity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_PERMISSIONS) {
+            val bluetoothRequired = setOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
             val bluetoothGranted = permissions.indices
-                .filter { permissions[it] != Manifest.permission.POST_NOTIFICATIONS }
+                .filter { permissions[it] in bluetoothRequired }
                 .all { grantResults.getOrNull(it) == PackageManager.PERMISSION_GRANTED }
             if (bluetoothGranted) {
+                if (permissions.indices.any {
+                    permissions[it] == Manifest.permission.NEARBY_WIFI_DEVICES &&
+                        grantResults.getOrNull(it) != PackageManager.PERMISSION_GRANTED
+                }) toast("Nearby Wi-Fi permission denied; Wi-Fi Direct will be unavailable, BLE can still run")
                 if (permissions.indices.any {
                     permissions[it] == Manifest.permission.POST_NOTIFICATIONS &&
                         grantResults.getOrNull(it) != PackageManager.PERMISSION_GRANTED
