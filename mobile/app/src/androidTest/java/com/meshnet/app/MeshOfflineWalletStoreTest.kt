@@ -63,4 +63,37 @@ class MeshOfflineWalletStoreTest {
         assertEquals(address, MeshOfflineWalletStore(context, senderId).address())
     }
 
+    @Test
+    fun recipientAcknowledgementIsSignedAndPersistedBySender() {
+        val voucher = sender.createPayment(recipient.address(), 875L)
+        sender.recordOutgoing(voucher)
+        val receipt = recipient.acceptPayment(voucher)
+        val acknowledgement = recipient.createAcknowledgement(receipt)
+
+        val confirmed = sender.acceptAcknowledgement(acknowledgement)
+        assertEquals(875L, confirmed.amountMinor)
+        assertEquals(recipient.address(), confirmed.recipient)
+        assertEquals("RECEIVED", confirmed.status)
+        assertEquals("RECEIVED", sender.outgoingHistory().single().status)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun acknowledgementTamperingIsRejected() {
+        val voucher = sender.createPayment(recipient.address(), 875L)
+        sender.recordOutgoing(voucher)
+        val receipt = recipient.acceptPayment(voucher)
+        val acknowledgement = recipient.createAcknowledgement(receipt)
+        val tampered = org.json.JSONObject(acknowledgement)
+            .put("amountMinor", 1L)
+            .toString()
+        sender.acceptAcknowledgement(tampered)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun acknowledgementWithoutMatchingOutgoingVoucherIsRejected() {
+        val voucher = sender.createPayment(recipient.address(), 875L)
+        val receipt = recipient.acceptPayment(voucher)
+        sender.acceptAcknowledgement(recipient.createAcknowledgement(receipt))
+    }
+
 }
