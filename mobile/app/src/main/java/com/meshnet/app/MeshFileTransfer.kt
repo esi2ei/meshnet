@@ -26,7 +26,11 @@ class MeshFileTransfer(
         listFiles()?.filter { (it.name.endsWith(".part") || it.name.endsWith(".meta")) &&
             System.currentTimeMillis()-it.lastModified()>PARTIAL_TTL_MS }?.forEach { it.delete() }
     }
-    private val outgoingRoot=File(context.filesDir,"meshnet-outgoing").apply{mkdirs()}
+    private val outgoingRoot=File(context.filesDir,"meshnet-outgoing").apply{
+        mkdirs()
+        listFiles()?.filter { it.name.endsWith(".id") &&
+            System.currentTimeMillis()-it.lastModified()>OUTGOING_ID_TTL_MS }?.forEach { it.delete() }
+    }
 
     @Synchronized fun send(uri:Uri):Boolean {
         val name=queryName(uri).take(MAX_NAME_CHARS).ifBlank{"mesh-file.bin"}.replace(Regex("[^A-Za-z0-9._-]"),"_")
@@ -172,5 +176,5 @@ class MeshFileTransfer(
                 ?.use{c->if(c.moveToFirst())c.getString(0)?:"mesh-file.bin" else "mesh-file.bin"}?:"mesh-file.bin"
         } catch(_:Exception) { "mesh-file.bin" }
     }
-    companion object{const val MAX_FILE_BYTES=16*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=20;private const val MAX_ACTIVE=4;private const val MAX_PENDING_BYTES=MAX_FILE_BYTES*MAX_ACTIVE;private const val PARTIAL_TTL_MS=24L*60L*60L*1000L}
+    companion object{const val MAX_FILE_BYTES=16*1024;private const val CHUNK_BYTES=48;private const val MAX_CHUNKS=MAX_FILE_BYTES/CHUNK_BYTES+1;private const val MAX_NAME_CHARS=20;private const val MAX_ACTIVE=4;private const val MAX_PENDING_BYTES=MAX_FILE_BYTES*MAX_ACTIVE;private const val PARTIAL_TTL_MS=24L*60L*60L*1000L;private const val OUTGOING_ID_TTL_MS=90L*24L*60L*60L*1000L}
 }
