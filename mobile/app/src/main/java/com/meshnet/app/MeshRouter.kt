@@ -6,7 +6,7 @@ import java.util.UUID
 class MeshRouter(
     private val nodeId: String,
     private val crypto: MeshCrypto,
-    private val send: (ByteArray) -> Unit,
+    private val send: (ByteArray) -> Boolean,
     private val onMessage: (String) -> Unit
 ) {
     private val seen = LinkedHashSet<String>()
@@ -21,8 +21,12 @@ class MeshRouter(
         val (nonce, ciphertext) = crypto.encrypt(text, aad(id, nodeId))
         val frame = MeshFrame(id, nodeId, MeshFrame.MAX_TTL, listOf(nodeId), nonce, ciphertext)
         remember(id)
-        send(frame.encode())
-        onMessage("Me: $text")
+        if (!send(frame.encode())) {
+            seen.remove(id)
+            onMessage("No ready BLE route; message was not transmitted")
+            return
+        }
+        onMessage("Me: $text (BLE write queued; delivery not yet acknowledged)")
     }
 
     @Synchronized
