@@ -6,7 +6,8 @@ MeshNet is an offline-first peer-to-peer messaging and connectivity prototype. T
 
 - **One dashboard UI:** `src/` contains the React/Vite application. Android builds it and bundles the resulting static files into `mobile/app/src/main/assets` at build time (generated under Gradle's build directory); the APK does not need a hosted website.
 - **Native Android runtime:** `mobile/` provides BLE/GATT, optional Wi-Fi Aware, user-controlled Wi-Fi Direct, AES-GCM group-encrypted messages, bounded resumable file transfer, voice notes, opt-in live group voice, TTL relay, persistent SQLite queues, and Android Keystore-protected local credentials. Each BLE-capable node opens a GATT server while also scanning and connecting as a GATT client, so the same phone can send and receive. BLE advertiser and scanner startup are tracked independently; if BLE cannot provide both roles, the service attempts Wi-Fi Direct discovery while Wi-Fi Aware is also attempted when supported. Each device can therefore originate and receive over whichever mutually supported local radio is available.
-- **Honest runtime boundary:** the dashboard presents native Android controls and status only. It no longer renders fabricated peer nodes, simulated RF links, or sample blockchain events. A browser preview cannot control phone radios; the packaged APK connects the dashboard to Android services through a local-only bridge.
+- **Live topology and event log:** the dashboard graph is populated from the Android runtime's active BLE/GATT connection callbacks; only currently connected peers are drawn. The event log displays native service/transport events, not fabricated blockchain activity. Wi-Fi Direct/Aware connectivity is surfaced through native events, but is not yet represented as individual graph edges. A browser preview cannot inspect phone radios; the packaged APK connects through a local-only bridge.
+- **Bundled source viewer:** Vite imports the checked-out React, Kotlin, Android XML, instrumentation-test and Gradle source files at build time. The viewer is read-only and packaged with the APK; it does not fetch source code from GitHub or another remote host.
 
 ## Offline-first behavior
 
@@ -21,7 +22,7 @@ Requirements: Node.js 22+. The GitHub Actions workflow is currently manual-only;
     npm install
     npm run dev
 
-The browser dashboard can preview the interface, but native Bluetooth and Wi-Fi controls are available only inside the packaged Android APK.
+The browser dashboard can preview the interface, but native Bluetooth and Wi-Fi controls and live peer telemetry are available only inside the packaged Android APK.
 
 ## Native Android build
 
