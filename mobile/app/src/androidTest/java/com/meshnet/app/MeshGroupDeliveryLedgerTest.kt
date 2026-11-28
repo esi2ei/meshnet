@@ -31,9 +31,9 @@ class MeshGroupDeliveryLedgerTest {
             "message_snapshot_001",
             group,
             listOf(
-                MeshMembershipState(memberA.nodeId, memberA.publicKey, "ACTIVE", 1),
-                MeshMembershipState(memberB.nodeId, memberB.publicKey, "ACTIVE", 1),
-                MeshMembershipState(sender.nodeId, sender.publicKey, "ACTIVE", 1)
+                MeshMembershipEvent.create(memberA, group, 1, MeshMembershipEvent.JOIN),
+                MeshMembershipEvent.create(memberB, group, 1, MeshMembershipEvent.JOIN),
+                MeshMembershipEvent.create(sender, group, 1, MeshMembershipEvent.JOIN)
             ),
             createdAt = System.currentTimeMillis()
         )
@@ -146,8 +146,9 @@ class MeshGroupDeliveryLedgerTest {
     @Test
     fun incompleteOrConflictedRosterCannotBeSnapshotted() {
         val invalid = listOf(
-            MeshMembershipState(memberA.nodeId, memberA.publicKey, "ACTIVE", 1),
-            MeshMembershipState(memberB.nodeId, memberB.publicKey, "INCOMPLETE", 2)
+            MeshMembershipEvent.create(memberA, group, 1, MeshMembershipEvent.JOIN),
+            MeshMembershipEvent.create(memberB, group, 1, MeshMembershipEvent.JOIN),
+            MeshMembershipEvent.create(memberB, group, 3, MeshMembershipEvent.LEAVE)
         )
         val result = runCatching {
             MeshGroupDeliverySnapshot.create(sender, "message_snapshot_002", group, invalid)
