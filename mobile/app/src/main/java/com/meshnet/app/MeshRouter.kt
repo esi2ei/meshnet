@@ -129,9 +129,11 @@ internal class MeshRouter(
             return
         }
 
-        // Record only authenticated, non-looping packet paths that actually reached this node.
-        if (viaPeer != null && frame.origin != nodeId && nodeId !in frame.hops) {
-            onRouteObserved(frame.hops + nodeId, viaPeer)
+        // The hop list is mutable by any holder of the shared group key; it is not a path proof.
+        // Learn only the directly observed reverse neighbor for the verified origin. This
+        // prevents a peer from poisoning routes to arbitrary nodes by inserting fake hop IDs.
+        if (viaPeer != null && frame.origin != nodeId) {
+            onRouteObserved(listOf(frame.origin, nodeId), viaPeer)
         }
 
         if (frame.destination != null && frame.destination != nodeId) {

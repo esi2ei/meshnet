@@ -4,8 +4,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Bounded history of authenticated packet paths and reverse next-hop candidates.
- * Group AEAD authenticates possession of the shared key, not an individual device identity.
+ * Bounded history of locally observed reverse-neighbor routes and next-hop candidates.
+ * Callers must pass only the verified origin plus this node; mutable frame hop lists are not
+ * cryptographic path proofs and must never be used to populate this registry.
  */
 internal class MeshRouteRegistry(
     private val linkQualityScore: (String) -> Int = { MeshLinkQualityRegistry.NEUTRAL_SCORE }
