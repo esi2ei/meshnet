@@ -1,6 +1,34 @@
 import java.io.File
 import org.gradle.api.GradleException
-import org.gradle.api.tasks.Sync
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
+import javax.inject.Inject
+
+abstract class BundleWebDashboard : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val sourceDirectory: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @get:Inject
+    abstract val fileSystemOperations: FileSystemOperations
+
+    @TaskAction
+    fun bundleAssets() {
+        fileSystemOperations.sync {
+            from(sourceDirectory.get().asFile)
+            into(outputDirectory.get().asFile)
+        }
+    }
+}
 
 plugins {
     id("com.android.application")
@@ -25,12 +53,19 @@ val buildWebDashboard = tasks.register<Exec>("buildWebDashboard") {
     }
 }
 
-val bundleWebDashboard = tasks.register<Sync>("bundleWebDashboard") {
+val bundleWebDashboard = tasks.register<BundleWebDashboard>("bundleWebDashboard") {
     group = "build"
     description = "Package the Vite dashboard inside the Android application assets."
     dependsOn(buildWebDashboard)
-    from(repositoryRoot.resolve("dist"))
-    into(bundledWebAssets.map { it.dir("web") })
+    sourceDirectory.set(repositoryRoot.resolve("dist"))
+    outputDirectory.set(bundledWebAssets.map { it.dir("web") })
+}
+
+androidComponents.onVariants { variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(
+        bundleWebDashboard,
+        BundleWebDashboard::outputDirectory
+    )
 }
 
 val releaseStoreFilePath = providers.environmentVariable("MESHNET_RELEASE_STORE_FILE").orNull?.takeIf { it.isNotBlank() }
@@ -83,7 +118,6 @@ tasks.configureEach {
 }
 
 android {
-    sourceSets.getByName("main").assets.srcDir(bundledWebAssets)
     namespace = "com.meshnet.app"
     compileSdk = 37
 
