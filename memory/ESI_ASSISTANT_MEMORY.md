@@ -72,3 +72,39 @@ MeshNet is intended to be a fully offline-capable, decentralized, peer-to-peer m
 - Added PR conversation comments #7238766596 to PR #29 with exact-head CI and Pending / Not Run physical-test status, and #7238766924 to PR #2 documenting current-head Android AAR failure and 142-commit divergence from main.
 - Both PRs remain open Draft. PR #2 is deferred due actual Android API 37 / AGP compatibility failure and stale branch; PR #29 remains unmerged because product/security acceptance gates remain unresolved despite green configured PR CI.
 - Current main remains reported unprotected, no active repo rulesets were returned, and detailed branch-protection read remains blocked to this integration. Owner/admin must configure and verify a `main` ruleset requiring CI checks and restricting force pushes/deletion. Do not merge or push directly to main as a workaround.
+
+
+## Repository mission results — 2026-11-28 (continued)
+
+### Merged PR #34 — VPN packet-drop visibility
+- PR #34, "Make VPN overlay packet drops visible", merged to main as `48a2a5f578bffb0e2a6cf82532f1052bc70c5d9d`.
+- Exact-head run #232 on `30ce0af4a65fb117ee034125580264bb0988a1bf`: Node22 TypeScript/web build passed; Android debug APK build and signature/checksum verification passed; focused API36 instrumentation **169 tests, 0 failed, 0 skipped**, Gradle BUILD SUCCESSFUL.
+- The test and merge commits have the same Git tree SHA `8e6c7767337ac6f76994f92223fad60a9a58f15c`.
+- It adds a session-local cumulative counter for VPN TUN packets that `sendIpPacket()` does not fully accept, reporting immediately and then at most every five seconds. It is observability only: no durable outbound queue, socket backpressure, fragment retry or retransmission. Issue #32 remains open. Physical route-loss recovery remains Pending / Not Run.
+
+### Merged PR #35 — GitHub Actions SHA pinning
+- PR #35, "Pin GitHub Actions to immutable commit SHAs", merged to main as `0fe421254c8b8e60ec0b03f064d5309bea278079`.
+- The branch was synchronized after PR #34 with a non-force two-parent merge commit `684cded88f24de9c24f704e08faec8545a33a435`; parents were prior PR head `0837d019addf427f7f2acc88313b6a6f3d9e81af` and main `48a2a5f578bffb0e2a6cf82532f1052bc70c5d9d`.
+- Exact synchronized-head run #234 on `684cded88f24de9c24f704e08faec8545a33a435`: Node22 typecheck/build passed; Android debug APK/signature/checksum passed; focused API36 instrumentation **169 tests, 0 failed, 0 skipped**, Gradle BUILD SUCCESSFUL.
+- All 12 `uses:` occurrences now reference exact upstream 40-character SHAs. GitHub verified the pinned commits for actions/* and gradle/actions; the pinned commits for android-actions/setup-android and reactivecircus/android-emulator-runner are not marked verified. SHA pinning prevents tag drift, but does not establish signature provenance for those two.
+- Successful run #234 retained only web dashboard artifact (284,277 bytes, one-day retention); no APK or test-report artifact on successful PR. Full instrumentation skipped as manual-only.
+
+### Documentation PR #36 — current state
+- Created open PR #36, "Restore feature preservation contract and refresh roadmap", branch `docs/refresh-roadmap-and-preservation-contract`, head `8a39982dab8cf46166e181bd76b74fd49bd397eb`, base main `0fe421254c8b8e60ec0b03f064d5309bea278079`.
+- Adds missing `docs/FEATURE_PRESERVATION_PLAN.md` (copied from the reviewed version on PR29 branch) to repair existing README/ARCHITECTURE links.
+- Updates roadmap baseline and actual CI policy; clearly labels old "CI not requested" notes as historical; records PR #2/#29/#34/#35 exact outcomes, physical test Pending/Not Run, unprotected main, npm lockfile gap, post-merge trigger behavior and security limitations.
+- Documentation-only: two files changed, 227 additions, 4 deletions. PR is open, non-draft and mergeable at last check. No GitHub workflow run was visible yet for exact head; do not claim CI passed or merge until a run is triggered and verified.
+
+### Current repository delivery state
+- Main HEAD after PR #35: `0fe421254c8b8e60ec0b03f064d5309bea278079`.
+- Open PRs at last full listing: #2, #29, #36. #34 and #35 are merged.
+- PR #2 remains Draft/deferred due failed compileSdk37 / AGP9.1 dependency metadata checks and a stale branch (142 commits behind at review).
+- PR #29 remains Draft despite its run #231 success (195 tests) because device E2EE/key lifecycle, durable protocol-v7 group delivery, crash-recoverable membership, private file controls and independent security acceptance are incomplete.
+- PR #36 is docs-only and still requires exact-head GitHub CI before merge.
+- Current main reports `protected:false`; no rulesets were returned. The GitHub connection cannot administer/read detailed branch protection; owner/admin action is required. No protection bypass or force push was used.
+- The workflow has `pull_request` and manual `workflow_dispatch` triggers but no `push: branches: [main]`, so standalone post-merge CI does not automatically launch. The tested PR34 tree was byte-identical to the merged tree.
+- No npm lockfile exists; CI uses `npm install`, with cache keyed by `package.json`. Deterministic npm ci remains open.
+- Dependabot/Code Scanning/Secret Scanning alerts could not be retrieved using the connected GitHub integration; do not claim the alert queues are clean.
+- Full Android instrumentation was Not Run in runs #231–#234; physical BLE/Wi-Fi/OEM/background/battery/radio testing remains Pending / Not Run.
+- Run artifact observations (web dashboard, one-day retention): #231 335,831 bytes; #232 284,277; #233 283,172; #234 284,277. No comparable before/after baseline exists; do not claim quantitative CI or artifact savings.
+- `SECURITY.md` explicitly says this repository is a prototype and not suitable for confidential, safety-critical or financial traffic. Production release is not ready: no per-device ratchet/forward secrecy, audited crypto, real-money escrow settlement, release keystore/AAB, physical-device evidence or legal/store approvals.
