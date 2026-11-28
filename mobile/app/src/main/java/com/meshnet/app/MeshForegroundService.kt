@@ -28,6 +28,10 @@ class MeshForegroundService : Service() {
     private var wifiTransport: MeshWifiDirectTransport? = null
     private var wifiAwareTransport: MeshWifiAwareTransport? = null
     private var router: MeshRouter? = null
+    private var groupMembershipStore: MeshGroupMembershipStore? = null
+    private var groupDeliveryLedger: MeshGroupDeliveryLedger? = null
+    private var membershipSync: MeshMembershipSyncProtocol? = null
+    private var localMembershipJoin: MeshMembershipEvent? = null
     private var fileTransfer: MeshFileTransfer? = null
     private var ipPacketRouter: MeshIpPacketRouter? = null
     private var ipPacketListener: ((ByteArray) -> Unit)? = null
@@ -286,6 +290,7 @@ class MeshForegroundService : Service() {
             announceOfflineLibrary()
             announceIpAddress()
             router?.sendEphemeral(IP_ADDRESS_QUERY)
+            membershipSync?.requestSync(force = true)
         }
         if (!connected) {
             val routeTransport = when (transportName) {
@@ -598,6 +603,17 @@ class MeshForegroundService : Service() {
             stopSelf()
             return
         }
+        val membershipStore = MeshGroupMembershipStore(this)
+        groupMembershipStore = membershipStore
+        groupDeliveryLedger = MeshGroupDeliveryLedger(this)
+        val localCounter = membershipStore.events(crypto.groupId)
+            .filter { it.memberId == nodeId }
+            .maxOfOrNull { it.counter }?.plus(1L) ?: 1L
+        val localJoin = MeshMembershipEvent.create(
+            identity, crypto.groupId, localCounter, MeshMembershipEvent.JOIN
+        )
+        membershipStore.append(localJoin)
+        localMembershipJoin = localJoin
         fileTransfer = MeshFileTransfer(
             context = this,
             sendMessage = { text -> router?.sendMessage(text) ?: false },
@@ -631,7 +647,9 @@ class MeshForegroundService : Service() {
             recordDestination = outbox::recordDestination,
             forgetDestination = outbox::forgetDestination,
             identity = identity,
-            onFramePayload = ::handleOfflineLibraryPayload,
+            onFramePayload = { origin, plaintext ->
+                handleOfflineLibraryPayload(origin, plaintext)
+            },
             onPayload = { plaintext ->
                 if (plaintext.startsWith("$OFFLINE_PAYMENT_PREFIX|") || plaintext.startsWith("$OFFLINE_ACK_PREFIX|")) {
                     handleRouterMessage(plaintext)
@@ -644,7 +662,11 @@ class MeshForegroundService : Service() {
                 val awareSent = wifiAwareTransport?.sendToPeers(frame) == true
                 bleSent || p2pSent || awareSent
             },
-            onEphemeralPayload = ::handleEphemeralPayload,
+            onEphemeralPayload = { origin, plaintext ->
+                if (membershipSync?.accept(origin, plaintext) != true) {
+                    handleEphemeralPayload(origin, plaintext)
+                }
+            },
             sendRelay = { frame, ingress ->
                 sendMeshFrameToOthers(frame, ingress)
                 val queued = outbox.containsFrame(frame)
@@ -659,6 +681,17 @@ class MeshForegroundService : Service() {
             onRouteObserved = { path, ingress ->
                 if (routeRegistry.observe(path, ingressPeer = ingress)) emit("Observed mesh route: ${path.joinToString(" → ")}")
             }
+        )
+        membershipSync = MeshMembershipSyncProtocol(
+            groupId = crypto.groupId,
+            localNodeId = nodeId,
+            store = membershipStore,
+            send = { destination, payload ->
+                val activeRouter = router
+                if (destination == null) activeRouter?.sendEphemeral(payload) == true
+                else activeRouter?.sendEphemeralTo(destination, payload) == true
+            },
+            onEvent = ::emit
         )
         processCompletedPendingOfflinePayments()
         liveVoiceCall = MeshLiveVoiceCall(
@@ -709,6 +742,7 @@ class MeshForegroundService : Service() {
                 .onFailure { emit("Wi-Fi Aware unavailable; other transports remain active: ${it.message}") }
             if (transport == null) startWifiDirectFallback("BLE could not initialize")
             emit("Mesh service started · BLE ${if (transport != null) "initialized" else "unavailable"} · Node $nodeId; local Wi-Fi fallback is available when supported")
+            localMembershipJoin?.let { membershipSync?.publish(it) }
             announceOfflineLibrary()
         } catch (error: Exception) {
             emit(error.message ?: "Unable to start BLE")
@@ -792,6 +826,12 @@ class MeshForegroundService : Service() {
         // Detach the router before closing sockets so late reader callbacks cannot
         // repopulate route observations while transports are shutting down.
         router = null
+        membershipSync = null
+        localMembershipJoin = null
+        groupMembershipStore?.close()
+        groupMembershipStore = null
+        groupDeliveryLedger?.close()
+        groupDeliveryLedger = null
         transport?.stop()
         transport = null
         wifiTransport?.stop()
