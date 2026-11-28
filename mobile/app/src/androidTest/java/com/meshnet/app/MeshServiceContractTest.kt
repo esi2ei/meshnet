@@ -90,4 +90,35 @@ class MeshServiceContractTest {
     fun rejectsOversizedContractEnvelope() {
         MeshServiceContract.decode(" ".repeat(16 * 1024 + 1))
     }
+    @Test
+    fun proratesPayloadPriceAndRoundsPartialMebibytesUpWithinCap() {
+        val provider = keyPair()
+        val consumer = keyPair()
+        val contract = unsignedContract(provider, consumer)
+        assertEquals(0L, contract.maximumChargeFor(0))
+        assertEquals(1L, contract.maximumChargeFor(1))
+        assertEquals(250L, contract.maximumChargeFor(1024L * 1024L))
+        assertEquals(251L, contract.maximumChargeFor(1024L * 1024L + 1))
+        assertEquals(2000L, contract.maximumChargeFor(contract.maxBillableBytes))
+    }
+
+    @Test
+    fun evaluatesContractValidityUsingCallerSuppliedClock() {
+        val provider = keyPair()
+        val consumer = keyPair()
+        val contract = unsignedContract(provider, consumer)
+        assertFalse(contract.isActiveAt(contract.validFrom - 1))
+        assertTrue(contract.isActiveAt(contract.validFrom))
+        assertTrue(contract.isActiveAt(contract.validUntil - 1))
+        assertFalse(contract.isActiveAt(contract.validUntil))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsPayloadVolumeAboveContractLimit() {
+        val provider = keyPair()
+        val consumer = keyPair()
+        val contract = unsignedContract(provider, consumer)
+        contract.maximumChargeFor(contract.maxBillableBytes + 1)
+    }
+
 }
