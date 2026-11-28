@@ -1,0 +1,98 @@
+package com.meshnet.app
+
+import androidx.test.core.app.ApplicationProvider
+import android.content.Context
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import java.security.KeyPair
+import java.security.KeyPairGenerator
+import java.security.MessageDigest
+import java.security.spec.ECGenParameterSpec
+import java.util.UUID
+
+class MeshTransferReceiptStoreTest {
+    private lateinit var context: Context
+    private lateinit var provider: KeyPair
+    private lateinit var consumer: KeyPair
+    private lateinit var contract: MeshServiceContract
+    private lateinit var preferencesName: String
+
+    @Before
+    fun setUp() {
+        context = ApplicationProvider.getApplicationContext()
+        provider = keyPair()
+        consumer = keyPair()
+        val now = System.currentTimeMillis()
+        val suffix = UUID.randomUUID().toString().replace("-", "")
+        contract = MeshServiceContract.create(
+            "contract_$suffix", "DATA_TRANSFER", address(provider), address(consumer),
+            100L, 10L * 1024 * 1024, 1000L, now - 60_000, now + 60_000,
+            "MUTUAL_ONLY", emptyList(), provider.public.encoded, consumer.public.encoded
+        ).signAsProvider(provider.private).signAsConsumer(consumer.private)
+        preferencesName = "meshnet-transfer-receipt-journal-v1"
+        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE).edit().clear().commit()
+    }
+
+    @Test
+    fun appendIsDurableAndExactRetryIsIdempotent() {
+        val store = MeshTransferReceiptStore(context)
+        val first = receipt(1, 1024, 1024, MeshTransferReceipt.GENESIS_RECEIPT_HASH)
+        assertTrue(store.append(contract, first))
+        assertFalse(store.append(contract, first))
+
+        val reopened = MeshTransferReceiptStore(context)
+        assertEquals(listOf(first.encode()), reopened.verifiedChain(contract).map { it.encode() })
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun conflictingReceiptAtExistingSequenceIsRejected() {
+        val store = MeshTransferReceiptStore(context)
+        val first = receipt(1, 1024, 1024, MeshTransferReceipt.GENESIS_RECEIPT_HASH)
+        store.append(contract, first)
+        store.append(contract, receipt(1, 2048, 2048, MeshTransferReceipt.GENESIS_RECEIPT_HASH))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun sequenceGapCannotBePersisted() {
+        val store = MeshTransferReceiptStore(context)
+        store.append(contract, receipt(2, 1024, 1024, MeshTransferReceipt.GENESIS_RECEIPT_HASH))
+    }
+
+    @Test
+    fun secondReceiptMustExtendPersistedHashAndCumulativeTotals() {
+        val store = MeshTransferReceiptStore(context)
+        val first = receipt(1, 1024, 1024, MeshTransferReceipt.GENESIS_RECEIPT_HASH)
+        store.append(contract, first)
+        val previousHash = digest(first.encode())
+        val second = receipt(2, 2048, 3072, previousHash)
+        assertTrue(store.append(contract, second))
+        assertEquals(2, store.verifiedChain(contract).size)
+    }
+
+    private fun receipt(sequence: Long, delta: Long, total: Long, previousHash: String): MeshTransferReceipt {
+        val unsigned = MeshTransferReceipt.create(
+            contract, sequence, delta, total, contract.maximumChargeFor(total),
+            digest("payload-$sequence"), previousHash, contract.validFrom + sequence
+        )
+        return unsigned.signAsProvider(contract, provider.private)
+            .signAsConsumer(contract, consumer.private)
+    }
+
+    private fun keyPair(): KeyPair = KeyPairGenerator.getInstance("EC").run {
+        initialize(ECGenParameterSpec("secp256r1"))
+        generateKeyPair()
+    }
+
+    private fun address(pair: KeyPair): String = digestBytes(pair.public.encoded)
+
+    private fun digest(value: String): String =
+        MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private fun digestBytes(value: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(value)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+}
