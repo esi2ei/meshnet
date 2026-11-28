@@ -424,8 +424,15 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
     private fun readIds(): MutableSet<String> {
         val stored = preferences.all[KEY_RECEIVED_IDS] ?: return mutableSetOf()
         if (stored is Set<*>) {
-            val migrated = stored.mapNotNull { it as? String }.toSet()
+            require(stored.all { it is String }) {
+                "Legacy wallet replay protection contains an unsupported value"
+            }
+            val migrated = stored.map { it as String }.toSet()
+            require(migrated.size == stored.size) { "Legacy wallet replay protection contains duplicate IDs" }
             require(migrated.size <= MAX_RECEIVED_PAYMENTS) { "Legacy wallet replay set exceeds its limit" }
+            require(migrated.all { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }) {
+                "Legacy wallet replay protection contains malformed IDs"
+            }
             val encoded = JSONArray().apply { migrated.sorted().forEach { put(it) } }.toString()
             check(preferences.edit()
                 .putString(KEY_RECEIVED_IDS, encryptPreference(KEY_RECEIVED_IDS, encoded))
@@ -482,6 +489,19 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
     private fun getOrCreateStorageKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         (keyStore.getKey(storageKeyAlias, null) as? SecretKey)?.let { return it }
+
+        // Never rotate a missing key while any encrypted record still depends on it.
+        // That would make the remaining wallet history permanently unreadable.
+        val existingEncryptedRecords = preferences.all.any { (key, value) ->
+            key != KEY_RECEIVED_IDS && value is String && value.startsWith("$STORAGE_PREFIX|")
+        } || runCatching {
+            val legacyOrEncryptedIds = preferences.all[KEY_RECEIVED_IDS]
+            legacyOrEncryptedIds is String && legacyOrEncryptedIds.startsWith("$STORAGE_PREFIX|")
+        }.getOrDefault(false)
+        check(!existingEncryptedRecords) {
+            "Wallet storage key is missing while encrypted records exist; refusing to create a replacement key"
+        }
+
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
         generator.init(
             KeyGenParameterSpec.Builder(
