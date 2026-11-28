@@ -104,6 +104,11 @@ internal data class MeshMembershipEvent(
     }
 }
 
+internal data class MeshMembershipSyncRecord(
+    val rowId: Long,
+    val event: MeshMembershipEvent
+)
+
 internal data class MeshMembershipState(
     val memberId: String,
     val publicKey: String,
@@ -229,6 +234,46 @@ internal class MeshGroupMembershipStore(context: Context) : SQLiteOpenHelper(
                     add(event)
                 }
             }.asReversed()
+        }
+    }
+
+
+    /** Stable high-water mark used to bound one peer-sync snapshot. */
+    @Synchronized
+    fun syncHighWatermark(groupId: String): Long {
+        require(groupId.matches(Regex("[a-f0-9]{64}")))
+        return readableDatabase.rawQuery(
+            "SELECT COALESCE(MAX(rowid), 0) FROM membership_events WHERE group_id = ?",
+            arrayOf(groupId)
+        ).use { if (it.moveToFirst()) it.getLong(0) else 0L }
+    }
+
+    /**
+     * Cursor-based page over a fixed rowid snapshot. New events appended during a sync have
+     * larger rowids and cannot shift or enter earlier pages; retries are idempotent by event ID.
+     */
+    @Synchronized
+    fun syncEventsAfterRowId(
+        groupId: String,
+        afterRowId: Long,
+        throughRowId: Long,
+        limit: Int = 16
+    ): List<MeshMembershipSyncRecord> {
+        require(groupId.matches(Regex("[a-f0-9]{64}")))
+        require(afterRowId >= 0L && throughRowId >= afterRowId)
+        require(limit in 1..MAX_SYNC_PAGE)
+        return readableDatabase.rawQuery(
+            "SELECT rowid, encoded FROM membership_events " +
+                "WHERE group_id = ? AND rowid > ? AND rowid <= ? ORDER BY rowid ASC LIMIT ?",
+            arrayOf(groupId, afterRowId.toString(), throughRowId.toString(), limit.toString())
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val event = MeshMembershipEvent.decode(cursor.getString(1))
+                    require(event.verify()) { "Stored membership event failed signature verification" }
+                    add(MeshMembershipSyncRecord(cursor.getLong(0), event))
+                }
+            }
         }
     }
 
