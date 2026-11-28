@@ -142,3 +142,10 @@ MeshNet is intended to be a fully offline-capable, decentralized, peer-to-peer m
 - PR #36 remains open and mergeable, not merged. No merge was attempted because the exact-head workflow had not returned a terminal successful result. Main remained at `0fe421254c8b8e60ec0b03f064d5309bea278079` and unprotected at last check.
 - No physical-device tests, full Android instrumentation suite, independent cryptographic review, production-signed AAB or legal/payment review were run. All are Pending / Not Run as appropriate.
 - Do not represent the repository as product-complete: PR #2 deferred after a real dependency/compileSdk CI failure; PR #29 remains Draft due unresolved P0 group broadcast durable-outbox behavior and other P0/P1 security/product acceptance gaps; PR #36 docs changes are complete in its branch but awaiting exact-head test completion before merge.
+
+
+## Live mission start — 2026-11-28
+- Verified canonical repository via GitHub API: `esi2ei/meshnet`, repository ID `1268313307`, public, default branch `main`; connected identity reports admin/maintain/push permissions.
+- Verified dedicated branch `assistant-memory` at commit `27ee3f28cbadda5fe9b2cc0dd17aed50f7f09078` and read this complete memory file before any project work.
+- The current user has explicitly authorized completion/merge of existing PRs only when current-head required GitHub checks pass, conflicts are resolved, and branch-protection/security rules are honored. No force push, protection bypass or direct-to-main workaround is permitted.
+- New live revalidation session started. Existing PR/workflow details elsewhere in this file are historical checkpoints and must be rechecked before action. No PR mutation or merge has been performed in this session as of this entry.
