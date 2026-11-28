@@ -532,3 +532,73 @@ Branch heads and Actions runs change with every commit, so this roadmap intentio
 
 **Delivery policy:** PR #29 remains Draft until the current-head checks and code-level acceptance criteria pass. No automatic merge to `main`.
 
+
+
+## Cross-cutting risk register and acceptance gates
+
+The full cross-cutting risk register is tracked in [Issue #31](https://github.com/esi2ei/meshnet/issues/31). It supplements requirements #17–#28; it does not replace, reduce, or close any product requirement. Keep all work on `work/offline-mesh-completion` and keep the completion PR in Draft until explicitly approved.
+
+### R1 — Data ownership, transaction boundaries and recovery (critical)
+- [ ] Inventory every persisted entity: owner/repository, backend, encryption/key binding, quota, retention, atomicity boundary, backup/export, migration and recovery.
+- [ ] Keep SQLite for relational records and multi-row transactions where appropriate. Room is an optional DAO abstraction over the same intended SQLite file, not a second database engine or parallel production store.
+- [ ] Keep Query Engine as an application query/co-ordination layer, not a database or universal god-object. Split bounded repositories by domain (messages/outbox, membership/delivery, library, wallet/receipts, activity).
+- [ ] Use JSON for validated bridge DTOs, versioned protocol envelopes, configuration and explicit import/export; never use unbounded JSON as a query database.
+- [ ] Do not claim cross-store atomicity. Make message + immutable recipient snapshot + outbox rows atomic only after they share a transaction-capable store with a documented encryption/key strategy.
+- [ ] Add migration/recovery fixtures for interrupted migration/restart, idempotency, key loss, backup/export, rollback and old-version compatibility. Never wipe user data to repair migration.
+- **Exit gate:** reviewed inventory, named owner and atomicity boundary for every write, and migration/crash-recovery evidence demonstrating no data loss.
+
+### R2 — Query Engine and architecture boundaries (high)
+- [ ] Keep Query Engine responsible for indexed lookup, filters, paging, ordering, projections and transaction boundaries; use small domain repositories rather than a central all-purpose class.
+- [ ] Define typed request/result/error contracts and explicit dependency direction.
+- [ ] Keep MainActivity as UI/permission/bridge adapter and MeshForegroundService as a compatibility facade while extracting one responsibility per reviewable change.
+- [ ] Give long-running operations cancellation, timeouts, bounded queues/back-pressure, lifecycle ownership and observable errors.
+- **Exit gate:** responsibility map and independent contract tests; no bridge or UI behavior lost.
+
+### R3 — Protocol v6/v7 compatibility and durable group delivery (critical)
+- [ ] Preserve v6 peers through a documented migration window; define capability/version negotiation, unknown-field handling, downgrade rejection, replay policy, cursor/snapshot binding, recovery and old-peer UX before enabling v7.
+- [ ] Test mixed-version peers, offline peers returning after long partitions, duplicate/reordered events, stale/invalid cursors, late join/leave, process death and interrupted outbox writes.
+- [ ] Keep broadcast receipt retirement fail-closed until every member in the immutable original recipient snapshot reaches an explicitly terminal state.
+- **Exit gate:** interoperability vectors and mixed-version tests pass with no message/outbox/receipt loss or recipient-accounting ambiguity.
+
+### R4 — Identity, cryptographic trust and security (critical)
+- [ ] Separate device identity, user/profile identity, group membership and session keys.
+- [ ] Specify QR/fingerprint onboarding, explicit device approval, multi-device ownership, blocking/reporting, lost-device revocation, recovery/portability and key rotation.
+- [ ] Add per-recipient private sessions and secure group-key lifecycle; discovery never grants trust.
+- [ ] Maintain a threat model for malicious peers/relays, spoofing, replay, Sybil, traffic analysis, malicious metadata, key loss and offline partitions.
+- [ ] Require independent review of the exact implementation and protocol transition. Never market shared group-key encryption as Signal-grade E2EE.
+- **Exit gate:** mitigations mapped to tests, relay-confidentiality/revocation/recovery/replay/interoperability evidence and independent cryptographic review before security claims.
+
+### R5 — Android lifecycle, physical radios and network reliability (critical)
+- [ ] Validate BLE/GATT dual roles, Wi-Fi Direct, supported Wi-Fi Aware, transport coexistence/fallback, route convergence, link/relay loss, screen-off, process death/recreation, reconnect, VPN/TUN, DNS, captive portal and upstream-network handover.
+- [ ] Record device model, OEM build, Android API, topology, logs and measured outcome.
+- [ ] Document Android/OEM background and foreground-service constraints; do not promise always-on operation.
+- [ ] Keep Internet gateway traffic separate from the current private overlay unless explicitly opted in and separately approved.
+- **Exit gate:** reproducible two-device and three-device relay matrix plus VPN/DNS evidence across supported devices. CI/emulator success is not a substitute.
+
+### R6 — Performance, resource limits and game-engine techniques (high)
+- [ ] Apply LOD and culling to topology rendering only; never cull peers from discovery, routing, security or message processing.
+- [ ] Use asynchronous/paged loading for database, file, thumbnail, decode, import/export and search work.
+- [ ] Use bounded IO/CPU dispatchers and serial actors/queues for mutable transport/session state; avoid unbounded threads and concurrent mutation.
+- [ ] Compress only when measured beneficial; compress before encryption where appropriate; avoid recompressing already-compressed media; bound streaming decompression and defend against decompression bombs.
+- [ ] Preserve canonical content-hash semantics and resumable chunk identity across compression.
+- [ ] Establish numeric baselines/acceptance thresholds for memory, CPU, battery, queue growth, radio duty, transfer goodput, packet loss, p50/p95 latency, frame time, query latency and decode time. Add representative stress fixtures and before/after measurements.
+- **Exit gate:** reproducible device-class baselines and thresholds; stress tests show bounded memory/queues/threads; improvements do not change correctness or feature behavior.
+
+### R7 — Other cross-cutting reliability risks (high)
+- [ ] Bound retries, TTL, flooding, queues, fragment assembly, search fan-out, metadata sizes, quotas and rate limits.
+- [ ] Test malformed packets, conflicting/duplicate fragments, incomplete expiry, route loops/poisoning, catalogue spam, path traversal and oversized/decompression-bomb payloads.
+- [ ] Ensure WebView native bridge rejects untrusted origins/subresources and maintain contract tests for all existing bridge methods.
+- [ ] Ensure wallet/receipt records fail closed on tampering or key loss; add explicit encrypted export/restore and device migration before claiming recoverability.
+- [ ] Define release rollback, support, privacy/data-safety, legal/carrier review and supply-chain evidence.
+- **Exit gate:** abuse/resource-exhaustion tests, bridge regression tests, wallet/receipt recovery evidence and release checklist completed.
+
+### Performance measurement record (required before optimization claims)
+
+For each supported device class and topology, record device/OEM/API, app build/commit, peer count, transport, screen/background state, CPU, peak memory, battery delta and test duration, queue depth, p50/p95 message latency, transfer goodput/loss, radio duty, frame time, query p50/p95 and file decode time. Set numeric thresholds only after a reproducible baseline; do not invent targets without measurements.
+
+### Cross-cutting delivery rules
+- Every implementation batch links relevant requirement issue(s), capability impact, code owner, test plan, migration/protocol compatibility note, rollback note and documentation update.
+- Update Issue #31 and the relevant requirement issue with evidence; documentation or a prototype alone does not close an issue.
+- Reuse already-passing tests for unchanged code. Test changed behavior on the exact new head; do not rerun unrelated full suites solely for activity.
+- CI green proves only the checks actually run. It does not prove physical radios, battery/OEM background behavior, independent security audit, legal compliance or settlement.
+- Keep the completion PR as Draft and never merge into `main` automatically.
