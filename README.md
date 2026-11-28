@@ -21,7 +21,7 @@ Optional online integrations are disabled by default and can be enabled in the d
 
 ## Web development
 
-Requirements: Node.js 22+. Pull requests run the web build/typecheck on Node 22 and Node 24, plus Android API 36 instrumentation validation. Manual workflow dispatch is available when a downloadable APK or test report is explicitly needed.
+Requirements: Node.js 22.12+. Pull requests targeting `main` run the web typecheck and production build on Node 22, then build and verify the Android debug APK and execute the focused Android API 36 instrumentation suite. Manual workflow dispatch can run the complete Android instrumentation suite and retain a downloadable debug APK and test reports.
 
     npm install
     npm run dev
@@ -30,7 +30,7 @@ The browser dashboard can preview the interface, but native Bluetooth and Wi-Fi 
 
 ## Native Android build
 
-Requirements: JDK 17, Android SDK Platform 36, Gradle 8.11.1, and Node.js/npm. The Gradle `preBuild` task runs `npm run build` and packages the generated dashboard assets automatically.
+Requirements: Node.js 22.12+, JDK 17, Android SDK Platform 36, and Gradle 8.13. The Gradle `preBuild` task runs `npm run build` and packages the generated dashboard assets automatically.
 
     npm install
     cd mobile
@@ -41,7 +41,7 @@ The debug APK is written to `mobile/app/build/outputs/apk/debug/app-debug.apk`. 
 ## Public-repository and security notes
 
 - Never commit wallet secrets, group passphrases, API keys, keystores, signing passwords, or deployment keypairs. Release signing credentials must be stored outside the checkout and supplied through private CI secrets or a local environment.
-- Debug APKs are test artifacts, not production releases. The manual-only CI workflow can verify their signature and run emulator instrumentation tests when explicitly dispatched; an emulator cannot validate physical Bluetooth/Wi-Fi interoperability.
+- Debug APKs are test artifacts, not production releases. Pull-request CI builds and signature-verifies the debug APK and runs focused emulator instrumentation; the complete Android suite and downloadable artifacts are available through explicit manual dispatch (and APK publication is additionally restricted for the repository-owned trial-APK PR). Emulator checks cannot validate physical Bluetooth/Wi-Fi interoperability.
 - The prototype is not yet a production secure messenger: protocol v6 binds each node ID to an Android Keystore P-256 signing key and verifies signed payload digests, but group AES-GCM is not Signal Protocol and there is no forward secrecy, ratcheting, explicit device approval/revocation or secure group-key rotation. Directed receipts are accepted only from the destination node key; broadcast receipts confirm delivery to at least one authenticated group member, not a human identity. Destination routing uses observed reverse paths; unknown destinations use flooding and route freshness does not establish current reachability.
 - The offline wallet prototype now has a durable sender journal and a signed recipient-acknowledgement path: the recipient verifies and persists the voucher before signing an acknowledgement, and the sender verifies that acknowledgement against the queued voucher. The signed voucher is retained in the sender's private journal and can be retried unchanged after interruption or a lost acknowledgement. It still uses provisional `MESH-LOCAL-UNIT` receipts only; there is no issuance, spendable balance, authoritative ledger, global double-spend protection or final settlement, so it is not a real-money or cryptocurrency wallet. The Solana escrow program is not built, tested, deployed, audited or integrated with Android transactions. Do not use this prototype to accept or transfer real funds.
 - Review [SECURITY.md](SECURITY.md) before reporting security issues, and see [mobile/SECURITY_AND_ESCROW.md](mobile/SECURITY_AND_ESCROW.md) for technical boundaries.
