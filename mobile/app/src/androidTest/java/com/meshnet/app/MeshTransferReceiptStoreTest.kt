@@ -2,6 +2,8 @@ package com.meshnet.app
 
 import androidx.test.core.app.ApplicationProvider
 import android.content.Context
+import android.util.AtomicFile
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -18,7 +20,6 @@ class MeshTransferReceiptStoreTest {
     private lateinit var provider: KeyPair
     private lateinit var consumer: KeyPair
     private lateinit var contract: MeshServiceContract
-    private lateinit var preferencesName: String
 
     @Before
     fun setUp() {
@@ -32,8 +33,7 @@ class MeshTransferReceiptStoreTest {
             100L, 10L * 1024 * 1024, 1000L, now - 60_000, now + 60_000,
             "MUTUAL_ONLY", emptyList(), provider.public.encoded, consumer.public.encoded
         ).signAsProvider(provider.private).signAsConsumer(consumer.private)
-        preferencesName = "meshnet-transfer-receipt-journal-v1"
-        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE).edit().clear().commit()
+        AtomicFile(File(context.filesDir, "meshnet-transfer-receipts.json")).delete()
     }
 
     @Test
@@ -63,8 +63,7 @@ class MeshTransferReceiptStoreTest {
 
     @Test(expected = IllegalStateException::class)
     fun corruptJournalFailsClosedInsteadOfAppearingEmpty() {
-        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
-            .edit().putString("chains", "{").commit()
+        File(context.filesDir, "meshnet-transfer-receipts.json").writeText("{")
         MeshTransferReceiptStore(context).verifiedChain(contract)
     }
 
