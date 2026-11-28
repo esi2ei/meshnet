@@ -72,7 +72,7 @@ internal class MeshMembershipSyncProtocol(
                 return true
             }
             "C" -> {
-                if (fields.size != 6 || origin == localNodeId) return true
+                if (fields.size != 7 || origin == localNodeId) return true
                 acceptChunk(origin, fields)
                 return true
             }
@@ -89,7 +89,7 @@ internal class MeshMembershipSyncProtocol(
         require(chunks.size in 1..MAX_CHUNKS) { "Membership event exceeds sync frame budget" }
         var accepted = 0
         chunks.forEachIndexed { index, chunk ->
-            val payload = "$PREFIX|C|${event.eventId}|$index|${chunks.size}|$chunk"
+            val payload = "$PREFIX|C|$groupId|${event.eventId}|$index|${chunks.size}|$chunk"
             if (payload.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES &&
                 send(destination, payload)
             ) accepted++
@@ -101,11 +101,11 @@ internal class MeshMembershipSyncProtocol(
     }
 
     private fun acceptChunk(origin: String, fields: List<String>) {
-        val eventId = fields[2]
+        val eventId = fields[3]
         if (!eventId.matches(Regex("[A-Za-z0-9_-]{16,64}"))) return
-        val index = fields[3].toIntOrNull() ?: return
-        val count = fields[4].toIntOrNull() ?: return
-        val chunk = fields[5]
+        val index = fields[4].toIntOrNull() ?: return
+        val count = fields[5].toIntOrNull() ?: return
+        val chunk = fields[6]
         if (count !in 1..MAX_CHUNKS || index !in 0 until count ||
             chunk.isEmpty() || chunk.length > CHUNK_CHARS ||
             !chunk.matches(Regex("[A-Za-z0-9_-]+"))
