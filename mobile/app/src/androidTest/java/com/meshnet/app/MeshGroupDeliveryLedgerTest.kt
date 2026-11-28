@@ -91,22 +91,35 @@ class MeshGroupDeliveryLedgerTest {
         val receipt = MeshMemberDeliveryReceipt.create(memberA, snapshot, MeshMemberDeliveryReceipt.DELIVERED)
         assertTrue(ledger.recordReceipt(receipt))
         assertFalse(ledger.recordReceipt(receipt))
-        val equivocation = receipt.copy(type = MeshMemberDeliveryReceipt.READ)
-        assertFalse(equivocation.verify())
+        val unsignedEquivocation = receipt.copy(type = MeshMemberDeliveryReceipt.READ, signature = "")
+        val equivocation = unsignedEquivocation.copy(
+            signature = memberA.signDetached("meshnet.group.receipt.v1", unsignedEquivocation.canonicalPayload())
+        )
+        assertTrue(equivocation.verify())
+        assertTrue(runCatching { ledger.recordReceipt(equivocation) }.isFailure)
         assertEquals(1, ledger.receiptCount(snapshot.messageId))
     }
 
     @Test
     fun nonRecipientAndWrongSnapshotReceiptsAreRejected() {
         val outsider = MeshDeviceIdentity.generateEphemeral()
-        val notInSnapshot = MeshMemberDeliveryReceipt(
+        val unsignedOutsider = MeshMemberDeliveryReceipt(
             snapshot.messageId, group, outsider.nodeId, outsider.publicKey,
             snapshot.digest, "outsider_receipt_01", MeshMemberDeliveryReceipt.DELIVERED,
             System.currentTimeMillis(), ""
         )
+        val notInSnapshot = unsignedOutsider.copy(
+            signature = outsider.signDetached("meshnet.group.receipt.v1", unsignedOutsider.canonicalPayload())
+        )
+        assertTrue(notInSnapshot.verify())
         assertFalse(ledger.recordReceipt(notInSnapshot))
-        val wrongSnapshot = MeshMemberDeliveryReceipt.create(memberA, snapshot, MeshMemberDeliveryReceipt.DELIVERED)
-            .copy(snapshotDigest = "e".repeat(64))
+        val unsignedWrongSnapshot = MeshMemberDeliveryReceipt.create(
+            memberA, snapshot, MeshMemberDeliveryReceipt.DELIVERED
+        ).copy(snapshotDigest = "e".repeat(64), signature = "")
+        val wrongSnapshot = unsignedWrongSnapshot.copy(
+            signature = memberA.signDetached("meshnet.group.receipt.v1", unsignedWrongSnapshot.canonicalPayload())
+        )
+        assertTrue(wrongSnapshot.verify())
         assertFalse(ledger.recordReceipt(wrongSnapshot))
     }
 
