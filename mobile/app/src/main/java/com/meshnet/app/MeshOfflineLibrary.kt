@@ -41,6 +41,16 @@ internal class MeshOfflineLibrary(context: Context) {
         }
     }
 
+    private fun prepareBlobRepair(id: String) {
+        if (id !in corruptBlobIds) return
+        check(!catalogMetadataCorrupt && !catalogOverQuota && corruptBlobIds.size == 1) {
+            "Resolve other catalogue or content-integrity issues before repairing this item"
+        }
+        corruptBlobIds.remove(id)
+        local.remove(id)
+        refreshQuotaState()
+    }
+
     private fun refreshQuotaState() {
         catalogOverQuota = local.size > MAX_LOCAL_ITEMS ||
             local.values.sumOf { it.size } > MAX_STORAGE_BYTES
@@ -71,12 +81,8 @@ internal class MeshOfflineLibrary(context: Context) {
                 }
             }
             requireTrustedCatalog()
-            if (id in corruptBlobIds) {
-                // Re-publishing the same verified content is an explicit repair of this blob.
-                corruptBlobIds.remove(id)
-                local.remove(id)
-                refreshQuotaState()
-            }
+            // Re-publishing the same verified content is an explicit repair of this blob.
+            prepareBlobRepair(id)
             requireHealthyCatalog()
             val name=safeName(queryName(uri))
             val dest=fileFor(id)
@@ -135,11 +141,7 @@ internal class MeshOfflineLibrary(context: Context) {
         val existingLocalIsValid = local[id]?.let { localFile(id) != null } == true
         if (!existingLocalIsValid) {
             requireTrustedCatalog()
-            if (id in corruptBlobIds) {
-                corruptBlobIds.remove(id)
-                local.remove(id)
-                refreshQuotaState()
-            }
+            prepareBlobRepair(id)
             val temp=File(root,"$id.tmp")
             val dest=fileFor(id)
             requireHealthyCatalog()
