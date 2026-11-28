@@ -184,6 +184,33 @@ class MeshQueueStoreTest {
     }
 
     @Test
+    fun expiredOutboxFramesAreQuarantinedAndDoNotBlockNewMessages() {
+        val message = frame("expired_message_01", MeshFrame.KIND_MESSAGE)
+        val encoded = message.encode()
+        assertTrue(store.enqueue(encoded))
+
+        val expiredAt = System.currentTimeMillis() - 31L * 24L * 60L * 60L * 1000L
+        store.writableDatabase.execSQL(
+            "UPDATE outbox SET created_at = ? WHERE message_id = ?",
+            arrayOf(expiredAt, message.id)
+        )
+
+        // Expired frames cannot pass the receiver's v6 timestamp check; pending() must
+        // archive the bytes before removing the row from active dispatch.
+        assertTrue(store.pending().isEmpty())
+        val quarantined = store.quarantinedFrames().single()
+        assertEquals(message.id, quarantined.messageId)
+        assertEquals(MeshFrame.KIND_MESSAGE, quarantined.frameKind)
+        assertTrue(encoded.contentEquals(quarantined.frame))
+        assertEquals(expiredAt, quarantined.createdAt)
+        assertEquals(MeshFrame.PROTOCOL_VERSION, quarantined.sourceVersion)
+        assertTrue(quarantined.reason.contains("30-day"))
+
+        // The archive preserves evidence but no longer consumes active outbox capacity.
+        assertTrue(store.canAcceptBatch(6000))
+    }
+
+    @Test
     fun nonProtocolUpgradePreservesCompatibleProtocolV6OutboxFrames() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val currentFrame = frame("current_frame_01", MeshFrame.KIND_MESSAGE).encode()
