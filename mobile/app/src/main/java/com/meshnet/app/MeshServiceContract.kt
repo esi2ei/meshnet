@@ -10,6 +10,7 @@ import java.security.interfaces.ECPublicKey
 import java.security.spec.X509EncodedKeySpec
 import java.security.KeyFactory
 import java.security.MessageDigest
+import java.math.BigInteger
 
 /**
  * Canonical, mutually signed terms for a peer-provided service.
@@ -79,6 +80,22 @@ internal data class MeshServiceContract(
         .put("consumerSignature", consumerSignature ?: JSONObject.NULL)
         .toString()
 
+    /** Contract validity is evaluated against an explicit clock supplied by the caller. */
+    fun isActiveAt(now: Long): Boolean = now in validFrom until validUntil
+
+    /**
+     * Price is prorated by payload volume, rounding any partial MiB up to the next unit.
+     * The agreed maximum cost is a hard cap; this method does not debit or settle funds.
+     */
+    fun maximumChargeFor(billableBytes: Long): Long {
+        require(billableBytes in 0..maxBillableBytes) { "Billable bytes exceed the signed contract limit" }
+        if (billableBytes == 0L || unitPriceMinorPerMiB == 0L) return 0L
+        val numerator = BigInteger.valueOf(unitPriceMinorPerMiB).multiply(BigInteger.valueOf(billableBytes))
+        val divisor = BigInteger.valueOf(BYTES_PER_MIB)
+        val rounded = numerator.add(divisor.subtract(BigInteger.ONE)).divide(divisor)
+        return rounded.min(BigInteger.valueOf(maxCostMinor)).longValueExact()
+    }
+
     /** Exact canonical UTF-8 bytes signed by both parties; JSON key order is irrelevant. */
     fun canonicalBytes(): ByteArray {
         validateTerms()
@@ -137,6 +154,7 @@ internal data class MeshServiceContract(
         private const val MAX_BILLABLE_BYTES = 1L shl 40
         private const val MAX_COST_MINOR = 9_000_000_000_000L
         private const val MAX_RELAYS = 8
+        private const val BYTES_PER_MIB = 1024L * 1024L
         private const val MAX_ENCODED_BYTES = 16 * 1024
         private val ALLOWED_CANCELLATION_POLICIES = setOf("MUTUAL_ONLY", "EITHER_BEFORE_START", "EITHER_WITH_NOTICE")
         private val BASE64_KEY = Regex("[A-Za-z0-9_-]{80,160}")
