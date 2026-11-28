@@ -46,6 +46,16 @@ class MeshCryptoTest {
         }
     }
 
+    @Test
+    fun groupIdIsStableForSameCredentialAndSeparatedForDifferentCredentials() {
+        val first = MeshCrypto("a-high-entropy-meshnet-test-passphrase".toCharArray())
+        val same = MeshCrypto("a-high-entropy-meshnet-test-passphrase".toCharArray())
+        val different = MeshCrypto("another-high-entropy-meshnet-passphrase".toCharArray())
+        assertEquals(first.groupId, same.groupId)
+        assertFalse(first.groupId == different.groupId)
+        assertEquals(64, first.groupId.length)
+    }
+
     private fun expectFailure(message: String, block: () -> Unit) {
         try {
             block()
