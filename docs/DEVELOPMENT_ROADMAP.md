@@ -36,6 +36,12 @@ The mandatory rules and capability inventory are maintained in [docs/FEATURE_PRE
 
 **Execution order:** inventory and behavior capture → stable interfaces/facades → transport lifecycle separation → durable messaging/security integration → product-store and wallet boundaries → device/regression proof. This order sets dependencies; it does not remove or cancel any feature in issues #17–#28 or other documented product goals.
 
+### First behavior-preserving refactor slice
+
+- [x] Move runtime-status JSON construction into `MeshRuntimeStatusSerializer` while keeping the existing `getRuntimeStatus` bridge command and payload field contract.
+- [x] Add tests for complete status fields and explicit null/empty behavior; include them in the focused API 36 suite.
+- [ ] Validate the bridge guard, Android build and focused instrumentation results on the exact current head before accepting the slice.
+
 ## Baseline already in main
 
 | Area | Source status | Verified boundary |
