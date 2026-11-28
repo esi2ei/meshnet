@@ -348,6 +348,16 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         val privateKey = keyStore.getKey(keyAlias, null) as? java.security.PrivateKey
         val certificate = keyStore.getCertificate(keyAlias)
         if (privateKey != null && certificate != null) return KeyPair(certificate.publicKey, privateKey)
+
+        // A missing or partial signing alias must never silently become a new wallet identity
+        // while retained vouchers or receipts still refer to the original public address.
+        check(!keyStore.containsAlias(keyAlias)) {
+            "Offline wallet signing key entry is incomplete; refusing to replace the wallet identity"
+        }
+        check(preferences.all.isEmpty()) {
+            "Offline wallet signing key is missing while wallet records exist; refusing to create a replacement wallet identity"
+        }
+
         val generator = KeyPairGenerator.getInstance(KEY_ALGORITHM, ANDROID_KEYSTORE)
         generator.initialize(
             android.security.keystore.KeyGenParameterSpec.Builder(

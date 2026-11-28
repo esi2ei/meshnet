@@ -283,4 +283,28 @@ class MeshOfflineWalletStoreTest {
         assertTrue(preferences.getString("pending_offline_payment_envelopes", null)?.startsWith("MNW1|") == true)
     }
 
+    @Test
+    fun missingSigningKeyDoesNotGenerateReplacementWalletIdentity() {
+        val voucher = sender.createPayment(recipient.address(), 875L)
+        sender.recordOutgoing(voucher)
+        val alias = "meshnet-offline-wallet-signing-$senderId"
+        val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        assertTrue("The sender signing key must exist before simulating key loss", keyStore.containsAlias(alias))
+        keyStore.deleteEntry(alias)
+
+        val reopened = MeshOfflineWalletStore(context, senderId)
+        val failure = runCatching { reopened.address() }.exceptionOrNull()
+        assertTrue("A missing signing key with retained wallet records must fail closed", failure is IllegalStateException)
+        assertTrue(
+            "The error must explain why a new wallet identity was not created",
+            failure?.message?.contains("signing key is missing") == true
+        )
+        val refreshedKeyStore = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        assertFalse("The missing wallet identity must not be silently regenerated", refreshedKeyStore.containsAlias(alias))
+        assertFalse(
+            "Pending vouchers must not be exposed under a replacement wallet identity",
+            runCatching { reopened.pendingOutgoingVouchers() }.isSuccess
+        )
+    }
+
 }
