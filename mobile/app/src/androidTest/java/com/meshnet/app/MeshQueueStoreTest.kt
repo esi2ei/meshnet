@@ -135,9 +135,7 @@ class MeshQueueStoreTest {
 
             val messageId = "old_frame_$legacyVersion"
             val frameId = "legacy-row-$legacyVersion"
-            val oldFrame = frame(messageId, MeshFrame.KIND_MESSAGE).encode()
             val oldFrame = """{"v":5,"id":"$messageId"}""".toByteArray(Charsets.UTF_8)
-                .toByteArray(Charsets.UTF_8)
             val createdAt = 1_700_000_000_000L + legacyVersion
             legacy.insertOrThrow("outbox", null, ContentValues().apply {
                 put("frame_id", frameId)
