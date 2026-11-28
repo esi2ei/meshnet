@@ -70,6 +70,12 @@ The source browser imports text files from the repository checkout during Vite b
 
 The viewer is a read-only snapshot of the source at build time. It is not an editor, does not fetch GitHub at runtime, and does not replace the compiler or tests. If new source extensions are introduced, update the allowlist in `src/components/CodeExporter.tsx`.
 
+## Feature-preserving refactor
+
+The [feature-preserving refactor contract](FEATURE_PRESERVATION_PLAN.md) is mandatory for structural work. It defines the capability inventory, staged target boundaries, data/protocol compatibility rules and acceptance gates.
+
+In particular, `MeshForegroundService` remains the current compatibility entry point while responsibilities are extracted behind narrow interfaces. Do not split it by simultaneously changing radio lifecycle, bridge methods, persistence semantics and user-visible behavior. Move one responsibility at a time, retain existing callers until contract tests pass, and preserve a rollback path. The current transport, message, file, voice, VPN, library and wallet capabilities remain first-class product responsibilities even when their implementation is partial or optional.
+
 ## Engineering rules
 
 1. Keep platform I/O in native Android classes; React components should call only the narrow bridge exposed by `MainActivity`.
