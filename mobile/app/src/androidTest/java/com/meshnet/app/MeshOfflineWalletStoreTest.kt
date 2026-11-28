@@ -264,4 +264,23 @@ class MeshOfflineWalletStoreTest {
         }.isSuccess)
     }
 
+    @Test
+    fun writingNewWalletStateDoesNotGenerateReplacementKeyWhenEncryptedRecordsRemain() {
+        sender.storePendingEnvelopeState("""[{"id":"voucher_123","count":1,"createdAt":1700000000000,"prefix":"MESHOP1","chunks":{"0":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}]""")
+        val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        keyStore.deleteEntry("meshnet-offline-wallet-storage-$senderId")
+
+        assertFalse(runCatching {
+            sender.storePendingEnvelopeState("[]")
+        }.isSuccess)
+        assertFalse(runCatching {
+            MeshOfflineWalletStore(context, senderId).loadPendingEnvelopeState()
+        }.isSuccess)
+
+        val preferences = context.getSharedPreferences(
+            "meshnet-offline-wallet-v1-$senderId", Context.MODE_PRIVATE
+        )
+        assertTrue(preferences.getString("pending_offline_payment_envelopes", null)?.startsWith("MNW1|") == true)
+    }
+
 }
