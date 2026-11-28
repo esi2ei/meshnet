@@ -154,7 +154,7 @@ class MeshRouterReceiptTest {
     }
 
     @Test
-    fun relayRebroadcastsOnlyWhenANewerPathIsShorter() {
+    fun relayForwardsDuplicateFrameOnlyOnceRegardlessOfHopMetadata() {
         val passphrase = "a sufficiently long group passphrase"
         val senderFrames = mutableListOf<ByteArray>()
         val relayFrames = mutableListOf<ByteArray>()
@@ -195,10 +195,10 @@ class MeshRouterReceiptTest {
         assertEquals(1, relayFrames.count { MeshFrame.decode(it).kind == MeshFrame.KIND_MESSAGE })
 
         relay.receive(original.encode())
-        assertEquals(2, relayFrames.count { MeshFrame.decode(it).kind == MeshFrame.KIND_MESSAGE })
+        assertEquals(1, relayFrames.count { MeshFrame.decode(it).kind == MeshFrame.KIND_MESSAGE })
 
         relay.receive(longer.copy(nonce = encryptedLonger.first, ciphertext = encryptedLonger.second).encode())
-        assertEquals(2, relayFrames.count { MeshFrame.decode(it).kind == MeshFrame.KIND_MESSAGE })
+        assertEquals(1, relayFrames.count { MeshFrame.decode(it).kind == MeshFrame.KIND_MESSAGE })
     }
 
     @Test

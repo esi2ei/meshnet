@@ -33,8 +33,9 @@ internal class MeshRouter(
 ) {
     private val seen = LinkedHashSet<String>()
     private val displayed = LinkedHashSet<String>()
-    private val bestRouteScores = LinkedHashMap<String, Long>()
-    private val peerArrivalAgeMs = LinkedHashMap<String, Double>()
+    // A frame is relayed at most once per node. Mutable hop metadata must not influence
+    // forwarding decisions; alternative ingress observations are still learned separately.
+    private val relayedFrames = LinkedHashSet<String>()
 
     @Synchronized
     fun sendEphemeral(text: String): Boolean = sendEphemeralInternal(text, null)
@@ -137,7 +138,7 @@ internal class MeshRouter(
         }
 
         if (frame.destination != null && frame.destination != nodeId) {
-            if (rememberBestRoute(frame, viaPeer)) {
+            if (rememberBestRoute(frame)) {
                 if (frame.kind == MeshFrame.KIND_EPHEMERAL) relayDirectedEphemeral(frame, plaintext, viaPeer)
                 else relayDirected(frame, plaintext, viaPeer)
             }
@@ -153,7 +154,7 @@ internal class MeshRouter(
             val duplicate = frame.id in seen
             remember(seen, frame.id)
             if (!duplicate) onEphemeralPayload(frame.origin, plaintext)
-            if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
+            if (rememberBestRoute(frame)) relayIfNeeded(frame, plaintext, viaPeer)
             return
         }
 
@@ -164,7 +165,7 @@ internal class MeshRouter(
                 return
             }
             if (frame.id in seen || hasReceived(frame.id)) {
-                if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
+                if (rememberBestRoute(frame)) relayIfNeeded(frame, plaintext, viaPeer)
                 return
             }
             val target = frame.ackFor ?: return
@@ -173,7 +174,7 @@ internal class MeshRouter(
                 return
             }
             val removed = acknowledge(target)
-            if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
+            if (rememberBestRoute(frame)) relayIfNeeded(frame, plaintext, viaPeer)
             markReceived(frame.id, frame.createdAt)
             remember(seen, frame.id)
             if (removed > 0) onMessage("Group receipt received for message $target")
@@ -183,7 +184,7 @@ internal class MeshRouter(
         if (frame.id in seen || hasReceived(frame.id)) {
             // Retry both paths: an earlier receipt or relay may have been queued while no peer was connected.
             if (frame.origin != nodeId) sendReceipt(frame.id, frame.origin)
-            if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
+            if (rememberBestRoute(frame)) relayIfNeeded(frame, plaintext, viaPeer)
             return
         }
 
@@ -202,7 +203,7 @@ internal class MeshRouter(
             remember(displayed, frame.id)
         }
         sendReceipt(frame.id, frame.origin)
-        if (rememberBestRoute(frame, viaPeer)) relayIfNeeded(frame, plaintext, viaPeer)
+        if (rememberBestRoute(frame)) relayIfNeeded(frame, plaintext, viaPeer)
 
         if (markReceived(frame.id, frame.createdAt)) return
         remember(seen, frame.id)
@@ -235,26 +236,10 @@ internal class MeshRouter(
         return identity?.sign(encrypted) ?: encrypted
     }
 
-    /** Fewer hops always wins; equal-hop alternatives use peer historical arrival age. */
-    private fun rememberBestRoute(frame: MeshFrame, viaPeer: String?): Boolean {
-        val peerPenalty = viaPeer?.let { peerArrivalAgeMs[it] } ?: DEFAULT_PEER_AGE_MS
-        val score = frame.hops.size * ROUTE_HOP_WEIGHT + peerPenalty.toLong().coerceIn(0L, MAX_PEER_AGE_MS)
-        if (viaPeer != null) {
-            val age = (System.currentTimeMillis() - frame.createdAt).coerceAtLeast(0L).toDouble()
-            val previousAge = peerArrivalAgeMs[viaPeer]
-            peerArrivalAgeMs[viaPeer] = if (previousAge == null) age else previousAge * 0.8 + age * 0.2
-            while (peerArrivalAgeMs.size > MAX_TRACKED_PEERS) {
-                val iterator = peerArrivalAgeMs.entries.iterator()
-                if (iterator.hasNext()) { iterator.next(); iterator.remove() } else break
-            }
-        }
-        val previous = bestRouteScores[frame.id]
-        if (previous != null && score >= previous) return false
-        bestRouteScores[frame.id] = score
-        while (bestRouteScores.size > MAX_SEEN_IDS) {
-            val iterator = bestRouteScores.entries.iterator()
-            if (iterator.hasNext()) { iterator.next(); iterator.remove() } else break
-        }
+    /** Prevent duplicate forwarding; untrusted hop counts never affect route decisions. */
+    private fun rememberBestRoute(frame: MeshFrame): Boolean {
+        if (frame.id in relayedFrames) return false
+        remember(relayedFrames, frame.id)
         return true
     }
 
@@ -314,10 +299,6 @@ internal class MeshRouter(
 
     companion object {
         private const val MAX_SEEN_IDS = 2048
-        private const val MAX_TRACKED_PEERS = 128
-        private const val ROUTE_HOP_WEIGHT = 100_000L
-        private const val MAX_PEER_AGE_MS = 99_999L
-        private const val DEFAULT_PEER_AGE_MS = 50_000.0
         private const val MAX_PLAINTEXT_BYTES = 120
     }
 }
