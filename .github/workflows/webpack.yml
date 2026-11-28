@@ -34,7 +34,8 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
-          cache-dependency-path: package-lock.json
+          # Use the manifest until the generated candidate lockfile is committed.
+          cache-dependency-path: package.json
 
       # Bootstrap and review a lockfile from the exact manifest with the supported Node/npm toolchain.
       # This artifact is a candidate only; commit it after inspecting the generated dependency graph.
