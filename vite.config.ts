@@ -5,6 +5,10 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => ({
   base: './',
+  build: {
+    // APKs contain the compiled dashboard only; never publish source maps with client assets.
+    sourcemap: false,
+  },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { '@': path.resolve(__dirname, '.') },
