@@ -19,9 +19,19 @@ internal class MeshOfflineLibrary(context: Context) {
     private val local=linkedMapOf<String,Item>()
     private val remote=linkedMapOf<String,Item>()
     private val pending=linkedSetOf<String>()
+    @Volatile private var catalogHealthy = true
+    val isCatalogHealthy: Boolean get() = catalogHealthy
+
+    private fun requireHealthyCatalog() {
+        check(catalogHealthy) {
+            "Offline library catalogue is damaged; content files were preserved and catalogue mutations are disabled until recovery"
+        }
+    }
+
     init { load() }
 
     @Synchronized fun publish(uri:Uri):Item {
+        requireHealthyCatalog()
         val temp=File(root,"publish-${System.nanoTime()}.tmp")
         val hash=MessageDigest.getInstance("SHA-256")
         var size=0L
@@ -57,6 +67,7 @@ internal class MeshOfflineLibrary(context: Context) {
     }
 
     @Synchronized fun observeRemote(origin:String,id:String,size:Long,name:String,now:Long=System.currentTimeMillis()):Boolean {
+        requireHealthyCatalog()
         require(origin.matches(Regex("[A-Za-z0-9_-]{1,32}"))){ "Invalid content provider identity" }
         require(id.matches(Regex("[a-f0-9]{64}"))){ "Invalid content digest" }
         require(size in 1..MAX_FILE_BYTES.toLong()){ "Invalid advertised content size" }
@@ -84,11 +95,13 @@ internal class MeshOfflineLibrary(context: Context) {
         return file
     }
     @Synchronized fun markPending(id:String):Boolean {
+        requireHealthyCatalog()
         if(!remote.containsKey(id)||id in pending||pending.size>=MAX_PENDING_DOWNLOADS)return false
         pending.add(id);persist();return true
     }
-    @Synchronized fun cancelPending(id:String){pending.remove(id);persist()}
+    @Synchronized fun cancelPending(id:String){requireHealthyCatalog();pending.remove(id);persist()}
     @Synchronized fun completeDownload(id:String,received:File):Boolean {
+        requireHealthyCatalog()
         val advertised=remote[id] ?: run { pending.remove(id); persist(); return false }
         if(id !in pending||!received.isFile||received.length()!=advertised.size||runCatching{digest(received)}.getOrNull()!=id){
             pending.remove(id);persist();return false
@@ -125,6 +138,7 @@ internal class MeshOfflineLibrary(context: Context) {
         pending.remove(id);remote.remove(id);persist();return true
     }
     @Synchronized fun removeLocal(id:String):Boolean {
+        requireHealthyCatalog()
         if(local.remove(id)==null)return false
         fileFor(id).delete();persist();return true
     }
@@ -138,29 +152,55 @@ internal class MeshOfflineLibrary(context: Context) {
         .put("local",it.local).put("origin",it.origin?:JSONObject.NULL).put("pending",it.pending))}}
 
     private fun load(){
-        val json = runCatching {
-            atomicIndex.openRead().bufferedReader(Charsets.UTF_8).use { JSONObject(it.readText()) }
-        }.getOrNull() ?: return
+        val raw = try {
+            atomicIndex.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } catch (_: java.io.FileNotFoundException) {
+            return
+        }
+        val json = try {
+            JSONObject(raw)
+        } catch (_: Exception) {
+            // Preserve all content blobs when the catalogue itself cannot be trusted.
+            catalogHealthy = false
+            return
+        }
         val now = System.currentTimeMillis()
         val locals = json.optJSONArray("local") ?: JSONArray()
         var recoveredLocalBytes = 0L
         for (i in 0 until locals.length()) {
-            runCatching {
-                val entry = locals.getJSONObject(i)
-                val id = entry.getString("id")
-                val size = entry.getLong("size")
-                val createdAt = entry.getLong("createdAt")
-                require(id.matches(Regex("[a-f0-9]{64}")))
-                require(size in 1..MAX_FILE_BYTES.toLong())
-                require(createdAt in 1..(now + MAX_FUTURE_CLOCK_SKEW_MS))
-                val file = fileFor(id)
-                if (file.isFile && file.length() == size && digest(file) == id &&
-                    id !in local && local.size < MAX_LOCAL_ITEMS &&
-                    size <= MAX_STORAGE_BYTES - recoveredLocalBytes
-                ) {
-                    local[id] = Item(id, safeName(entry.getString("name")), size, createdAt, true, null)
-                    recoveredLocalBytes += size
-                }
+            val entry = try {
+                locals.getJSONObject(i)
+            } catch (_: Exception) {
+                catalogHealthy = false
+                local.clear()
+                return
+            }
+            val id = try { entry.getString("id") } catch (_: Exception) {
+                catalogHealthy = false; local.clear(); return
+            }
+            val size = try { entry.getLong("size") } catch (_: Exception) {
+                catalogHealthy = false; local.clear(); return
+            }
+            val createdAt = try { entry.getLong("createdAt") } catch (_: Exception) {
+                catalogHealthy = false; local.clear(); return
+            }
+            if (!id.matches(Regex("[a-f0-9]{64}")) ||
+                size !in 1..MAX_FILE_BYTES.toLong() ||
+                createdAt !in 1..(now + MAX_FUTURE_CLOCK_SKEW_MS)
+            ) {
+                // A malformed local record may still own a content blob. Never prune or
+                // overwrite the index when its ownership metadata cannot be verified.
+                catalogHealthy = false
+                local.clear()
+                return
+            }
+            val file = fileFor(id)
+            if (file.isFile && file.length() == size && digest(file) == id &&
+                id !in local && local.size < MAX_LOCAL_ITEMS &&
+                size <= MAX_STORAGE_BYTES - recoveredLocalBytes
+            ) {
+                local[id] = Item(id, safeName(entry.optString("name")), size, createdAt, true, null)
+                recoveredLocalBytes += size
             }
         }
 
@@ -189,6 +229,7 @@ internal class MeshOfflineLibrary(context: Context) {
             if (remote.containsKey(id) && pending.size < MAX_PENDING_DOWNLOADS) pending.add(id)
         }
         pruneRemote(now)
+        if (!catalogHealthy) return
         pruneOrphanedFiles()
         persist()
     }
@@ -209,6 +250,7 @@ internal class MeshOfflineLibrary(context: Context) {
         }
     }
     private fun persist(){
+        requireHealthyCatalog()
         val json = JSONObject().put("local", JSONArray().apply {
             local.values.forEach { put(itemJson(it)) }
         }).put("remote", JSONArray().apply {
