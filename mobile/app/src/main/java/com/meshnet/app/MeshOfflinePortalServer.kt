@@ -24,8 +24,19 @@ internal class MeshOfflinePortalServer(
     private val bindAddress: String,
     private val library: MeshOfflineLibrary,
     private val requestedPort: Int = DEFAULT_PORT,
-    private val onEvent: (String) -> Unit = {}
+    private val onEvent: (String) -> Unit = {},
+    private val allowLoopbackForTests: Boolean = false
 ) : Closeable {
+    init {
+        require(
+            MeshIpAddress.isOverlayAddress(bindAddress) ||
+                (allowLoopbackForTests && bindAddress == "127.0.0.1")
+        ) { "Offline portal must bind to the private mesh overlay address" }
+        require(requestedPort in 1..65_535 || (allowLoopbackForTests && requestedPort == 0)) {
+            "Invalid offline portal port"
+        }
+    }
+
     private val running = AtomicBoolean(false)
     private var server: ServerSocket? = null
     private var acceptThread: Thread? = null
