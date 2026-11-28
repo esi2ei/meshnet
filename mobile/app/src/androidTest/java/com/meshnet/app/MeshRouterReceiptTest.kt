@@ -216,9 +216,7 @@ class MeshRouterReceiptTest {
             onMessage = {},
             hasReceived = { it in senderSeen },
             markReceived = { id, _ -> !senderSeen.add(id) },
-            acknowledge = { id -> acknowledged.add(id); 1 },
-            // No authenticated recipient roster exists for group broadcasts yet.
-            validateAcknowledgement = { _, _ -> false }
+            acknowledge = { id -> acknowledged.add(id); 1 }
         )
         val receiver = MeshRouter(
             nodeId = "receiver_01",
@@ -372,6 +370,7 @@ class MeshRouterReceiptTest {
             hasReceived = { it in sourceSeen },
             markReceived = { id, _ -> !sourceSeen.add(id) },
             acknowledge = { 1 },
+            validateAcknowledgement = { _, origin -> origin == "target_01" },
             sendRelay = { bytes, _ -> sourceRelays.add(bytes); true }
         )
         val destination = MeshRouter(
