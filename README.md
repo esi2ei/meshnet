@@ -11,6 +11,10 @@ MeshNet is an offline-first peer-to-peer messaging and connectivity prototype. T
 
 ## Repository organization
 
+## Feature-preserving development
+
+MeshNet is being refactored without reducing its feature scope. Existing dashboard, radio, messaging, voice, library, VPN and wallet paths must remain traceable while their internals are improved; prototype and planned capabilities remain clearly labeled rather than advertised as complete. See [the feature-preserving refactor contract](docs/FEATURE_PRESERVATION_PLAN.md) and [the development roadmap](docs/DEVELOPMENT_ROADMAP.md) for the capability inventory, staged migration rules and acceptance gates.
+
 The native service owns transport lifecycle and live peer state; the dashboard is a presentation/control layer. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the module map, peer lifecycle, source-browser scope and engineering rules. See [docs/OFFLINE_MESH_NETWORK.md](docs/OFFLINE_MESH_NETWORK.md) for the actual offline-network boundary and the engineering gates needed for a usable local intranet. Legacy virtual-device simulation code is isolated under `test/fixtures/` and is not used by the Android runtime or treated as a real transport test.
 
 ## Offline-first behavior
