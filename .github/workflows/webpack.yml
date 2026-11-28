@@ -122,11 +122,12 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
+            set -o pipefail
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
               gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest \
-                -Pandroid.testInstrumentationRunnerArguments.class=com.meshnet.app.MeshTransferReceiptStoreTest,com.meshnet.app.MeshOfflineWalletStoreTest,com.meshnet.app.MeshGroupMembershipStoreTest,com.meshnet.app.MeshMembershipSyncProtocolTest,com.meshnet.app.BundledDashboardAssetsTest,com.meshnet.app.MeshRouterReceiptTest,com.meshnet.app.MeshGroupDeliveryLedgerTest,com.meshnet.app.MeshSecretStoreTest
+                -Pandroid.testInstrumentationRunnerArguments.class=com.meshnet.app.MeshTransferReceiptStoreTest,com.meshnet.app.MeshOfflineWalletStoreTest,com.meshnet.app.MeshGroupMembershipStoreTest,com.meshnet.app.MeshMembershipSyncProtocolTest,com.meshnet.app.BundledDashboardAssetsTest,com.meshnet.app.MeshRouterReceiptTest,com.meshnet.app.MeshGroupDeliveryLedgerTest,com.meshnet.app.MeshSecretStoreTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"
             else
-              gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest
+              gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"
             fi
 
       - name: Upload Android build and test diagnostics
