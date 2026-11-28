@@ -18,7 +18,7 @@ permissions:
 
 concurrency:
   group: meshnet-ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   web:
@@ -110,8 +110,8 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run targeted PR tests or the full Android instrumentation suite on API 36
-        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.run_android_instrumentation) }}
+      - name: Run focused Android regression tests on API 36
+        if: ${{ github.event_name == 'pull_request' }}
         uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: 36
@@ -121,14 +121,20 @@ jobs:
           working-directory: mobile
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: |
-            set -o pipefail
-            if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-              gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest \
-                -Pandroid.testInstrumentationRunnerArguments.class=com.meshnet.app.MeshTransferReceiptStoreTest,com.meshnet.app.MeshOfflineWalletStoreTest,com.meshnet.app.MeshGroupMembershipStoreTest,com.meshnet.app.MeshMembershipSyncProtocolTest,com.meshnet.app.BundledDashboardAssetsTest,com.meshnet.app.MeshRouterReceiptTest,com.meshnet.app.MeshGroupDeliveryLedgerTest,com.meshnet.app.MeshOfflineLibraryTest,com.meshnet.app.MeshSecretStoreTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"
-            else
-              gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"
-            fi
+          script: bash -o pipefail -c 'gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.meshnet.app.MeshTransferReceiptStoreTest,com.meshnet.app.MeshOfflineWalletStoreTest,com.meshnet.app.MeshGroupMembershipStoreTest,com.meshnet.app.MeshMembershipSyncProtocolTest,com.meshnet.app.BundledDashboardAssetsTest,com.meshnet.app.MeshRouterReceiptTest,com.meshnet.app.MeshGroupDeliveryLedgerTest,com.meshnet.app.MeshOfflineLibraryTest,com.meshnet.app.MeshSecretStoreTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"'
+
+      - name: Run full Android instrumentation suite on API 36
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_android_instrumentation }}
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7_pro
+          working-directory: mobile
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash -o pipefail -c 'gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"'
 
       - name: Upload Android build and test diagnostics
         if: ${{ !cancelled() && failure() }}
