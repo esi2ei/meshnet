@@ -60,7 +60,7 @@ class MeshMembershipSyncProtocolTest {
     fun wrongGroupAndMalformedChunksAreIgnored() {
         val receiverProtocol = MeshMembershipSyncProtocol(group, receiver.nodeId, receiverStore, send = { _, _ -> true })
         assertTrue(receiverProtocol.accept(sender.nodeId, "~GM1|S|${"c".repeat(64)}"))
-        assertTrue(receiverProtocol.accept(sender.nodeId, "~GM1|C|${group.take(16)}|bad|0|1|not_base64!"))
+        assertTrue(receiverProtocol.accept(sender.nodeId, "~GM1|C|${group.take(24)}|bad|0|1|not_base64!"))
         assertEquals(0, receiverStore.events(group).size)
     }
 
