@@ -69,31 +69,13 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
 
     @Synchronized
     fun acceptPayment(payload: String): Receipt {
-        require(payload.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) { "Payment payload is too large" }
-        val json = JSONObject(payload)
-        require(json.optInt("version", -1) == VERSION) { "Unsupported offline payment version" }
-        require(json.optString("asset") == ASSET_CODE) { "Unsupported offline asset" }
+        val json = verifyPaymentPayload(payload)
         val id = json.getString("id")
-        require(id.length in 1..64) { "Invalid payment identifier" }
         val amount = json.getLong("amountMinor")
-        require(amount in 1..MAX_AMOUNT_MINOR) { "Invalid payment amount" }
         val sender = json.getString("sender")
         val recipient = json.getString("recipient")
         require(recipient == address()) { "This payment is addressed to a different wallet" }
-        val senderPublicKey = Base64.decode(json.getString("senderPublicKey"), Base64.URL_SAFE or Base64.NO_WRAP)
-        require(addressFor(senderPublicKey) == sender) { "Sender wallet address does not match its public key" }
-        val publicKey = KeyFactory.getInstance(KEY_ALGORITHM)
-            .generatePublic(X509EncodedKeySpec(senderPublicKey))
-        val signatureBytes = Base64.decode(json.getString("signature"), Base64.URL_SAFE or Base64.NO_WRAP)
-        val unsigned = JSONObject(json.toString()).apply { remove("signature") }
-        val valid = Signature.getInstance(SIGNATURE_ALGORITHM).run {
-            initVerify(publicKey)
-            update(canonical(unsigned))
-            verify(signatureBytes)
-        }
-        require(valid) { "Offline payment signature is invalid" }
         val createdAt = json.getLong("createdAt")
-        require(createdAt > 0L) { "Invalid payment timestamp" }
 
         val received = readIds()
         require(id !in received) { "This offline payment was already imported on this device" }
@@ -136,15 +118,12 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
     /** Persist the signed voucher before any radio send is attempted. */
     @Synchronized
     fun recordOutgoing(payload: String) {
-        require(payload.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) { "Payment payload is too large" }
-        val json = JSONObject(payload)
-        require(json.optInt("version", -1) == VERSION) { "Unsupported offline payment version" }
-        require(json.optString("sender") == address()) { "Outgoing voucher belongs to another wallet" }
+        val json = verifyPaymentPayload(payload)
+        require(json.getString("sender") == address()) { "Outgoing voucher belongs to another wallet" }
         val id = json.getString("id")
         val recipient = json.getString("recipient")
         val amount = json.getLong("amountMinor")
         val createdAt = json.getLong("createdAt")
-        require(id.isNotBlank() && recipient.matches(Regex("[0-9a-f]{64}")) && amount in 1..MAX_AMOUNT_MINOR)
         val entries = readOutgoing()
         require((0 until entries.length()).none { entries.optJSONObject(it)?.optString("id") == id }) {
             "Outgoing voucher is already recorded"
@@ -300,6 +279,45 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
                 .build()
         )
         return generator.generateKeyPair()
+    }
+
+    /**
+     * Verify the exact signed voucher before either accepting it or placing it in the
+     * outgoing retry journal. A caller cannot persist an unsigned or forged "pending" payment.
+     */
+    private fun verifyPaymentPayload(payload: String): JSONObject {
+        require(payload.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) { "Payment payload is too large" }
+        val json = JSONObject(payload)
+        require(json.optInt("version", -1) == VERSION) { "Unsupported offline payment version" }
+        require(json.optString("asset") == ASSET_CODE) { "Unsupported offline asset" }
+        require(json.getString("id").matches(Regex("[A-Za-z0-9_-]{1,64}"))) { "Invalid payment identifier" }
+        require(json.getLong("amountMinor") in 1..MAX_AMOUNT_MINOR) { "Invalid payment amount" }
+        require(json.getString("sender").matches(Regex("[0-9a-f]{64}"))) { "Invalid sender wallet address" }
+        require(json.getString("recipient").matches(Regex("[0-9a-f]{64}"))) { "Invalid recipient wallet address" }
+        require(json.getLong("createdAt") > 0L) { "Invalid payment timestamp" }
+        val senderPublicKey = decodeCanonicalBase64(json.getString("senderPublicKey"))
+        require(addressFor(senderPublicKey) == json.getString("sender")) {
+            "Sender wallet address does not match its public key"
+        }
+        val publicKey = KeyFactory.getInstance(KEY_ALGORITHM)
+            .generatePublic(X509EncodedKeySpec(senderPublicKey))
+        val signatureBytes = decodeCanonicalBase64(json.getString("signature"))
+        require(signatureBytes.size in 64..80) { "Invalid offline payment signature length" }
+        val unsigned = JSONObject(json.toString()).apply { remove("signature") }
+        val valid = Signature.getInstance(SIGNATURE_ALGORITHM).run {
+            initVerify(publicKey)
+            update(canonical(unsigned))
+            verify(signatureBytes)
+        }
+        require(valid) { "Offline payment signature is invalid" }
+        return json
+    }
+
+    private fun decodeCanonicalBase64(value: String): ByteArray {
+        val decoded = Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        val canonical = Base64.encodeToString(decoded, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        require(canonical == value) { "Non-canonical offline wallet encoding" }
+        return decoded
     }
 
     private fun readIds(): MutableSet<String> =
