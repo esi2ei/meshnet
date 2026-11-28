@@ -49,7 +49,7 @@ internal class MeshOfflineLibrary(context: Context) {
     init { load() }
 
     @Synchronized fun publish(uri:Uri):Item {
-        requireHealthyCatalog()
+        requireTrustedCatalog()
         val temp=File(root,"publish-${System.nanoTime()}.tmp")
         val hash=MessageDigest.getInstance("SHA-256")
         var size=0L
@@ -127,7 +127,7 @@ internal class MeshOfflineLibrary(context: Context) {
     }
     @Synchronized fun cancelPending(id:String){requireHealthyCatalog();pending.remove(id);persist()}
     @Synchronized fun completeDownload(id:String,received:File):Boolean {
-        requireHealthyCatalog()
+        requireTrustedCatalog()
         val advertised=remote[id] ?: run { pending.remove(id); persist(); return false }
         if(id !in pending||!received.isFile||received.length()!=advertised.size||runCatching{digest(received)}.getOrNull()!=id){
             pending.remove(id);persist();return false
