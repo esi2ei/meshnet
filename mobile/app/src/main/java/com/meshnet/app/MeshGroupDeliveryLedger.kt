@@ -9,6 +9,10 @@ import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
 
+private fun sha256(bytes: ByteArray): String =
+    MessageDigest.getInstance("SHA-256").digest(bytes)
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
 internal data class MeshDeliveryRecipient(val memberId: String, val publicKey: String)
 
 internal data class MeshGroupDeliverySnapshot(
@@ -68,10 +72,10 @@ internal data class MeshGroupDeliverySnapshot(
 
     companion object {
         private const val SNAPSHOT_DOMAIN = "meshnet.group.snapshot.v1"
-        private const val ID_PATTERN = "[A-Za-z0-9_-]{1,64}"
-        private const val NODE_PATTERN = "[A-Za-z0-9_-]{20,32}"
-        private const val KEY_PATTERN = "[A-Za-z0-9_-]{80,160}"
-        private const val HEX_64 = "[a-f0-9]{64}"
+        private val ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
+        private val NODE_PATTERN = Regex("[A-Za-z0-9_-]{20,32}")
+        private val KEY_PATTERN = Regex("[A-Za-z0-9_-]{80,160}")
+        private val HEX_64 = Regex("[a-f0-9]{64}")
         private const val MAX_RECIPIENTS = 512
 
         fun create(
@@ -189,10 +193,10 @@ internal data class MeshMemberDeliveryReceipt(
         const val READ = "READ"
         private val TYPES = setOf(ACCEPTED, DELIVERED, READ)
         private const val RECEIPT_DOMAIN = "meshnet.group.receipt.v1"
-        private const val ID_PATTERN = "[A-Za-z0-9_-]{1,64}"
-        private const val NODE_PATTERN = "[A-Za-z0-9_-]{20,32}"
-        private const val KEY_PATTERN = "[A-Za-z0-9_-]{80,160}"
-        private const val HEX_64 = "[a-f0-9]{64}"
+        private val ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
+        private val NODE_PATTERN = Regex("[A-Za-z0-9_-]{20,32}")
+        private val KEY_PATTERN = Regex("[A-Za-z0-9_-]{80,160}")
+        private val HEX_64 = Regex("[a-f0-9]{64}")
         private const val MAX_CLOCK_SKEW_MS = 5L * 60L * 1000L
 
         fun create(
