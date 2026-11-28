@@ -3,6 +3,11 @@ package com.meshnet.app
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import android.util.Base64
+import java.security.KeyPairGenerator
+import java.security.MessageDigest
+import java.security.Signature
+import java.security.spec.ECGenParameterSpec
 
 class MeshDeviceIdentityTest {
     @Test fun signsAndVerifiesPayloadAndStableOriginFingerprint() {
@@ -34,6 +39,57 @@ class MeshDeviceIdentityTest {
         val signed = identity.sign(identity.prepare(frame, "payload"))
         assertFalse(MeshDeviceIdentity.verify(signed.copy(signature = null), "payload"))
         assertFalse(MeshDeviceIdentity.verify(signed.copy(deviceKey = "invalid"), "payload"))
+    }
+
+    @Test fun rejectsAValidSignatureFromANonP256Curve() {
+        val generator = KeyPairGenerator.getInstance("EC")
+        generator.initialize(ECGenParameterSpec("secp384r1"))
+        val pair = generator.generateKeyPair()
+        val publicBytes = pair.public.encoded
+        val nodeId = Base64.encodeToString(
+            MessageDigest.getInstance("SHA-256").digest(publicBytes).copyOfRange(0, 16),
+            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        )
+        val plaintext = "payload signed with an unsupported curve"
+        val payloadHash = MessageDigest.getInstance("SHA-256").digest(plaintext.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val unsigned = MeshFrame(
+            origin = nodeId,
+            ttl = MeshFrame.MAX_TTL,
+            hops = listOf(nodeId),
+            nonce = "nonce",
+            ciphertext = "ciphertext",
+            id = "p384_identity_01",
+            deviceKey = Base64.encodeToString(
+                publicBytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+            ),
+            payloadHash = payloadHash
+        )
+        val signingBytes = "meshnet-device-v1|${unsigned.kind}|${unsigned.id}|${unsigned.origin}|${unsigned.destination.orEmpty()}|${unsigned.createdAt}|${unsigned.ackFor.orEmpty()}|${unsigned.deviceKey.orEmpty()}|${unsigned.payloadHash.orEmpty()}"
+            .toByteArray(Charsets.UTF_8)
+        val signer = Signature.getInstance("SHA256withECDSA")
+        signer.initSign(pair.private)
+        signer.update(signingBytes)
+        val signed = unsigned.copy(signature = Base64.encodeToString(
+            signer.sign(), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        ))
+
+        assertFalse(MeshDeviceIdentity.verify(signed, plaintext))
+    }
+
+    @Test fun rejectsNonCanonicalBase64IdentityMaterial() {
+        val identity = MeshDeviceIdentity.generateEphemeral()
+        val frame = MeshFrame(
+            origin = identity.nodeId,
+            ttl = MeshFrame.MAX_TTL,
+            hops = listOf(identity.nodeId),
+            nonce = "nonce",
+            ciphertext = "ciphertext",
+            id = "canonical_identity_01"
+        )
+        val signed = identity.sign(identity.prepare(frame, "payload"))
+        assertTrue(MeshDeviceIdentity.verify(signed, "payload"))
+        assertFalse(MeshDeviceIdentity.verify(signed.copy(deviceKey = signed.deviceKey + "="), "payload"))
     }
 
     @Test fun signedFrameFitsTheBoundedTransportEnvelope() {

@@ -58,6 +58,35 @@ class MeshQueueStoreTest {
     }
 
     @Test
+    fun fullOutboxRejectsNewFramesWithoutEvictingOldestUnacknowledgedMessage() {
+        val db = store.writableDatabase
+        val now = System.currentTimeMillis()
+        db.beginTransaction()
+        try {
+            repeat(6000) { index ->
+                val id = "queued_$index"
+                db.insertOrThrow("outbox", null, ContentValues().apply {
+                    put("frame_id", "seed_$index")
+                    put("frame", frame(id, MeshFrame.KIND_MESSAGE).encode())
+                    put("message_id", id)
+                    put("frame_kind", MeshFrame.KIND_MESSAGE)
+                    put("created_at", now + index)
+                    put("attempts", 0)
+                })
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+
+        assertFalse(store.canAcceptBatch(1))
+        assertFalse(store.enqueue(frame("new_message_01", MeshFrame.KIND_MESSAGE).encode()))
+        val oldest = MeshFrame.decode(store.pending(1).single())
+        assertEquals("queued_0", oldest.id)
+        assertEquals(6000, store.pending().size)
+    }
+
+    @Test
     fun duplicateReceiptIdDoesNotGrowOutbox() {
         val first = frame("receipt_02", MeshFrame.KIND_ACK, "message_02")
         val retry = first.copy(nonce = "new-nonce", ciphertext = "new-ciphertext")
@@ -125,7 +154,19 @@ class MeshQueueStoreTest {
         assertFalse(store.receiptMatches("directed_message_01", "attacker_01"))
         assertTrue(store.receiptMatches("directed_message_01", "destination_01"))
         assertEquals(1, store.acknowledge("directed_message_01"))
-        assertTrue(store.receiptMatches("directed_message_01", "attacker_01"))
+        // Once the directed target record is retired, no later receipt may be trusted.
+        assertFalse(store.receiptMatches("directed_message_01", "attacker_01"))
+    }
+
+    @Test
+    fun groupBroadcastReceiptCannotRetireMessageWithoutMemberRoster() {
+        val broadcast = frame("group_message_01", MeshFrame.KIND_MESSAGE)
+        assertTrue(store.enqueue(broadcast.encode()))
+
+        // A shared group key and a valid device signature do not establish the
+        // intended recipient set or prove delivery to every group member.
+        assertFalse(store.receiptMatches("group_message_01", "any_group_member"))
+        assertEquals(1, store.pending().size)
     }
 
     @Test

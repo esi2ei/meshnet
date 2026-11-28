@@ -21,7 +21,7 @@ Required integration sequence:
 5. Add cross-device interoperability vectors, tamper/replay tests, state-restoration tests, dependency/license inventory, and an independent cryptographic review.
 6. Only then migrate messages. Protocol v4 group AES-GCM remains the current legacy mode until all devices have upgraded; do not silently reinterpret old ciphertext as ratchet ciphertext.
 
-**Current state:** selected as the Apache-2.0 replacement candidate; not integrated into the Android runtime. The current app still uses a shared AES-GCM group key and does not provide per-device identity or forward secrecy. No Rust JNI/UniFFI module, native build, key bundle publication, or ratchet-session persistence has been implemented.
+**Current state:** vodozemac remains a selected Apache-2.0 replacement candidate; it is not integrated into the Android runtime. The Android app now has a stable per-install P-256 signing key in Android Keystore. The node ID is derived from the public-key fingerprint, and protocol v6 carries the public key plus an ECDSA signature over the immutable plaintext digest/message identity. The receiver verifies the origin signature after AES-GCM decryption, while relays preserve the origin signature when re-encrypting hop/TTL metadata. This authenticates the origin signing key, but it does not change the encryption model: the group still shares one AES-GCM key, and all group members with that key can decrypt group traffic. There are no per-device Olm sessions, ratchets, forward secrecy, signed prekey bundles, explicit device approval/revocation, or secure group-key rotation. No Rust JNI/UniFFI module, native build, key bundle publication, or ratchet-session persistence has been implemented. Independent review of the custom identity/signature integration is still required.
 
 ## 2. Escrow: non-custodial Solana PDA escrow; no custodial server wallet
 
@@ -78,3 +78,30 @@ The Android router now consumes a bounded per-peer estimator. BLE scan callbacks
 - A successful source edit or commit is not evidence that Android compiles or that a radio/contract works.
 - Before production, run local Android build + instrumentation tests, device interoperability tests, protocol review, and independent smart-contract audit as applicable.
 - Never fabricate wallet balances, transaction IDs, escrow states, radio metrics, delivery receipts, or test results.
+
+
+## 5. Mutually signed service-contract envelope (new, not yet integrated)
+
+`MeshServiceContract.kt` defines a bounded version-1 contract envelope for peer-provided services. The canonical UTF-8 signing representation is independent of JSON property order and includes the contract ID, service code, provider and consumer addresses, unit price per MiB, maximum billable payload bytes, maximum cost, validity interval, cancellation policy, sorted relay shares, and both public keys. Provider and consumer each sign the same canonical bytes with P-256 / SHA-256 ECDSA; verification requires both signatures and verifies that each encoded public key hashes to the corresponding party address.
+
+- Billing unit is explicitly `APPLICATION_PAYLOAD_BYTES`. Transport headers, routing metadata and retransmissions are excluded; the receiver's accepted application payload is the accounting boundary. Unit prices are prorated by bytes, with any partial MiB rounded up; the signed maximum cost is a hard cap. `isActiveAt(now)` requires the caller to supply the current clock.
+- Relay shares are capped at eight distinct node IDs and a combined maximum of 10,000 basis points.
+- The envelope parser is capped at 16 KiB, validates version and field bounds, and rejects non-canonical Base64 encodings and non-P-256 public keys.
+- Allowed cancellation policy identifiers are versioned and enumerated; terms cannot be edited without invalidating both signatures.
+- Instrumentation coverage is authored in `MeshServiceContractTest.kt` for dual signatures, tampering, envelope round-trip and relay-share bounds.
+
+**Integration boundary:** the contract and `MeshTransferReceipt` are currently standalone protocol primitives. Receipts require both parties to sign each payload batch, carry a monotonically increasing sequence, payload digest, byte delta, cumulative byte count, cumulative capped charge and previous-receipt hash. `verifyNext` checks a single link; callers must validate the entire chain from the genesis hash and persist receipt IDs/hashes idempotently. These types are not yet attached to service offers, file/message transfer, byte counters, wallet ledger, or settlement. They do not prove that the claimed digest corresponds to delivered bytes unless the receiver computes it at the application boundary, and they do not prevent double spending by themselves. Do not treat a signed receipt as a payment or fiat settlement.
+
+The offline wallet store also now refuses new incoming vouchers after its 4,096-entry replay-ID guard reaches capacity rather than evicting old replay IDs and accidentally allowing a previously accepted voucher to be imported again. The human-readable receipt history is separately capped at 1,000 entries; the replay-protection set is never silently pruned. Outgoing voucher history is capped at 4,096 entries. Both incoming acceptance and outgoing-journal insertion now share signature, canonical Base64, address, amount and payload validation; unsigned or modified vouchers cannot be staged for retry. A future export/reconciliation workflow is required before these fail-closed limits can be safely operationalized.
+
+
+**Local companion binding guard:** the offline portal constructor now rejects wildcard, loopback and public-address binds by default. Loopback binding is available only through an explicit test-only constructor flag; production continues to bind to the device's `100.64.0.0/10` overlay address.
+
+
+## 6. Durable transfer-receipt journal (new primitive; integration pending)
+
+`MeshTransferReceiptStore` persists signed receipt chains in an app-private `AtomicFile` journal with atomic replacement and fsync-backed completion. Every read and append re-verifies the complete chain from the genesis receipt, including signatures, sequence, byte totals, cumulative capped charge, timestamps and previous-receipt hashes. Exact retries are idempotent; a conflicting receipt at an existing sequence, a gap, a broken chain, malformed storage, malformed per-contract entries or an oversized journal fail closed rather than silently resetting accounting history.
+
+The journal is bounded to 2,048 receipts and 2 MiB. It stores signed accounting metadata only, not payload bytes or private keys. The file is app-private but is **not encrypted at rest**; device-level data extraction or backup access may expose receipt metadata. The current implementation is synchronized within the app process and uses `AtomicFile` atomic commits for durable replacement; it is not a cross-process transactional ledger, does not coordinate concurrent devices, and does not settle funds. Keystore-backed encryption and backup policy remain security hardening work. The contract still must be supplied by the caller and verified on each operation.
+
+**Integration remains incomplete:** no service-offer activation path or file/message receiver currently invokes this journal; actual accepted application payload bytes and their SHA-256 digest are not yet measured at the receiver boundary; dual-signature exchange, wallet reconciliation, crash/retry integration and no-double-billing end-to-end tests remain open. The journal must not be presented as proof of payment or fiat settlement.

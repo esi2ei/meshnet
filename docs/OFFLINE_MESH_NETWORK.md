@@ -43,10 +43,11 @@ The first local IPv4 overlay is implemented in the Android branch:
 - each device gets a deterministic 100.64.0.0/10 address derived from its signed node identity;
 - IPv4 packets are fragmented into bounded, signed ephemeral frames, routed to the destination node, and reassembled before delivery to its TUN;
 - the virtual DNS endpoint resolves node-fingerprint .mesh names using current mesh address announcements;
-- non-mesh DNS lookups are forwarded through a protected UDP socket to the underlying network's DNS server when an uplink exists; with no uplink they return SERVFAIL;
+- the completion branch bounds neighbor address records with a three-minute TTL and refreshes announcements every 60 seconds while the overlay is active;
+- non-mesh DNS lookups are forwarded through a protected UDP socket bound to the selected underlying Android Network; the response transaction ID and DNS response bit are validated, and with no uplink they return SERVFAIL;
 - public application traffic is deliberately excluded from the VPN route and continues over the device's ordinary network.
 
-This is a best-effort IPv4 overlay, not a fully validated Internet-like network. DNS forwarding is a bounded UDP path; large DNS replies that require TCP fallback and private-DNS-over-TLS upstreams are not yet handled by the mesh resolver. Physical-device multi-hop testing, route expiry, congestion/back-pressure, loss/retry behavior, IPv6, and interoperability measurements remain outstanding. Gateway advertisement/election, explicit user-controlled uplink sharing, NAT/forwarding, metering and abuse controls are not implemented.
+This is a best-effort IPv4 overlay, not a fully validated Internet-like network. The completion branch adds bounded neighbor-address expiry and periodic announcements, but real multi-hop route convergence and relay-loss recovery remain unverified. DNS forwarding is a bounded UDP path; large DNS replies that require TCP fallback and private-DNS-over-TLS upstreams are not yet handled by the mesh resolver. Physical-device testing, congestion/back-pressure, loss/retry behavior, IPv6, and interoperability measurements remain outstanding. Gateway advertisement/election, explicit user-controlled uplink sharing, NAT/forwarding, metering and abuse controls are not implemented.
 
 ### 3. Offline content and services
 
@@ -76,6 +77,12 @@ The HTTP portal now serves files already present in the local library through th
 4. Routing, connection count, memory, queues and radio retries remain bounded under malicious or failing peers.
 5. UI clearly separates local-only services from optional uplink/gateway services.
 6. Instrumented physical-device evidence is recorded for the supported Android versions and chipsets.
+
+## Validation status
+
+The 0.1.0 debug trial APK was built by GitHub Actions, its debug signature was verified, and the Android API 36 emulator instrumentation suite plus Node 22/24 web checks passed. This validates the CI build/test environment only. No physical two-phone or three-phone BLE/Wi-Fi/IP-overlay test has been recorded yet, and no independent cryptographic or smart-contract audit has been completed.
+
+See the organized task list and evidence checklist in docs/DEVELOPMENT_ROADMAP.md.
 
 ## Current release boundary
 

@@ -103,7 +103,7 @@ data class MeshFrame(
 
         const val MAX_TTL = 8
         const val MAX_FRAME_BYTES = 960
-        private const val MAX_AGE_MS = 24L * 60L * 60L * 1000L
+        private const val MAX_AGE_MS = 30L * 24L * 60L * 60L * 1000L
         private const val MAX_CLOCK_SKEW_MS = 5L * 60L * 1000L
     }
 }

@@ -1,6 +1,7 @@
 package com.meshnet.app
 
 import android.util.Base64
+import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
@@ -15,6 +16,8 @@ import javax.crypto.spec.SecretKeySpec
  */
 class MeshCrypto(passphrase: CharArray) {
     private val key: SecretKeySpec
+    /** Stable, domain-separated identifier for the derived group key; never reveals the passphrase. */
+    val groupId: String
 
     init {
         require(passphrase.size >= 24) { "Use an out-of-band passphrase of at least 24 characters" }
@@ -27,7 +30,15 @@ class MeshCrypto(passphrase: CharArray) {
             passphrase.fill('\u0000')
         }
         key = SecretKeySpec(bytes, "AES")
-        bytes.fill(0)
+        val groupMaterial = key.encoded
+        groupId = try {
+            MessageDigest.getInstance("SHA-256")
+                .digest("meshnet-group-id-v1|".toByteArray(Charsets.UTF_8) + groupMaterial)
+                .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        } finally {
+            groupMaterial.fill(0)
+            bytes.fill(0)
+        }
     }
 
     fun encrypt(plainText: String, aad: ByteArray): Pair<String, String> {

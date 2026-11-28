@@ -21,6 +21,15 @@ import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicBoolean
 
+
+/** Accept only a DNS response for the outstanding transaction identifier. */
+internal fun isMatchingDnsResponse(query: ByteArray, response: ByteArray): Boolean {
+    if (query.size < 12 || response.size < 12) return false
+    if (query[0] != response[0] || query[1] != response[1]) return false
+    val flags = response[2].toInt() and 0xff
+    return (flags and 0x80) != 0
+}
+
 /**
  * User-consented split-tunnel VPN for the MeshNet private IPv4 overlay.
  * Only 100.64.0.0/10 is routed into this TUN; public Internet traffic is untouched.
@@ -167,12 +176,15 @@ class MeshVpnService : VpnService() {
         return runCatching {
             DatagramSocket().use { socket ->
                 if (!protect(socket)) return null
+                physicalNetwork.bindSocket(socket)
                 socket.soTimeout = DNS_TIMEOUT_MS
-                socket.send(DatagramPacket(query, query.size, InetSocketAddress(dnsServer, DNS_PORT)))
+                socket.connect(InetSocketAddress(dnsServer, DNS_PORT))
+                socket.send(DatagramPacket(query, query.size))
                 val buffer = ByteArray(MAX_DNS_RESPONSE_BYTES)
                 val response = DatagramPacket(buffer, buffer.size)
                 socket.receive(response)
-                if (response.length < 12) null else response.data.copyOf(response.length)
+                val payload = response.data.copyOf(response.length)
+                payload.takeIf { isMatchingDnsResponse(query, it) }
             }
         }.getOrNull()
     }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import java.security.AlgorithmParameters
 import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyPairGenerator
@@ -11,7 +12,10 @@ import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.Signature
+import java.security.interfaces.ECPublicKey
+import java.security.spec.ECFieldFp
 import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECParameterSpec
 import java.security.spec.X509EncodedKeySpec
 
 /**
@@ -38,14 +42,23 @@ internal class MeshDeviceIdentity private constructor(
         val signer = Signature.getInstance("SHA256withECDSA")
         signer.initSign(privateKey)
         signer.update(signingBytes(frame))
-        val encoded = Base64.encodeToString(
-            signer.sign(), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
-        )
+        val encoded = encode(signer.sign())
         return frame.copy(signature = encoded)
+    }
+
+    /** Signs a domain-separated, canonical application record without exporting the private key. */
+    fun signDetached(domain: String, payload: ByteArray): String {
+        require(domain.matches(Regex("[a-z0-9.-]{1,80}"))) { "Invalid signature domain" }
+        require(payload.size in 1..MAX_DETACHED_PAYLOAD_BYTES) { "Invalid signed payload size" }
+        val signer = Signature.getInstance("SHA256withECDSA")
+        signer.initSign(privateKey)
+        signer.update(detachedSigningBytes(domain, payload))
+        return encode(signer.sign())
     }
 
     companion object {
         private const val KEY_ALIAS = "meshnet-device-identity-p256-v1"
+        private const val MAX_DETACHED_PAYLOAD_BYTES = 16 * 1024
 
         fun loadOrCreate(context: Context): MeshDeviceIdentity {
             val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -78,21 +91,84 @@ internal class MeshDeviceIdentity private constructor(
                 val encodedKey = frame.deviceKey ?: return@runCatching false
                 val encodedSignature = frame.signature ?: return@runCatching false
                 val expectedHash = frame.payloadHash ?: return@runCatching false
-                val publicBytes = Base64.decode(
-                    encodedKey, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
-                )
+                val publicBytes = decodeCanonicalBase64(encodedKey) ?: return@runCatching false
+                val signatureBytes = decodeCanonicalBase64(encodedSignature) ?: return@runCatching false
                 if (nodeIdFor(publicBytes) != frame.origin) return@runCatching false
                 if (sha256(plaintext.toByteArray(Charsets.UTF_8)) != expectedHash) return@runCatching false
                 val publicKey = KeyFactory.getInstance("EC")
-                    .generatePublic(X509EncodedKeySpec(publicBytes))
+                    .generatePublic(X509EncodedKeySpec(publicBytes)) as? ECPublicKey
+                    ?: return@runCatching false
+                if (!isP256(publicKey)) return@runCatching false
                 val verifier = Signature.getInstance("SHA256withECDSA")
                 verifier.initVerify(publicKey)
                 verifier.update(signingBytes(frame))
-                verifier.verify(Base64.decode(
-                    encodedSignature, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
-                ))
+                verifier.verify(signatureBytes)
             }.getOrDefault(false)
         }
+
+        /** Checks the node-ID/public-key binding without requiring a signed payload. */
+        internal fun verifyPublicKeyBinding(publicKey: String, expectedNodeId: String): Boolean = runCatching {
+            val publicBytes = decodeCanonicalBase64(publicKey) ?: return@runCatching false
+            if (nodeIdFor(publicBytes) != expectedNodeId) return@runCatching false
+            val decoded = KeyFactory.getInstance("EC")
+                .generatePublic(X509EncodedKeySpec(publicBytes)) as? ECPublicKey
+                ?: return@runCatching false
+            isP256(decoded)
+        }.getOrDefault(false)
+
+        /** Verifies detached application records against the same P-256 device identity. */
+        internal fun verifyDetached(
+            publicKey: String,
+            expectedNodeId: String,
+            domain: String,
+            payload: ByteArray,
+            signature: String
+        ): Boolean = runCatching {
+            if (!domain.matches(Regex("[a-z0-9.-]{1,80}"))) return@runCatching false
+            if (payload.size !in 1..MAX_DETACHED_PAYLOAD_BYTES) return@runCatching false
+            val publicBytes = decodeCanonicalBase64(publicKey) ?: return@runCatching false
+            val signatureBytes = decodeCanonicalBase64(signature) ?: return@runCatching false
+            if (nodeIdFor(publicBytes) != expectedNodeId) return@runCatching false
+            val decoded = KeyFactory.getInstance("EC")
+                .generatePublic(X509EncodedKeySpec(publicBytes)) as? ECPublicKey
+                ?: return@runCatching false
+            if (!isP256(decoded)) return@runCatching false
+            Signature.getInstance("SHA256withECDSA").run {
+                initVerify(decoded)
+                update(detachedSigningBytes(domain, payload))
+                verify(signatureBytes)
+            }
+        }.getOrDefault(false)
+
+        private fun detachedSigningBytes(domain: String, payload: ByteArray): ByteArray =
+            ("meshnet-detached-v1|$domain|".toByteArray(Charsets.UTF_8) + payload)
+
+        private fun decodeCanonicalBase64(value: String): ByteArray? {
+            val decoded = runCatching {
+                Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+            }.getOrNull() ?: return null
+            return decoded.takeIf { encode(it) == value }
+        }
+
+        private fun encode(bytes: ByteArray): String =
+            Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+
+        private fun isP256(publicKey: ECPublicKey): Boolean = runCatching {
+            val expected = AlgorithmParameters.getInstance("EC").apply {
+                init(ECGenParameterSpec("secp256r1"))
+            }.getParameterSpec(ECParameterSpec::class.java)
+            val actual = publicKey.params
+            val actualField = actual.curve.field as? ECFieldFp ?: return@runCatching false
+            val expectedField = expected.curve.field as? ECFieldFp ?: return@runCatching false
+            actual.curve.field.fieldSize == 256 &&
+                actualField.p == expectedField.p &&
+                actual.curve.a == expected.curve.a &&
+                actual.curve.b == expected.curve.b &&
+                publicKey.w.affineX == expected.generator.affineX &&
+                publicKey.w.affineY == expected.generator.affineY &&
+                actual.order == expected.order &&
+                actual.cofactor == expected.cofactor
+        }.getOrDefault(false)
 
         private fun signingBytes(frame: MeshFrame): ByteArray =
             "meshnet-device-v1|${frame.kind}|${frame.id}|${frame.origin}|${frame.destination.orEmpty()}|${frame.createdAt}|${frame.ackFor.orEmpty()}|${frame.deviceKey.orEmpty()}|${frame.payloadHash.orEmpty()}"

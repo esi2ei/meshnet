@@ -18,6 +18,12 @@ val buildWebDashboard = tasks.register<Exec>("buildWebDashboard") {
     description = "Build the offline-first React dashboard for the Android WebView."
     workingDir(repositoryRoot)
     commandLine(npmExecutable, "run", "build")
+    // CI may supply the exact dashboard artifact already typechecked and built by the web job.
+    // Local Android builds continue to rebuild the dashboard unless this explicit flag is set.
+    onlyIf {
+        providers.environmentVariable("MESHNET_PREBUILT_WEB_ASSETS").orNull != "true" ||
+            !repositoryRoot.resolve("dist/index.html").isFile
+    }
 }
 
 val bundleWebDashboard = tasks.register<Sync>("bundleWebDashboard") {

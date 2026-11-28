@@ -121,4 +121,22 @@ class MeshOfflineWalletStoreTest {
         assertTrue(sender.pendingOutgoingVouchers().isEmpty())
     }
 
+    @Test(expected = IllegalArgumentException::class)
+    fun outgoingJournalRejectsVoucherWhoseSignatureWasTampered() {
+        val voucher = sender.createPayment(recipient.address(), 875L)
+        val tampered = org.json.JSONObject(voucher).put("amountMinor", 1L).toString()
+        sender.recordOutgoing(tampered)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun outgoingJournalRejectsVoucherSignedByAnotherWallet() {
+        val voucher = sender.createPayment(recipient.address(), 875L)
+        val other = MeshOfflineWalletStore(context, "other-${UUID.randomUUID().toString().take(8)}")
+        try {
+            other.recordOutgoing(voucher)
+        } finally {
+            other.clear()
+        }
+    }
+
 }

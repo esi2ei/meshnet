@@ -91,10 +91,12 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     fun enqueue(frame: ByteArray): Boolean {
         if (frame.isEmpty() || frame.size > MeshFrame.MAX_FRAME_BYTES) return false
         val now = System.currentTimeMillis()
-        val db = writableDatabase
-        db.delete("outbox", "created_at < ?", arrayOf((now - MAX_AGE_MS).toString()))
         val decoded = try { MeshFrame.decode(frame) } catch (_: Exception) { return false }
         val id = digest(frame)
+        val db = writableDatabase
+        if (db.rawQuery("SELECT 1 FROM outbox WHERE frame_id = ?", arrayOf(id)).use { it.moveToFirst() }) {
+            return true
+        }
         if (decoded.kind == MeshFrame.KIND_ACK) {
             val pendingAck = db.rawQuery(
                 "SELECT 1 FROM outbox WHERE message_id = ? AND frame_kind = ?",
@@ -110,14 +112,23 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             put("created_at", now)
             put("attempts", 0)
         }
-        db.insertWithOnConflict("outbox", null, values, SQLiteDatabase.CONFLICT_IGNORE)
-        db.execSQL(
-            "DELETE FROM outbox WHERE frame_id IN (SELECT frame_id FROM outbox ORDER BY created_at ASC LIMIT MAX(0, (SELECT COUNT(*) FROM outbox) - ?))",
-            arrayOf(MAX_ENTRIES)
-        )
-        return db.rawQuery(
-            "SELECT 1 FROM outbox WHERE frame_id = ?", arrayOf(id)
-        ).use { it.moveToFirst() }
+        db.beginTransaction()
+        try {
+            val current = db.rawQuery("SELECT COUNT(*) FROM outbox", null).use {
+                if (it.moveToFirst()) it.getInt(0) else MAX_ENTRIES
+            }
+            // Backpressure is safer than evicting an unacknowledged message without notice.
+            if (current >= MAX_ENTRIES) return false
+            val inserted = db.insertWithOnConflict("outbox", null, values, SQLiteDatabase.CONFLICT_IGNORE)
+            if (inserted == -1L) {
+                return db.rawQuery("SELECT 1 FROM outbox WHERE frame_id = ?", arrayOf(id))
+                    .use { it.moveToFirst() }
+            }
+            db.setTransactionSuccessful()
+            return true
+        } finally {
+            db.endTransaction()
+        }
     }
 
     @Synchronized
@@ -131,9 +142,7 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
 
     @Synchronized
     fun pending(limit: Int = MAX_ENTRIES): List<ByteArray> {
-        val now = System.currentTimeMillis()
         val db = writableDatabase
-        db.delete("outbox", "created_at < ?", arrayOf((now - MAX_AGE_MS).toString()))
         return db.rawQuery(
             "SELECT frame FROM outbox ORDER BY created_at ASC LIMIT ?",
             arrayOf(limit.coerceIn(1, MAX_ENTRIES).toString())
@@ -176,8 +185,11 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
         writableDatabase.delete("directed_targets", "message_id = ?", arrayOf(messageId))
 
     /**
-     * Directed messages can only be retired by a receipt signed by their intended destination.
-     * Broadcast messages accept a receipt from any authenticated group member.
+     * A directed message can only be retired by its intended destination.
+     *
+     * Group broadcasts fail closed until a cryptographically authenticated, durable
+     * membership roster and per-member receipt ledger exist. A shared group key proves
+     * group-key possession, not that every intended member received the message.
      */
     @Synchronized
     fun receiptMatches(messageId: String, receiptOrigin: String): Boolean {
@@ -189,13 +201,14 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             arrayOf(messageId)
         ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
         if (recordedDestination != null) return recordedDestination == receiptOrigin
-        val encoded = writableDatabase.rawQuery(
+
+        val encoded = db.rawQuery(
             "SELECT frame FROM outbox WHERE message_id = ? AND frame_kind = ? LIMIT 1",
             arrayOf(messageId, MeshFrame.KIND_MESSAGE)
-        ).use { cursor -> if (cursor.moveToFirst()) cursor.getBlob(0) else null } ?: return true
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getBlob(0) else null } ?: return false
         val frame = runCatching { MeshFrame.decode(encoded) }.getOrNull() ?: return false
-        val destination = frame.destination
-        return destination == null || destination == receiptOrigin
+        val destination = frame.destination ?: return false
+        return destination == receiptOrigin
     }
 
     /**
@@ -283,6 +296,6 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     companion object {
         private const val MAX_ENTRIES = 6000
         private const val MAX_RECEIVED_IDS = 8192
-        private const val MAX_AGE_MS = 24L * 60L * 60L * 1000L
+        private const val MAX_AGE_MS = 30L * 24L * 60L * 60L * 1000L
     }
 }

@@ -5,6 +5,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MeshIpPacketRouterTest {
+    @Test fun validatesDnsResponseTransactionIdAndResponseFlag() {
+        val query = ByteArray(12).apply {
+            this[0] = 0x12
+            this[1] = 0x34
+            this[2] = 0x01
+            this[5] = 0x01
+        }
+        val response = ByteArray(12).apply {
+            this[0] = 0x12
+            this[1] = 0x34
+            this[2] = 0x81.toByte()
+            this[3] = 0x80.toByte()
+            this[5] = 0x01
+        }
+        assertTrue(isMatchingDnsResponse(query, response))
+        assertFalse(isMatchingDnsResponse(query, response.copyOf().apply { this[1] = 0x35 }))
+        assertFalse(isMatchingDnsResponse(query, response.copyOf().apply { this[2] = 0x01 }))
+        assertFalse(isMatchingDnsResponse(query, response.copyOfRange(0, 8)))
+    }
+
     @Test fun nodeAddressIsStableAndInsideTheOverlayPrefix() {
         val node = "AAAAAAAAAAAAAAAAAAAAAA"
         assertEquals(MeshIpAddress.forNodeId(node), MeshIpAddress.forNodeId(node))
@@ -85,7 +105,84 @@ class MeshIpPacketRouterTest {
         val udpLength = 8 + payloadSize
         packet[24] = ((udpLength ushr 8) and 0xff).toByte()
         packet[25] = (udpLength and 0xff).toByte()
+        setIpv4Checksum(packet)
         return packet
+    }
+
+    @Test fun conflictingDuplicateFragmentDiscardsItsAssembly() {
+        val senderId = "source_node_12345678"
+        val receiverId = "target_node_12345678"
+        val senderIp = MeshIpAddress.forNodeId(senderId)
+        val receiverIp = MeshIpAddress.forNodeId(receiverId)
+        val frames = mutableListOf<String>()
+        val delivered = mutableListOf<ByteArray>()
+        val sender = MeshIpPacketRouter(senderId, senderIp, { _, message -> frames.add(message); true }) {}
+        val receiver = MeshIpPacketRouter(receiverId, receiverIp, { _, _ -> true }) { delivered.add(it) }
+        sender.accept(receiverId, receiver.announcement())
+        receiver.accept(senderId, sender.announcement())
+        assertTrue(sender.send(ipv4Packet(senderIp, receiverIp, 400)))
+
+        val first = frames.first().split('|', limit = 5)
+        val alteredBytes = Base64.decode(first[4], Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        alteredBytes[0] = (alteredBytes[0].toInt() xor 0x01).toByte()
+        val alteredChunk = Base64.encodeToString(
+            alteredBytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        )
+        val conflicting = "${first[0]}|${first[1]}|${first[2]}|${first[3]}|$alteredChunk"
+
+        receiver.accept(senderId, frames.first())
+        receiver.accept(senderId, conflicting)
+        frames.drop(1).forEach { receiver.accept(senderId, it) }
+
+        assertTrue(delivered.isEmpty())
+    }
+
+    @Test fun expiresIncompleteIpPacketAssembliesUsingMonotonicClock() {
+        val senderId = "source_node_12345678"
+        val receiverId = "target_node_12345678"
+        val senderIp = MeshIpAddress.forNodeId(senderId)
+        val receiverIp = MeshIpAddress.forNodeId(receiverId)
+        val frames = mutableListOf<String>()
+        val delivered = mutableListOf<ByteArray>()
+        var now = 1_000L
+        val sender = MeshIpPacketRouter(senderId, senderIp, { _, message -> frames.add(message); true }) {}
+        val receiver = MeshIpPacketRouter(
+            receiverId, receiverIp, { _, _ -> true },
+            nowMillis = { now },
+            deliverPacket = { delivered.add(it) }
+        )
+        sender.accept(receiverId, receiver.announcement())
+        receiver.accept(senderId, sender.announcement())
+        assertTrue(sender.send(ipv4Packet(senderIp, receiverIp, 400)))
+
+        receiver.accept(senderId, frames.first())
+        now += 15_001L
+        frames.drop(1).forEach { receiver.accept(senderId, it) }
+        assertTrue(delivered.isEmpty())
+
+        frames.forEach { receiver.accept(senderId, it) }
+        assertEquals(1, delivered.size)
+    }
+
+    @Test fun doesNotForwardDnsResponsesOrUnsupportedOpcodesAsQueries() {
+        val node = "AAAAAAAAAAAAAAAAAAAAAA"
+        val localIp = MeshIpAddress.forNodeId(node)
+        var forwarded = 0
+        val delivered = mutableListOf<ByteArray>()
+        val router = MeshIpPacketRouter(
+            node, localIp, { _, _ -> true },
+            forwardDnsQuery = { forwarded++; ByteArray(12) },
+            deliverPacket = { delivered.add(it) }
+        )
+        val responseShapedPacket = dnsQueryPacket(localIp, MeshIpPacketRouter.DNS_SERVICE_IP, "example.com")
+            .apply { this[30] = 0x81.toByte() }
+        val unsupportedOpcodePacket = dnsQueryPacket(localIp, MeshIpPacketRouter.DNS_SERVICE_IP, "example.com")
+            .apply { this[30] = 0x09.toByte() }
+
+        assertTrue(router.send(responseShapedPacket))
+        assertTrue(router.send(unsupportedOpcodePacket))
+        assertEquals(0, forwarded)
+        assertTrue(delivered.isEmpty())
     }
 
     @Test fun resolvesMeshDnsNamesToOverlayIpv4Addresses() {
@@ -143,6 +240,7 @@ class MeshIpPacketRouterTest {
         packet[24] = ((udpLength ushr 8) and 0xff).toByte()
         packet[25] = (udpLength and 0xff).toByte()
         dns.copyInto(packet, 28)
+        setIpv4Checksum(packet)
         return packet
     }
 
@@ -163,6 +261,45 @@ class MeshIpPacketRouterTest {
 
     private fun u16(bytes: ByteArray, offset: Int): Int =
         ((bytes[offset].toInt() and 0xff) shl 8) or (bytes[offset + 1].toInt() and 0xff)
+
+    private fun setIpv4Checksum(packet: ByteArray) {
+        packet[10] = 0
+        packet[11] = 0
+        var sum = 0L
+        for (index in 0 until 20 step 2) sum += u16(packet, index).toLong()
+        while ((sum ushr 16) != 0L) sum = (sum and 0xffff) + (sum ushr 16)
+        val checksum = sum.inv().toInt() and 0xffff
+        packet[10] = (checksum ushr 8).toByte()
+        packet[11] = checksum.toByte()
+    }
+
+    @Test fun rejectsIpv4PacketWithInvalidHeaderChecksum() {
+        val node = "local_node_12345678"
+        val localIp = MeshIpAddress.forNodeId(node)
+        val router = MeshIpPacketRouter(node, localIp, { _, _ -> true }) {}
+        val valid = ipv4Packet(localIp, localIp, 8)
+        assertTrue(router.send(valid))
+        val corrupted = valid.copyOf().apply { this[8] = (this[8].toInt() xor 0x01).toByte() }
+        assertFalse(router.send(corrupted))
+    }
+
+    @Test fun expiresRemoteAddressConflictsAndAllowsFreshClaims() {
+        val local = "local_node_12345678"
+        val first = "collision_node_000403"
+        val second = "collision_node_000975"
+        val localIp = MeshIpAddress.forNodeId(local)
+        val sharedIp = MeshIpAddress.forNodeId(first)
+        assertEquals(sharedIp, MeshIpAddress.forNodeId(second))
+        var now = 1_000L
+        val router = MeshIpPacketRouter(local, localIp, { _, _ -> true }, nowMillis = { now }) {}
+        assertTrue(router.accept(first, "~IP1A|$sharedIp"))
+        assertTrue(router.accept(second, "~IP1A|$sharedIp"))
+        assertEquals(0, router.knownNodeCount())
+
+        now += 180_001L
+        assertTrue(router.accept(second, "~IP1A|$sharedIp"))
+        assertEquals(sharedIp, router.addressForNode(second))
+    }
 
 
     @Test fun forwardsNonMeshDnsQueriesOnlyThroughTheInjectedUpstreamResolver() {
@@ -192,6 +329,32 @@ class MeshIpPacketRouterTest {
             response.copyOfRange(28, response.size)
         )
         assertEquals(MeshIpPacketRouter.DNS_SERVICE_IP, MeshIpAddress.format(response, 12))
+    }
+
+    @Test fun expiresStaleNodeAddressesAndAllowsFreshAnnouncements() {
+        val local = "local_node_12345678"
+        val remote = "remote_node_12345678"
+        val localIp = MeshIpAddress.forNodeId(local)
+        val remoteIp = MeshIpAddress.forNodeId(remote)
+        var now = 1_000L
+        val router = MeshIpPacketRouter(
+            local,
+            localIp,
+            { _, _ -> true },
+            nowMillis = { now },
+            deliverPacket = {}
+        )
+
+        assertTrue(router.accept(remote, "~IP1A|$remoteIp"))
+        assertEquals(1, router.knownNodeCount())
+        assertEquals(remoteIp, router.addressForNode(remote))
+
+        now += 180_001L
+        assertEquals(0, router.knownNodeCount())
+        assertNull(router.addressForNode(remote))
+
+        assertTrue(router.accept(remote, "~IP1A|$remoteIp"))
+        assertEquals(1, router.knownNodeCount())
     }
 
     @Test fun returnsServFailForPublicDnsWhenNoUpstreamResolverExists() {

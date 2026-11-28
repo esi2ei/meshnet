@@ -11,7 +11,9 @@ import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Binder
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 
 class MeshForegroundService : Service() {
     inner class LocalBinder : Binder() {
@@ -26,6 +28,9 @@ class MeshForegroundService : Service() {
     private var wifiTransport: MeshWifiDirectTransport? = null
     private var wifiAwareTransport: MeshWifiAwareTransport? = null
     private var router: MeshRouter? = null
+    private var groupMembershipStore: MeshGroupMembershipStore? = null
+    private var membershipSync: MeshMembershipSyncProtocol? = null
+    private var localMembershipJoin: MeshMembershipEvent? = null
     private var fileTransfer: MeshFileTransfer? = null
     private var ipPacketRouter: MeshIpPacketRouter? = null
     private var ipPacketListener: ((ByteArray) -> Unit)? = null
@@ -54,6 +59,16 @@ class MeshForegroundService : Service() {
     private var replayActive = false
     private var lastWalletRetryAt = 0L
     private var wifiDirectFallbackAttempted = false
+    private val ipAnnouncementHandler = Handler(Looper.getMainLooper())
+    private val ipAnnouncementTicker = object : Runnable {
+        override fun run() {
+            if (router == null || ipPacketRouter == null) return
+            // Each active node refreshes only its own record. Peer discovery queries are
+            // sent on startup/connection, not every interval, to avoid periodic mesh-wide floods.
+            announceIpAddress()
+            ipAnnouncementHandler.postDelayed(this, IP_ADDRESS_ANNOUNCE_INTERVAL_MS)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -161,6 +176,8 @@ class MeshForegroundService : Service() {
         offlinePortalServer = MeshOfflinePortalServer(localIp, offlineLibrary, onEvent = ::emit).also { it.start() }
         announceIpAddress()
         router?.sendEphemeral(IP_ADDRESS_QUERY)
+        ipAnnouncementHandler.removeCallbacks(ipAnnouncementTicker)
+        ipAnnouncementHandler.postDelayed(ipAnnouncementTicker, IP_ADDRESS_ANNOUNCE_INTERVAL_MS)
         emit("Offline IPv4 mesh active at $localIp · portal ${offlinePortalUrlValue()}")
     }
 
@@ -169,6 +186,7 @@ class MeshForegroundService : Service() {
     fun sendIpPacket(packet: ByteArray): Boolean = ipPacketRouter?.send(packet) == true
 
     fun stopIpOverlay() {
+        ipAnnouncementHandler.removeCallbacks(ipAnnouncementTicker)
         val wasActive = ipPacketRouter != null || offlinePortalServer != null
         offlinePortalServer?.close()
         offlinePortalServer = null
@@ -271,6 +289,8 @@ class MeshForegroundService : Service() {
             announceOfflineLibrary()
             announceIpAddress()
             router?.sendEphemeral(IP_ADDRESS_QUERY)
+            localMembershipJoin?.let { membershipSync?.publish(it) }
+            membershipSync?.requestSync(force = true)
         }
         if (!connected) {
             val routeTransport = when (transportName) {
@@ -583,6 +603,16 @@ class MeshForegroundService : Service() {
             stopSelf()
             return
         }
+        val membershipStore = MeshGroupMembershipStore(this)
+        groupMembershipStore = membershipStore
+        val localCounter = membershipStore.events(crypto.groupId)
+            .filter { it.memberId == nodeId }
+            .maxOfOrNull { it.counter }?.plus(1L) ?: 1L
+        val localJoin = MeshMembershipEvent.create(
+            identity, crypto.groupId, localCounter, MeshMembershipEvent.JOIN
+        )
+        membershipStore.append(localJoin)
+        localMembershipJoin = localJoin
         fileTransfer = MeshFileTransfer(
             context = this,
             sendMessage = { text -> router?.sendMessage(text) ?: false },
@@ -616,7 +646,9 @@ class MeshForegroundService : Service() {
             recordDestination = outbox::recordDestination,
             forgetDestination = outbox::forgetDestination,
             identity = identity,
-            onFramePayload = ::handleOfflineLibraryPayload,
+            onFramePayload = { origin, plaintext ->
+                handleOfflineLibraryPayload(origin, plaintext)
+            },
             onPayload = { plaintext ->
                 if (plaintext.startsWith("$OFFLINE_PAYMENT_PREFIX|") || plaintext.startsWith("$OFFLINE_ACK_PREFIX|")) {
                     handleRouterMessage(plaintext)
@@ -629,7 +661,11 @@ class MeshForegroundService : Service() {
                 val awareSent = wifiAwareTransport?.sendToPeers(frame) == true
                 bleSent || p2pSent || awareSent
             },
-            onEphemeralPayload = ::handleEphemeralPayload,
+            onEphemeralPayload = { origin, plaintext ->
+                if (membershipSync?.accept(origin, plaintext) != true) {
+                    handleEphemeralPayload(origin, plaintext)
+                }
+            },
             sendRelay = { frame, ingress ->
                 sendMeshFrameToOthers(frame, ingress)
                 val queued = outbox.containsFrame(frame)
@@ -644,6 +680,17 @@ class MeshForegroundService : Service() {
             onRouteObserved = { path, ingress ->
                 if (routeRegistry.observe(path, ingressPeer = ingress)) emit("Observed mesh route: ${path.joinToString(" → ")}")
             }
+        )
+        membershipSync = MeshMembershipSyncProtocol(
+            groupId = crypto.groupId,
+            localNodeId = nodeId,
+            store = membershipStore,
+            send = { destination, payload ->
+                val activeRouter = router
+                if (destination == null) activeRouter?.sendEphemeral(payload) == true
+                else activeRouter?.sendEphemeralTo(destination, payload) == true
+            },
+            onEvent = ::emit
         )
         processCompletedPendingOfflinePayments()
         liveVoiceCall = MeshLiveVoiceCall(
@@ -694,6 +741,7 @@ class MeshForegroundService : Service() {
                 .onFailure { emit("Wi-Fi Aware unavailable; other transports remain active: ${it.message}") }
             if (transport == null) startWifiDirectFallback("BLE could not initialize")
             emit("Mesh service started · BLE ${if (transport != null) "initialized" else "unavailable"} · Node $nodeId; local Wi-Fi fallback is available when supported")
+            localMembershipJoin?.let { membershipSync?.publish(it) }
             announceOfflineLibrary()
         } catch (error: Exception) {
             emit(error.message ?: "Unable to start BLE")
@@ -767,6 +815,23 @@ class MeshForegroundService : Service() {
 
     @Synchronized
     private fun stopMesh() {
+        val activeJoin = localMembershipJoin
+        val membershipStore = groupMembershipStore
+        val signingIdentity = deviceIdentity
+        if (activeJoin != null && membershipStore != null && signingIdentity != null) {
+            runCatching {
+                val lastCounter = membershipStore.events(activeJoin.groupId)
+                    .filter { it.memberId == nodeId }
+                    .maxOfOrNull { it.counter } ?: 0L
+                require(lastCounter < Long.MAX_VALUE) { "Membership event counter exhausted" }
+                val leave = MeshMembershipEvent.create(
+                    signingIdentity, activeJoin.groupId, lastCounter + 1L, MeshMembershipEvent.LEAVE
+                )
+                membershipStore.append(leave)
+                membershipSync?.publish(leave)
+            }.onFailure { emit("Could not record local group departure: ${it.message}") }
+        }
+        localMembershipJoin = null
         stopIpOverlay()
         stopService(Intent(this, MeshVpnService::class.java))
         liveVoiceCall?.end()
@@ -777,6 +842,10 @@ class MeshForegroundService : Service() {
         // Detach the router before closing sockets so late reader callbacks cannot
         // repopulate route observations while transports are shutting down.
         router = null
+        membershipSync = null
+        localMembershipJoin = null
+        groupMembershipStore?.close()
+        groupMembershipStore = null
         transport?.stop()
         transport = null
         wifiTransport?.stop()
@@ -924,6 +993,7 @@ class MeshForegroundService : Service() {
         private const val MAX_PENDING_OFFLINE_PAYMENTS = 16
         private const val MAX_LIBRARY_RESPONSES = 2
         private const val IP_ADDRESS_QUERY = "~IP1Q"
+        private const val IP_ADDRESS_ANNOUNCE_INTERVAL_MS = 60_000L
     }
 }
 
