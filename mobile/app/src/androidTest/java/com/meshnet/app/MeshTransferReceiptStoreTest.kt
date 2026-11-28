@@ -7,7 +7,6 @@ import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import java.security.KeyPair
@@ -129,7 +128,7 @@ class MeshTransferReceiptStoreTest {
 
         val file = File(context.filesDir, JOURNAL_FILE)
         val stored = file.readText()
-        assertTrue(stored.startsWith("MESHNET-TRANSFER-RECEIPTS-V1\\n"))
+        assertTrue(stored.startsWith("MESHNET-TRANSFER-RECEIPTS-V1\n"))
         assertFalse(stored.contains(contract.id))
         assertFalse(stored.contains(first.encode()))
 
@@ -145,7 +144,7 @@ class MeshTransferReceiptStoreTest {
         assertTrue(MeshTransferReceiptStore(context).verifiedChain(contract).isEmpty())
 
         val migrated = file.readText()
-        assertTrue(migrated.startsWith("MESHNET-TRANSFER-RECEIPTS-V1\\n"))
+        assertTrue(migrated.startsWith("MESHNET-TRANSFER-RECEIPTS-V1\n"))
         assertFalse(migrated.trimStart().startsWith("{"))
     }
 
