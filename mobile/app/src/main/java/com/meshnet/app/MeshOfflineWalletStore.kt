@@ -97,6 +97,11 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
 
         val received = readIds()
         require(id !in received) { "This offline payment was already imported on this device" }
+        // Fail closed rather than evict replay IDs: forgetting an old ID could make a
+        // previously accepted offline voucher importable again after storage pressure.
+        require(received.size < MAX_RECEIVED_PAYMENTS) {
+            "Offline receipt protection is full; reconcile/export wallet history before accepting more vouchers"
+        }
         received.add(id)
         val receipt = Receipt(id, sender, recipient, amount, ASSET_CODE, createdAt)
         val history = readHistory()
@@ -109,6 +114,8 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
                 .put("asset", receipt.asset)
                 .put("createdAt", receipt.createdAt)
         )
+        // Keep the display history bounded independently; replay IDs are never pruned.
+        while (history.length() > MAX_HISTORY_ENTRIES) history.remove(0)
         check(preferences.edit()
             .putStringSet(KEY_RECEIVED_IDS, received)
             .putString(KEY_HISTORY, history.toString())
@@ -141,6 +148,9 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         val entries = readOutgoing()
         require((0 until entries.length()).none { entries.optJSONObject(it)?.optString("id") == id }) {
             "Outgoing voucher is already recorded"
+        }
+        require(entries.length() < MAX_OUTGOING_ENTRIES) {
+            "Offline outgoing history is full; export or reconcile it before creating more vouchers"
         }
         entries.put(JSONObject()
             .put("id", id)
@@ -321,5 +331,8 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         private const val VERSION = 1
         private const val MAX_AMOUNT_MINOR = 9_000_000_000_000L
         private const val MAX_PAYLOAD_BYTES = 16 * 1024
+        private const val MAX_RECEIVED_PAYMENTS = 4096
+        private const val MAX_HISTORY_ENTRIES = 1000
+        private const val MAX_OUTGOING_ENTRIES = 4096
     }
 }
