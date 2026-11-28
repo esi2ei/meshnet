@@ -297,6 +297,7 @@ class MainActivity : Activity() {
             .put("offlineWalletTransfers", outgoingTransfers)
             .put("offlineWalletReceipts", receivedReceipts)
             .put("offlineLibrary", meshService?.offlineLibraryJson() ?: JSONArray())
+            .put("offlineLibraryHealthy", meshService?.offlineLibraryHealthy() ?: JSONObject.NULL)
             .put("offlineNetworkRunning", offlineNodeIp != null)
             .put("offlineNodeIp", offlineNodeIp ?: JSONObject.NULL)
             .put("offlinePortalUrl", offlinePortalUrl ?: JSONObject.NULL)
