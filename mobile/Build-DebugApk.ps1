@@ -45,8 +45,8 @@ if ($gradleVersionText -notmatch '(?m)^Gradle\s+(?<version>\d+\.\d+(?:\.\d+)?)')
     throw "Could not determine the Gradle version. Output: $gradleVersionText"
 }
 $gradleVersion = [version]$Matches["version"]
-if ($gradleVersion -lt [version]"9.8.2") {
-    throw "Gradle 9.8.2 or newer is required; found $gradleVersion."
+if ($gradleVersion -lt [version]"9.3.1") {
+    throw "Gradle 9.3.1 or newer is required; found $gradleVersion."
 }
 
 $sdkCandidates = @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME) |
