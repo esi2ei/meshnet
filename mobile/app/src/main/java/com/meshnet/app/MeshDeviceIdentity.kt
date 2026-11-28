@@ -106,6 +106,16 @@ internal class MeshDeviceIdentity private constructor(
             }.getOrDefault(false)
         }
 
+        /** Checks the node-ID/public-key binding without requiring a signed payload. */
+        internal fun verifyPublicKeyBinding(publicKey: String, expectedNodeId: String): Boolean = runCatching {
+            val publicBytes = decodeCanonicalBase64(publicKey) ?: return@runCatching false
+            if (nodeIdFor(publicBytes) != expectedNodeId) return@runCatching false
+            val decoded = KeyFactory.getInstance("EC")
+                .generatePublic(X509EncodedKeySpec(publicBytes)) as? ECPublicKey
+                ?: return@runCatching false
+            isP256(decoded)
+        }.getOrDefault(false)
+
         /** Verifies detached application records against the same P-256 device identity. */
         internal fun verifyDetached(
             publicKey: String,
