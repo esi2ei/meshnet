@@ -43,9 +43,15 @@ class MeshRouterReceiptTest {
     @Test
     fun relayReencryptsPayloadForUpdatedAuthenticatedRoute() {
         val passphrase = "a sufficiently long group passphrase"
+        val senderIdentity = MeshDeviceIdentity.generateEphemeral()
+        val relayIdentity = MeshDeviceIdentity.generateEphemeral()
+        val destinationIdentity = MeshDeviceIdentity.generateEphemeral()
         val senderQueue = mutableListOf<ByteArray>()
         val relayQueue = mutableListOf<ByteArray>()
         val destinationEvents = mutableListOf<String>()
+        val relayMessages = mutableListOf<String>()
+        val observedPeers = mutableListOf<String?>()
+        val acceptedRouteObservations = mutableListOf<Boolean>()
         val relayRoutes = mutableListOf<List<String>>()
         val destinationRoutes = mutableListOf<List<String>>()
         val learnedRoutes = MeshRouteRegistry()
@@ -54,36 +60,40 @@ class MeshRouterReceiptTest {
         val destinationSeen = mutableSetOf<String>()
 
         val sender = MeshRouter(
-            nodeId = "sender_01",
+            nodeId = senderIdentity.nodeId,
             crypto = MeshCrypto(passphrase.toCharArray()),
             send = { senderQueue.add(it); true },
             onMessage = {},
             hasReceived = { it in senderSeen },
             markReceived = { id, _ -> !senderSeen.add(id) },
-            acknowledge = { 0 }
+            acknowledge = { 0 },
+            identity = senderIdentity
         )
         val relay = MeshRouter(
-            nodeId = "relay_001",
+            nodeId = relayIdentity.nodeId,
             crypto = MeshCrypto(passphrase.toCharArray()),
             send = { relayQueue.add(it); true },
-            onMessage = {},
+            onMessage = { relayMessages.add(it) },
             hasReceived = { it in relaySeen },
             markReceived = { id, _ -> !relaySeen.add(id) },
             acknowledge = { 0 },
             onRouteObserved = { path, peer ->
                 relayRoutes.add(path)
-                learnedRoutes.observe(path, 100L, peer)
-            }
+                observedPeers.add(peer)
+                acceptedRouteObservations.add(learnedRoutes.observe(path, 100L, peer))
+            },
+            identity = relayIdentity
         )
         val destination = MeshRouter(
-            nodeId = "dest_0001",
+            nodeId = destinationIdentity.nodeId,
             crypto = MeshCrypto(passphrase.toCharArray()),
             send = { true },
             onMessage = { destinationEvents.add(it) },
             hasReceived = { it in destinationSeen },
             markReceived = { id, _ -> !destinationSeen.add(id) },
             acknowledge = { 0 },
-            onRouteObserved = { path, _ -> destinationRoutes.add(path) }
+            onRouteObserved = { path, _ -> destinationRoutes.add(path) },
+            identity = destinationIdentity
         )
 
         sender.sendMessage("route-bound hello")
@@ -91,7 +101,7 @@ class MeshRouterReceiptTest {
             .first { it.kind == MeshFrame.KIND_MESSAGE }
         // A group member can re-encrypt a frame with fabricated route metadata.
         // The relay must learn only the verified origin through its actual ingress peer.
-        val forgedPath = original.copy(ttl = original.ttl - 1, hops = listOf("sender_01", "victim_01"))
+        val forgedPath = original.copy(ttl = MeshFrame.MAX_TTL - 2, hops = listOf(senderIdentity.nodeId, relayIdentity.nodeId, "victim_01"))
         val forgedCiphertext = MeshCrypto(passphrase.toCharArray()).encrypt(
             "route-bound hello", MeshFrame.aad(forgedPath)
         )
@@ -99,14 +109,17 @@ class MeshRouterReceiptTest {
             forgedPath.copy(nonce = forgedCiphertext.first, ciphertext = forgedCiphertext.second).encode(),
             "ble-peer-address"
         )
+        assertEquals("Relay route callback was not reached: $relayMessages", listOf(listOf(senderIdentity.nodeId, relayIdentity.nodeId)), relayRoutes)
+        assertEquals(listOf("ble-peer-address"), observedPeers)
+        assertEquals(listOf(true), acceptedRouteObservations)
         assertTrue(learnedRoutes.nextHopsFor("victim_01", 100L).isEmpty())
-        assertEquals(listOf("ble-peer-address"), learnedRoutes.nextHopsFor("sender_01", 100L))
+        assertEquals(listOf("ble-peer-address"), learnedRoutes.nextHopsFor(senderIdentity.nodeId, 100L))
 
         val relayed = relayQueue.map { MeshFrame.decode(it) }
             .first { it.kind == MeshFrame.KIND_MESSAGE }
         assertEquals(original.id, relayed.id)
         assertEquals(MeshFrame.MAX_TTL - 2, relayed.ttl)
-        assertEquals(listOf("sender_01", "victim_01", "relay_001"), relayed.hops)
+        assertEquals(listOf(senderIdentity.nodeId, "victim_01", relayIdentity.nodeId), relayed.hops)
         assertEquals(
             "route-bound hello",
             MeshCrypto(passphrase.toCharArray()).decrypt(
@@ -116,8 +129,8 @@ class MeshRouterReceiptTest {
 
         destination.receive(relayed.encode(), "wifi-peer-address")
         assertTrue(destinationEvents.any { it.contains("route-bound hello") })
-        assertEquals(listOf(listOf("sender_01", "relay_001")), relayRoutes)
-        assertEquals(listOf(listOf("sender_01", "dest_0001")), destinationRoutes)
+        assertEquals(listOf(listOf(senderIdentity.nodeId, relayIdentity.nodeId)), relayRoutes)
+        assertEquals(listOf(listOf(senderIdentity.nodeId, destinationIdentity.nodeId)), destinationRoutes)
     }
 
     @Test
@@ -216,9 +229,7 @@ class MeshRouterReceiptTest {
             onMessage = {},
             hasReceived = { it in senderSeen },
             markReceived = { id, _ -> !senderSeen.add(id) },
-            acknowledge = { id -> acknowledged.add(id); 1 },
-            // No authenticated recipient roster exists for group broadcasts yet.
-            validateAcknowledgement = { _, _ -> false }
+            acknowledge = { id -> acknowledged.add(id); 1 }
         )
         val receiver = MeshRouter(
             nodeId = "receiver_01",
@@ -372,6 +383,7 @@ class MeshRouterReceiptTest {
             hasReceived = { it in sourceSeen },
             markReceived = { id, _ -> !sourceSeen.add(id) },
             acknowledge = { 1 },
+            validateAcknowledgement = { _, origin -> origin == "target_01" },
             sendRelay = { bytes, _ -> sourceRelays.add(bytes); true }
         )
         val destination = MeshRouter(
