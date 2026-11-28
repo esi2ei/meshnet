@@ -130,6 +130,16 @@ The Node 22 CI job runs this check before the TypeScript typecheck. It protects 
 - [ ] Record unsupported hardware, permissions and external-service conditions as capability-specific degraded states.
 
 ### FP-01 — Stabilize boundaries without changing behavior
+### First behavior-preserving code slice — dashboard runtime status
+
+- [x] Extract the JSON snapshot builder from `MainActivity` into `MeshRuntimeStatusSerializer`; the activity still gathers the same service/store values and calls the existing bridge method.
+- [x] Preserve all existing JSON field names, explicit-null behavior, false/zero values and empty-array behavior.
+- [x] Add focused tests for the complete payload and unavailable optional capabilities.
+- [x] Add the new test to the focused API 36 instrumentation target.
+- [ ] Accept this slice only after the bridge guard, Android build and focused instrumentation test pass on the exact branch head.
+
+This slice deliberately does not move radio, messaging, wallet, file or voice ownership yet. It creates a tested boundary around the dashboard status contract before larger extractions.
+
 
 - [ ] Document bridge commands and response/error contracts; add contract tests.
 - [ ] Introduce narrow Kotlin interfaces/facades around existing service responsibilities.
