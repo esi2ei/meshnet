@@ -126,6 +126,33 @@ class MeshMembershipSyncProtocolTest {
     }
 
     @Test
+    fun partialHistoryIsExplicitlyReported() {
+        val events = (1L..70L).map { counter ->
+            MeshMembershipEvent.create(
+                sender, group, counter,
+                if (counter == 1L) MeshMembershipEvent.JOIN else MeshMembershipEvent.LEAVE,
+                createdAt = 1_700_000_000_000L + counter
+            )
+        }
+        senderStore.merge(events)
+        val packets = mutableListOf<String>()
+        val notices = mutableListOf<String>()
+        val senderProtocol = MeshMembershipSyncProtocol(
+            group, sender.nodeId, senderStore,
+            send = { _, payload -> packets.add(payload); true },
+            onEvent = { notices.add(it) }
+        )
+        val receiverProtocol = MeshMembershipSyncProtocol(
+            group, receiver.nodeId, receiverStore, send = { _, _ -> true }
+        )
+        assertTrue(senderProtocol.accept(receiver.nodeId, "~GM1|S|$group"))
+        assertTrue(packets.any { it.startsWith("~GM1|P|") })
+        assertTrue(notices.any { it.contains("partial") })
+        packets.forEach { receiverProtocol.accept(sender.nodeId, it) }
+        assertEquals("INCOMPLETE", receiverStore.roster(group).single().status)
+    }
+
+    @Test
     fun syncRequestIsRateLimitedUnlessForced() {
         val protocol = MeshMembershipSyncProtocol(group, receiver.nodeId, receiverStore, send = { _, _ -> true })
         assertTrue(protocol.requestSync(force = true))

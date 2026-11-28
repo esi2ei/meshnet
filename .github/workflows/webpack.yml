@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
-  # Pull requests run focused security/membership regressions; manual dispatch can run the full Android suite.
+  # Keep manual runs available for explicit validation outside pull requests.
   workflow_dispatch:
     inputs:
       run_android_instrumentation:
@@ -136,7 +136,7 @@ jobs:
           disable-animations: true
           script: MESHNET_PREBUILT_WEB_ASSETS=true bash -o pipefail -c 'gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"'
 
-      - name: Upload Android build and test diagnostics
+      - name: Upload Android diagnostics on failure
         if: ${{ !cancelled() && failure() }}
         uses: actions/upload-artifact@v7.0.2
         with:
@@ -147,16 +147,17 @@ jobs:
             mobile/app/build/reports/
           if-no-files-found: warn
           retention-days: 3
+
       # Successful pull-request checks do not need downloadable build artifacts.
       # Keep diagnostics on failure; allow explicit manual runs to retain the APK.
       - name: Upload debug APK artifact
-        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && hashFiles('mobile/app/build/outputs/apk/debug/app-debug.apk') != '' }}
+        if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.head_ref == 'release/trial-apk' && github.event.pull_request.head.repo.full_name == github.repository)) && hashFiles('mobile/app/build/outputs/apk/debug/app-debug.apk') != '' }}
         uses: actions/upload-artifact@v7.0.2
         with:
           name: meshnet-debug-apk-${{ github.sha }}
           path: mobile/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
 
       - name: Upload Android test reports
         if: ${{ !cancelled() && (failure() || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request') }}
