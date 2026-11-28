@@ -45,7 +45,7 @@ class MeshMembershipSyncProtocolTest {
         })
         val receiverProtocol = MeshMembershipSyncProtocol(group, receiver.nodeId, receiverStore, send = { _, _ -> true })
 
-        assertTrue(senderProtocol.accept(receiver.nodeId, "~GM1|S|$group"))
+        assertTrue(senderProtocol.accept(receiver.nodeId, "~GM1|S|$group|0|0"))
         assertTrue(packets.isNotEmpty())
         assertTrue(packets.all { it.toByteArray(Charsets.UTF_8).size <= 120 })
         packets.reversed().forEach { assertTrue(receiverProtocol.accept(sender.nodeId, it)) }
@@ -68,30 +68,48 @@ class MeshMembershipSyncProtocolTest {
     }
 
     @Test
-    fun partialHistoryIsExplicitlyReported() {
+    fun membershipHistoryIsDeliveredAcrossAllBoundedSnapshotPages() {
         val events = (1L..70L).map { counter ->
             MeshMembershipEvent.create(
                 sender, group, counter,
-                if (counter == 1L) MeshMembershipEvent.JOIN else MeshMembershipEvent.LEAVE,
+                if (counter == 1L || counter % 2L == 0L) MeshMembershipEvent.JOIN else MeshMembershipEvent.LEAVE,
                 createdAt = 1_700_000_000_000L + counter
             )
         }
         senderStore.merge(events)
         val packets = mutableListOf<String>()
+        val continuationRequests = mutableListOf<String>()
         val notices = mutableListOf<String>()
         val senderProtocol = MeshMembershipSyncProtocol(
             group, sender.nodeId, senderStore,
-            send = { _, payload -> packets.add(payload); true },
-            onEvent = { notices.add(it) }
+            send = { _, payload -> packets.add(payload); true }
         )
         val receiverProtocol = MeshMembershipSyncProtocol(
-            group, receiver.nodeId, receiverStore, send = { _, _ -> true }
+            group, receiver.nodeId, receiverStore,
+            send = { _, payload -> continuationRequests.add(payload); true },
+            onEvent = { notices.add(it) }
         )
-        assertTrue(senderProtocol.accept(receiver.nodeId, "~GM1|S|$group"))
-        assertTrue(packets.any { it.startsWith("~GM1|P|") })
-        assertTrue(notices.any { it.contains("partial") })
-        packets.forEach { receiverProtocol.accept(sender.nodeId, it) }
-        assertEquals("INCOMPLETE", receiverStore.roster(group).single().status)
+
+        assertTrue(receiverProtocol.requestSync(force = true))
+        var pages = 0
+        while (continuationRequests.isNotEmpty()) {
+            val request = continuationRequests.removeAt(0)
+            assertTrue(senderProtocol.accept(receiver.nodeId, request))
+            val batch = packets.toList()
+            packets.clear()
+            assertTrue("Every snapshot page must contain a completion marker", batch.any { it.startsWith("~GM1|P|") })
+            batch.filterNot { it.startsWith("~GM1|P|") }.reversed()
+                .forEach { assertTrue(receiverProtocol.accept(sender.nodeId, it)) }
+            batch.filter { it.startsWith("~GM1|P|") }
+                .forEach { assertTrue(receiverProtocol.accept(sender.nodeId, it)) }
+            pages++
+            if (continuationRequests.isNotEmpty()) Thread.sleep(180)
+        }
+
+        assertTrue("More than one page must be used for 70 events", pages > 1)
+        assertEquals(70, receiverStore.events(group).size)
+        assertEquals("ACTIVE", receiverStore.roster(group).single().status)
+        assertTrue(notices.any { it.contains("completed") })
     }
 
     @Test
