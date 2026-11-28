@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
-  # Keep manual runs available for explicit validation outside pull requests.
+  # Pull requests run focused security/membership regressions; manual dispatch can run the full Android suite.
   workflow_dispatch:
     inputs:
       run_android_instrumentation:
