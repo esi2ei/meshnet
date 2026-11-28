@@ -53,14 +53,14 @@ $sdkCandidates = @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME) |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 $sdkRoot = $null
 foreach ($candidate in $sdkCandidates) {
-    $platformJar = Join-Path $candidate "platforms\android-36\android.jar"
+    $platformJar = Join-Path $candidate "platforms\android-37\android.jar"
     if (Test-Path -LiteralPath $platformJar -PathType Leaf) {
         $sdkRoot = (Resolve-Path -LiteralPath $candidate).Path
         break
     }
 }
 if ($null -eq $sdkRoot) {
-    throw "Android SDK Platform 36 was not found. Set ANDROID_SDK_ROOT or ANDROID_HOME to an SDK containing platforms\android-36\android.jar."
+    throw "Android SDK Platform 37 was not found. Set ANDROID_SDK_ROOT or ANDROID_HOME to an SDK containing platforms\android-37\android.jar."
 }
 
 $node = Get-RequiredApplication "node"
