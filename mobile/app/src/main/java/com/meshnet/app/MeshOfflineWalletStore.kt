@@ -304,6 +304,37 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         }
     }
 
+    /** Load persisted, incomplete voucher/ack chunks from the wallet-encrypted store. */
+    @Synchronized
+    fun loadPendingEnvelopeState(): String {
+        val encoded = readEncryptedPreference(KEY_PENDING_ENVELOPES, "[]")
+        require(encoded.toByteArray(Charsets.UTF_8).size <= MAX_PENDING_ENVELOPE_BYTES) {
+            "Pending wallet envelope state exceeds its storage limit"
+        }
+        val entries = JSONArray(encoded)
+        require(entries.length() <= MAX_PENDING_ENVELOPES) {
+            "Too many pending wallet envelopes"
+        }
+        return encoded
+    }
+
+    /** Persist partial payment/ack payload chunks using the wallet's Keystore AES-GCM key. */
+    @Synchronized
+    fun storePendingEnvelopeState(encoded: String) {
+        require(encoded.toByteArray(Charsets.UTF_8).size <= MAX_PENDING_ENVELOPE_BYTES) {
+            "Pending wallet envelope state exceeds its storage limit"
+        }
+        require(JSONArray(encoded).length() <= MAX_PENDING_ENVELOPES) {
+            "Too many pending wallet envelopes"
+        }
+        check(preferences.edit()
+            .putString(KEY_PENDING_ENVELOPES, encryptPreference(KEY_PENDING_ENVELOPES, encoded))
+            .commit()) { "Could not persist encrypted pending wallet envelopes" }
+    }
+
+    @Synchronized
+    fun hasPendingEnvelopeState(): Boolean = preferences.contains(KEY_PENDING_ENVELOPES)
+
     @Synchronized
     fun clear() {
         check(preferences.edit().clear().commit()) { "Could not clear offline wallet data" }
@@ -486,6 +517,9 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         private const val KEY_RECEIVED_IDS = "received_payment_ids"
         private const val KEY_HISTORY = "received_payment_history"
         private const val KEY_OUTGOING = "outgoing_payment_history"
+        private const val KEY_PENDING_ENVELOPES = "pending_offline_payment_envelopes"
+        private const val MAX_PENDING_ENVELOPES = 16
+        private const val MAX_PENDING_ENVELOPE_BYTES = 512 * 1024
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val STORAGE_PREFIX = "MNW1"
         private const val STORAGE_TRANSFORMATION = "AES/GCM/NoPadding"
