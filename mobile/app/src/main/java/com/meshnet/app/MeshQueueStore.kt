@@ -185,7 +185,7 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
         val id = digest(frame)
         val db = writableDatabase
         quarantineExpiredOutbox(db, now)
-        if (db.rawQuery("SELECT 1 FROM outbox WHERE frame_id = ?", arrayOf(id)).use { it.moveToFirst() })
+        if (db.rawQuery("SELECT 1 FROM outbox WHERE frame_id = ?", arrayOf(id)).use { it.moveToFirst() }) {
             return true
         }
         if (decoded.kind == MeshFrame.KIND_ACK) {
