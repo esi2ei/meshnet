@@ -72,13 +72,14 @@ class MeshMembershipSyncProtocolTest {
         senderStore.merge(events)
         val packets = mutableListOf<String>()
         val notices = mutableListOf<String>()
-        val senderProtocol = MeshMembershipSyncProtocol(group, sender.nodeId, senderStore, send = { _, payload ->
-            packets.add(payload)
-            true
-        })
-        val receiverProtocol = MeshMembershipSyncProtocol(group, receiver.nodeId, receiverStore, { _, _ -> true }) {
-            notices.add(it)
-        }
+        val senderProtocol = MeshMembershipSyncProtocol(
+            group, sender.nodeId, senderStore,
+            send = { _, payload -> packets.add(payload); true },
+            onEvent = { notices.add(it) }
+        )
+        val receiverProtocol = MeshMembershipSyncProtocol(
+            group, receiver.nodeId, receiverStore, send = { _, _ -> true }
+        )
         assertTrue(senderProtocol.accept(receiver.nodeId, "~GM1|S|$group"))
         assertTrue(packets.any { it.startsWith("~GM1|P|") })
         assertTrue(notices.any { it.contains("partial") })
