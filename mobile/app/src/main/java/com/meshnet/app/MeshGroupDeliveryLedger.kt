@@ -105,6 +105,9 @@ internal data class MeshGroupDeliverySnapshot(
             require(observedRoster.all { it.status == "ACTIVE" || it.status == "LEFT" }) {
                 "Cannot snapshot an incomplete or conflicted local roster"
             }
+            require(observedRoster.any {
+                it.memberId == identity.nodeId && it.publicKey == identity.publicKey && it.status == "ACTIVE"
+            }) { "Sender must be an active member in the verified local roster" }
             val orderedRoster = observedRoster.sortedBy { it.memberId }
             val rosterCanonical = orderedRoster.joinToString("|") {
                 "${it.memberId}:${it.publicKey}:${it.status}:${it.lastCounter}"
