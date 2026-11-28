@@ -39,7 +39,11 @@ internal class MeshTransferReceiptStore(context: Context) {
             require(receipt.verifyNext(contract, previous)) {
                 "Receipt does not extend the verified contract chain"
             }
-            val totalCount = root.keys().asSequence().sumOf { root.optJSONArray(it)?.length() ?: 0 }
+            val storedContractIds = root.keys().asSequence().toList()
+            require(storedContractIds.all { it.matches(Regex("[A-Za-z0-9_-]{16,64}")) }) {
+                "Receipt journal contains an invalid contract key"
+            }
+            val totalCount = storedContractIds.sumOf { root.getJSONArray(it).length() }
             require(totalCount < MAX_RECEIPTS) {
                 "Receipt journal is full; export and reconcile before accepting more receipts"
             }
