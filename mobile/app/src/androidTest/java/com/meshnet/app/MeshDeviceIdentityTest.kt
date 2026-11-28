@@ -1,10 +1,14 @@
 package com.meshnet.app
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import android.util.Base64
 import java.security.KeyPairGenerator
+import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.Signature
 import java.security.spec.ECGenParameterSpec
@@ -109,5 +113,104 @@ class MeshDeviceIdentityTest {
         assertTrue("Signed maximum-route frame size was ${signed.encode().size} bytes", signed.encode().size <= MeshFrame.MAX_FRAME_BYTES)
         assertTrue(MeshDeviceIdentity.verify(MeshFrame.decode(signed.encode()), plaintext))
     }
+
+
+    @Test fun loadOrCreateRefusesToReplaceAnInitializedIdentityAfterKeystoreKeyLoss() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        clearStoredIdentityForTest(context)
+        try {
+            val original = MeshDeviceIdentity.loadOrCreate(context)
+            val preferences = context.getSharedPreferences(
+                "meshnet-device-identity-state", Context.MODE_PRIVATE
+            )
+            assertTrue(preferences.getBoolean("identity_initialized", false))
+            assertEquals(original.nodeId, preferences.getString("node_id", null))
+
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            keyStore.deleteEntry("meshnet-device-identity-p256-v1")
+            assertFalse(
+                KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                    .containsAlias("meshnet-device-identity-p256-v1")
+            )
+
+            val failure = runCatching { MeshDeviceIdentity.loadOrCreate(context) }.exceptionOrNull()
+            assertTrue("Missing initialized identity must fail closed", failure is IllegalStateException)
+            assertFalse(
+                "A replacement key must not be generated after identity loss",
+                KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                    .containsAlias("meshnet-device-identity-p256-v1")
+            )
+        } finally {
+            clearStoredIdentityForTest(context)
+        }
+    }
+
+    @Test fun legacyMembershipRecordsPreventSilentIdentityReplacementWithoutNewMarker() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        clearStoredIdentityForTest(context)
+        try {
+            val legacyIdentity = MeshDeviceIdentity.generateEphemeral()
+            val membershipStore = MeshGroupMembershipStore(context)
+            val event = MeshMembershipEvent.create(
+                identity = legacyIdentity,
+                groupId = "a".repeat(64),
+                counter = 1,
+                type = MeshMembershipEvent.JOIN,
+                eventId = "legacy-membership-001"
+            )
+            assertTrue(membershipStore.append(event))
+            membershipStore.close()
+
+            val preferences = context.getSharedPreferences(
+                "meshnet-device-identity-state", Context.MODE_PRIVATE
+            )
+            assertFalse(preferences.getBoolean("identity_initialized", false))
+            assertTrue(context.getDatabasePath("meshnet-group-membership.db").exists())
+
+            val failure = runCatching { MeshDeviceIdentity.loadOrCreate(context) }.exceptionOrNull()
+            assertTrue("Legacy signed membership must prevent silent identity replacement", failure is IllegalStateException)
+            assertFalse(
+                KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                    .containsAlias("meshnet-device-identity-p256-v1")
+            )
+        } finally {
+            clearStoredIdentityForTest(context)
+        }
+    }
+
+    @Test fun existingLegacyKeystoreIdentityIsReusedAndItsFingerprintIsRecorded() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        clearStoredIdentityForTest(context)
+        try {
+            val original = MeshDeviceIdentity.loadOrCreate(context)
+            context.getSharedPreferences(
+                "meshnet-device-identity-state", Context.MODE_PRIVATE
+            ).edit().clear().commit()
+
+            val restored = MeshDeviceIdentity.loadOrCreate(context)
+            assertEquals(original.nodeId, restored.nodeId)
+            val preferences = context.getSharedPreferences(
+                "meshnet-device-identity-state", Context.MODE_PRIVATE
+            )
+            assertTrue(preferences.getBoolean("identity_initialized", false))
+            assertEquals(original.nodeId, preferences.getString("node_id", null))
+        } finally {
+            clearStoredIdentityForTest(context)
+        }
+    }
+
+    private fun clearStoredIdentityForTest(context: Context) {
+        runCatching {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            if (keyStore.containsAlias("meshnet-device-identity-p256-v1")) {
+                keyStore.deleteEntry("meshnet-device-identity-p256-v1")
+            }
+        }
+        context.getSharedPreferences("meshnet-device-identity-state", Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        context.deleteDatabase("meshnet-group-membership.db")
+        context.deleteDatabase("meshnet-group-delivery.db")
+    }
+
 
 }
