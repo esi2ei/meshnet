@@ -99,7 +99,7 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             )
             SELECT frame_id, frame, message_id, frame_kind, created_at, attempts, ?, ?, ?
             FROM outbox""".trimIndent(),
-            arrayOf(quarantinedAt, sourceVersion, reason)
+            arrayOf<Any>(quarantinedAt, sourceVersion, reason)
         )
         db.execSQL(
             """INSERT OR IGNORE INTO received_ids_quarantine(
@@ -107,7 +107,7 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             )
             SELECT frame_id, created_at, ?, ?, ?
             FROM received_ids""".trimIndent(),
-            arrayOf(quarantinedAt, sourceVersion, reason)
+            arrayOf<Any>(quarantinedAt, sourceVersion, reason)
         )
         db.delete("outbox", null, null)
         db.delete("received_ids", null, null)
