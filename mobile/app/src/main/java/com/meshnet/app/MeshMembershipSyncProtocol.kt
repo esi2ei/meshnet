@@ -21,6 +21,7 @@ internal class MeshMembershipSyncProtocol(
     )
 
     private val assemblies = linkedMapOf<String, Assembly>()
+    private val lastResponseByPeer = linkedMapOf<String, Long>()
     private var lastSyncRequestAt = 0L
 
     init {
@@ -54,6 +55,12 @@ internal class MeshMembershipSyncProtocol(
         when (fields[1]) {
             "S" -> {
                 if (fields.size != 3 || origin == localNodeId) return true
+                val now = System.currentTimeMillis()
+                if (now - (lastResponseByPeer[origin] ?: 0L) < SYNC_RESPONSE_INTERVAL_MS) return true
+                if (lastResponseByPeer.size >= MAX_SYNC_PEERS && origin !in lastResponseByPeer) {
+                    lastResponseByPeer.remove(lastResponseByPeer.keys.first())
+                }
+                lastResponseByPeer[origin] = now
                 val total = store.eventCount(groupId)
                 val page = store.eventsForSync(groupId, MAX_SYNC_EVENTS)
                 if (total > page.size) {
@@ -163,6 +170,8 @@ internal class MeshMembershipSyncProtocol(
         private const val MAX_ASSEMBLIES = 64
         private const val MAX_SYNC_EVENTS = 64
         private const val SYNC_REQUEST_INTERVAL_MS = 15_000L
+        private const val SYNC_RESPONSE_INTERVAL_MS = 10_000L
+        private const val MAX_SYNC_PEERS = 64
         private const val ASSEMBLY_TTL_MS = 10L * 60L * 1000L
     }
 }
