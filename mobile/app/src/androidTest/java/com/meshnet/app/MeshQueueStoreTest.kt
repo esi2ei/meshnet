@@ -154,7 +154,19 @@ class MeshQueueStoreTest {
         assertFalse(store.receiptMatches("directed_message_01", "attacker_01"))
         assertTrue(store.receiptMatches("directed_message_01", "destination_01"))
         assertEquals(1, store.acknowledge("directed_message_01"))
-        assertTrue(store.receiptMatches("directed_message_01", "attacker_01"))
+        // Once the directed target record is retired, no later receipt may be trusted.
+        assertFalse(store.receiptMatches("directed_message_01", "attacker_01"))
+    }
+
+    @Test
+    fun groupBroadcastReceiptCannotRetireMessageWithoutMemberRoster() {
+        val broadcast = frame("group_message_01", MeshFrame.KIND_MESSAGE)
+        assertTrue(store.enqueue(broadcast.encode()))
+
+        // A shared group key and a valid device signature do not establish the
+        // intended recipient set or prove delivery to every group member.
+        assertFalse(store.receiptMatches("group_message_01", "any_group_member"))
+        assertEquals(1, store.pending().size)
     }
 
     @Test
