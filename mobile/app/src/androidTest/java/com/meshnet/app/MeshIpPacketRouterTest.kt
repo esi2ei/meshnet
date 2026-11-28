@@ -5,6 +5,42 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MeshIpPacketRouterTest {
+    @Test fun reportsVpnPacketDropsImmediatelyAndRateLimitsRepeatedEvents() {
+        var now = 1_000L
+        val reportedCounts = mutableListOf<Long>()
+        val reporter = MeshVpnPacketDropReporter(
+            nowMillis = { now },
+            onReport = { reportedCounts.add(it) },
+            reportIntervalMillis = 5_000L
+        )
+
+        assertEquals(1L, reporter.recordDrop())
+        for (expected in 2L..5L) {
+            assertEquals(expected, reporter.recordDrop())
+        }
+        assertEquals(listOf(1L), reportedCounts)
+
+        now += 4_999L
+        assertEquals(6L, reporter.recordDrop())
+        assertEquals(listOf(1L), reportedCounts)
+
+        now += 1L
+        assertEquals(7L, reporter.recordDrop())
+        assertEquals(listOf(1L, 7L), reportedCounts)
+    }
+
+    @Test fun rejectsInvalidVpnPacketDropReportIntervals() {
+        try {
+            MeshVpnPacketDropReporter(
+                nowMillis = { 0L },
+                onReport = {},
+                reportIntervalMillis = 0L
+            )
+            fail("A zero report interval must be rejected")
+        } catch (_: IllegalArgumentException) {
+            // Expected: the diagnostic limiter must not emit an event for every packet.
+        }
+    }
     @Test fun validatesDnsResponseTransactionIdAndResponseFlag() {
         val query = ByteArray(12).apply {
             this[0] = 0x12
