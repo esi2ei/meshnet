@@ -12,7 +12,7 @@ From the repository root:
     npm run lint
     npm run build
 
-For Android packaging, install JDK 17, Android SDK Platform 37 and Gradle 9.8.2, then run:
+For Android packaging, install JDK 17, Android SDK Platform 37 and Gradle 9.3.1, then run:
 
     cd mobile
     gradle :app:assembleDebug
