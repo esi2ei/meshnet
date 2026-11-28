@@ -289,7 +289,7 @@ internal data class MeshTransferReceipt(
             require(previous.verify(contract))
             require(previous.sequence < Long.MAX_VALUE && sequence == previous.sequence + 1L)
             require(recordedAt >= previous.recordedAt)
-            require(previousReceiptHash == sha256(previous.encode().toByteArray(Charsets.UTF_8)))
+            require(previousReceiptHash == sha256(previous.encode()))
             require(cumulativePayloadBytes == previous.cumulativePayloadBytes + payloadBytes)
             require(cumulativeChargeMinor == contract.maximumChargeFor(cumulativePayloadBytes))
         }
