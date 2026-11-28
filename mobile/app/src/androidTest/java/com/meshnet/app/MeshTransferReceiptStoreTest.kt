@@ -7,6 +7,7 @@ import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import java.security.KeyPair
@@ -14,6 +15,7 @@ import java.security.KeyPairGenerator
 import java.security.MessageDigest
 import java.security.spec.ECGenParameterSpec
 import java.util.UUID
+import java.security.KeyStore
 
 class MeshTransferReceiptStoreTest {
     private lateinit var context: Context
@@ -33,7 +35,14 @@ class MeshTransferReceiptStoreTest {
             100L, 10L * 1024 * 1024, 1000L, now - 60_000, now + 60_000,
             "MUTUAL_ONLY", emptyList(), provider.public.encoded, consumer.public.encoded
         ).signAsProvider(provider.private).signAsConsumer(consumer.private)
-        AtomicFile(File(context.filesDir, "meshnet-transfer-receipts.json")).delete()
+        AtomicFile(File(context.filesDir, JOURNAL_FILE)).delete()
+        deleteJournalKey()
+    }
+
+    @org.junit.After
+    fun tearDown() {
+        AtomicFile(File(context.filesDir, JOURNAL_FILE)).delete()
+        deleteJournalKey()
     }
 
     @Test
@@ -111,4 +120,71 @@ class MeshTransferReceiptStoreTest {
     private fun digestBytes(value: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(value)
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    
+    @Test
+    fun journalIsEncryptedAtRestAndSurvivesReopening() {
+        val store = MeshTransferReceiptStore(context)
+        val first = receipt(1, 1024, 1024, MeshTransferReceipt.GENESIS_RECEIPT_HASH)
+        assertTrue(store.append(contract, first))
+
+        val file = File(context.filesDir, JOURNAL_FILE)
+        val stored = file.readText()
+        assertTrue(stored.startsWith("MESHNET-TRANSFER-RECEIPTS-V1\\n"))
+        assertFalse(stored.contains(contract.id))
+        assertFalse(stored.contains(first.encode()))
+
+        val reopened = MeshTransferReceiptStore(context)
+        assertEquals(listOf(first.encode()), reopened.verifiedChain(contract).map { it.encode() })
+    }
+
+    @Test
+    fun legacyPlaintextJournalMigratesToEncryptedStorage() {
+        val file = File(context.filesDir, JOURNAL_FILE)
+        file.writeText("{}")
+
+        assertTrue(MeshTransferReceiptStore(context).verifiedChain(contract).isEmpty())
+
+        val migrated = file.readText()
+        assertTrue(migrated.startsWith("MESHNET-TRANSFER-RECEIPTS-V1\\n"))
+        assertFalse(migrated.trimStart().startsWith("{"))
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun missingKeystoreKeyDoesNotResetEncryptedJournal() {
+        val store = MeshTransferReceiptStore(context)
+        val first = receipt(1, 1024, 1024, MeshTransferReceipt.GENESIS_RECEIPT_HASH)
+        store.append(contract, first)
+        deleteJournalKey()
+
+        MeshTransferReceiptStore(context).verifiedChain(contract)
+    }
+
+    @Test
+    fun tamperedCiphertextFailsAuthentication() {
+        val store = MeshTransferReceiptStore(context)
+        val first = receipt(1, 1024, 1024, MeshTransferReceipt.GENESIS_RECEIPT_HASH)
+        store.append(contract, first)
+
+        val file = File(context.filesDir, JOURNAL_FILE)
+        val original = file.readText()
+        val tampered = original.dropLast(1) + if (original.last() == 'A') "B" else "A"
+        file.writeText(tampered)
+
+        assertFalse(runCatching {
+            MeshTransferReceiptStore(context).verifiedChain(contract)
+        }.isSuccess)
+    }
+
+    private fun deleteJournalKey() {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        if (keyStore.containsAlias(JOURNAL_KEY_ALIAS)) {
+            keyStore.deleteEntry(JOURNAL_KEY_ALIAS)
+        }
+    }
+
+    companion object {
+        private const val JOURNAL_FILE = "meshnet-transfer-receipts.json"
+        private const val JOURNAL_KEY_ALIAS = "meshnet-transfer-receipts-v1"
+    }
+
 }
