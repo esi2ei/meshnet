@@ -27,7 +27,7 @@ The source browser includes frontend, Android, instrumentation-test, Rust/Anchor
 
 ## Build locally (no CI)
 
-Requirements: Node.js/npm 22+, JDK 17, Android SDK Platform 36, Android Gradle Plugin 8.9.1, Kotlin Gradle Plugin 2.2.21, and Gradle 8.11.1 or a compatible newer Gradle installation. From the repository root, install the web dependencies, then build Android. The Android Gradle preBuild task runs the Vite production build and bundles its output:
+Requirements: Node.js/npm 22+, JDK 17, Android SDK Platform 37, Android Gradle Plugin 9.1.1, Kotlin Gradle Plugin 2.4.21, and Gradle 9.3.1 or a compatible newer Gradle installation. From the repository root, install the web dependencies, then build Android. The Android Gradle preBuild task runs the Vite production build and bundles its output:
 
 Google Play has required new apps and updates to target Android 16 (API 36) or higher since August 31, 2026. This branch is configured for API 36; confirm API-level behavior and device compatibility in your manual test pass.
 
@@ -57,7 +57,7 @@ For a multi-hop BLE check, use three phones with each device within BLE range of
 
 The repository workflow is currently manual-only (`workflow_dispatch`). Pushes and pull requests do not start CI on this branch. Do not dispatch it until the owner explicitly requests validation. When intentionally run, the Android job:
 
-1. Builds the unsigned-by-owner, debug-signed APK with JDK 17, Gradle 8.11.1, and Android SDK Platform 36.
+1. Builds the unsigned-by-owner, debug-signed APK with JDK 17, Gradle 9.3.1, and Android SDK Platform 37.
 2. Verifies the APK signature and prints its SHA-256 checksum.
 3. Runs the instrumentation suite on an Android 16 (API 36) Google APIs emulator.
 4. Uploads `app/build/outputs/apk/debug/app-debug.apk` as `meshnet-debug-apk-<commit-sha>` for 14 days.
