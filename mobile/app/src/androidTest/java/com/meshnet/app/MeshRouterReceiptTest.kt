@@ -91,7 +91,7 @@ class MeshRouterReceiptTest {
             .first { it.kind == MeshFrame.KIND_MESSAGE }
         // A group member can re-encrypt a frame with fabricated route metadata.
         // The relay must learn only the verified origin through its actual ingress peer.
-        val forgedPath = original.copy(ttl = original.ttl - 1, hops = listOf("sender_01", "victim_01"))
+        val forgedPath = original.copy(ttl = original.ttl - 1, hops = listOf("sender_01", "relay_001", "victim_01"))
         val forgedCiphertext = MeshCrypto(passphrase.toCharArray()).encrypt(
             "route-bound hello", MeshFrame.aad(forgedPath)
         )
