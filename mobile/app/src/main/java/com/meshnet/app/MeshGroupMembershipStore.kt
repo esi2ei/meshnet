@@ -124,8 +124,11 @@ internal data class MeshMembershipState(
  * The log is mergeable across offline partitions, but a local replica is not a globally
  * authoritative roster. Counter gaps and equivocation are exposed rather than guessed away.
  */
-internal class MeshGroupMembershipStore(context: Context) : SQLiteOpenHelper(
-    context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION
+internal class MeshGroupMembershipStore(
+    context: Context,
+    databaseName: String = DATABASE_NAME
+) : SQLiteOpenHelper(
+    context.applicationContext, databaseName, null, DATABASE_VERSION
 ) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(

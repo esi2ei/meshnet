@@ -16,12 +16,16 @@ class MeshMembershipSyncProtocolTest {
     private lateinit var sender: MeshDeviceIdentity
     private lateinit var receiver: MeshDeviceIdentity
 
+    private val senderDatabase = "meshnet-membership-sender-test.db"
+    private val receiverDatabase = "meshnet-membership-receiver-test.db"
+
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        context.deleteDatabase("meshnet-group-membership.db")
-        senderStore = MeshGroupMembershipStore(context)
-        receiverStore = MeshGroupMembershipStore(context)
+        context.deleteDatabase(senderDatabase)
+        context.deleteDatabase(receiverDatabase)
+        senderStore = MeshGroupMembershipStore(context, senderDatabase)
+        receiverStore = MeshGroupMembershipStore(context, receiverDatabase)
         sender = MeshDeviceIdentity.generateEphemeral()
         receiver = MeshDeviceIdentity.generateEphemeral()
     }
@@ -30,14 +34,16 @@ class MeshMembershipSyncProtocolTest {
     fun tearDown() {
         senderStore.close()
         receiverStore.close()
-        ApplicationProvider.getApplicationContext<Context>()
-            .deleteDatabase("meshnet-group-membership.db")
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.deleteDatabase(senderDatabase)
+        context.deleteDatabase(receiverDatabase)
     }
 
     @Test
     fun chunkedSignedEventSynchronizesOutOfOrderAndDeduplicates() {
         val event = MeshMembershipEvent.create(sender, group, 1, MeshMembershipEvent.JOIN)
         assertTrue(senderStore.append(event))
+        assertTrue("Sender data must not appear in the receiver database before sync", receiverStore.events(group).isEmpty())
         val packets = mutableListOf<String>()
         val senderProtocol = MeshMembershipSyncProtocol(group, sender.nodeId, senderStore, send = { _, payload ->
             packets.add(payload)
