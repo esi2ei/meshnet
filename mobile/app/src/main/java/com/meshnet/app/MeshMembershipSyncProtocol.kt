@@ -72,11 +72,31 @@ internal class MeshMembershipSyncProtocol(
         when (fields[1]) {
             "S" -> {
                 if (fields.size !in setOf(3, 5) || origin == localNodeId) return true
-                val afterRowId = if (fields.size == 5) fields[3].toLongOrNull() ?: return true else 0L
-                val requestedSnapshot = if (fields.size == 5) fields[4].toLongOrNull() ?: return true else 0L
+                val now = System.currentTimeMillis()
+
+                if (fields.size == 3) {
+                    // Backward compatibility: older v6 peers send a three-field request
+                    // and understand only the legacy total-count marker. Preserve that
+                    // bounded single-page exchange; new peers use the cursor form below.
+                    if (now - (lastResponseByPeer[origin] ?: 0L) < SYNC_RESPONSE_INTERVAL_MS) return true
+                    if (lastResponseByPeer.size >= MAX_SYNC_PEERS && origin !in lastResponseByPeer) {
+                        lastResponseByPeer.remove(lastResponseByPeer.keys.first())
+                    }
+                    lastResponseByPeer[origin] = now
+                    val total = store.eventCount(groupId)
+                    val page = store.eventsForSync(groupId, LEGACY_SYNC_EVENTS)
+                    if (total > page.size) {
+                        send(origin, "$PREFIX|P|$groupId|$total")
+                        onEvent("Legacy peer supports one page only: $total membership events exist; this response contains the latest ${page.size}")
+                    }
+                    page.forEach { sendEvent(it, origin) }
+                    return true
+                }
+
+                val afterRowId = fields[3].toLongOrNull() ?: return true
+                val requestedSnapshot = fields[4].toLongOrNull() ?: return true
                 if (afterRowId < 0L || requestedSnapshot < 0L || afterRowId > requestedSnapshot) return true
 
-                val now = System.currentTimeMillis()
                 val highWatermark = store.syncHighWatermark(groupId)
                 val snapshot = if (requestedSnapshot == 0L) highWatermark else requestedSnapshot
                 if (snapshot > highWatermark || afterRowId > snapshot) {
@@ -85,7 +105,6 @@ internal class MeshMembershipSyncProtocol(
                 }
 
                 if (requestedSnapshot == 0L) {
-                    // Throttle new full-history syncs, but never slow a valid page continuation.
                     if (now - (lastResponseByPeer[origin] ?: 0L) < SYNC_RESPONSE_INTERVAL_MS) return true
                     if (lastResponseByPeer.size >= MAX_SYNC_PEERS && origin !in lastResponseByPeer) {
                         lastResponseByPeer.remove(lastResponseByPeer.keys.first())
@@ -93,7 +112,6 @@ internal class MeshMembershipSyncProtocol(
                     lastResponseByPeer[origin] = now
                 } else {
                     val served = servedSyncByPeer[origin] ?: return true
-                    // A peer may request only the next cursor we explicitly issued for this snapshot.
                     if (served.snapshotRowId != snapshot || served.nextCursorRowId != afterRowId) return true
                 }
 
@@ -102,8 +120,6 @@ internal class MeshMembershipSyncProtocol(
                     sendEvent(record.event, origin) == expectedChunkCount(record.event)
                 }
                 if (!completePageQueued) {
-                    // Do not advance the remote cursor when any event chunk was not queued.
-                    // A fresh sync starts again from row zero and exact event IDs are idempotent.
                     onEvent("Membership sync page was only partially queued; retry from the beginning on reconnect")
                     return true
                 }
@@ -260,6 +276,7 @@ internal class MeshMembershipSyncProtocol(
         private const val MAX_EVENT_BYTES = 720
         private const val MAX_ASSEMBLIES = 64
         private const val MAX_SYNC_EVENTS = 16
+        private const val LEGACY_SYNC_EVENTS = 64
         private const val SYNC_REQUEST_INTERVAL_MS = 15_000L
         private const val MIN_FORCED_SYNC_INTERVAL_MS = 2_000L
         private const val PUBLISH_INTERVAL_MS = 10_000L
