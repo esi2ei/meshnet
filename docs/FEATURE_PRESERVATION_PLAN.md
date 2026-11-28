@@ -89,6 +89,37 @@ Recommended ownership boundaries:
 - A protocol upgrade must define old-peer behavior, unknown-field handling, maximum frame/chunk sizes, replay limits, downgrade rejection and recovery after partial synchronization.
 - Keep group delivery fail-closed when recipient evidence is incomplete; do not replace a truthful pending/unknown state with a false delivered state.
 
+## Current Android bridge contract
+
+The native JavaScript bridge is a product surface, not disposable glue. The current audit found **31** `@JavascriptInterface` methods in `MainActivity.MeshNetBridge` and **31** corresponding declarations in the TypeScript `NativeBridge` type. The active React surface calls 30 of them; `getOfflineWalletAddress` remains a compatibility getter while the workspace currently reads this value from the runtime-status snapshot.
+
+| Capability / UI area | Bridge methods | Native owner and data boundary | Existing regression evidence / remaining gap |
+|---|---|---|---|
+| Runtime status and dashboard | `getRuntimeStatus` | `MainActivity.runtimeStatusJson()`; aggregates service, transport, library, VPN and wallet state | `BundledDashboardAssetsTest` verifies bundled assets, not the complete runtime JSON contract; add a focused status/bridge contract test |
+| Mesh lifecycle and credentials | `startMesh`, `stopMesh`, `forgetGroupCredentials` | `MainActivity` permission/command adapter; `MeshForegroundService` lifecycle; identity, secret, group and queue stores | Identity, secret, membership and queue tests exist; activity/service lifecycle and confirmation flow still need device coverage |
+| Broadcast and directed messaging | `sendMessage`, `sendDirectMessage` | `MeshForegroundService` → `MeshRouter` → durable `MeshQueueStore` and receipt path | `MeshRouterReceiptTest`, `MeshQueueStoreTest`, frame/crypto tests; full group snapshot/outbox/receipt integration remains incomplete |
+| Private IP network and portal | `startOfflineNetwork`, `stopOfflineNetwork`, `openOfflinePortal` | `MainActivity` handles VPN consent; `MeshVpnService` and service IP router own TUN/overlay; portal serves published library items | `MeshIpPacketRouterTest`, `MeshOfflinePortalServerTest`; permission revoke, service death and physical network handover remain device gates |
+| Offline library | `selectOfflineContent`, `requestOfflineContent`, `removeOfflineContent` | `MainActivity` document picker; `MeshForegroundService` and `MeshOfflineLibrary`; bounded content-addressed store | `MeshOfflineLibraryTest`, `MeshFileTransferTest`; private ACL, revoke/unpublish and hardware relay tests remain open |
+| General file transfer | `selectFile`, `cancelFileTransfer`, `saveReceivedFile` | `MainActivity` document picker/export; `MeshForegroundService` and `MeshFileTransfer` | `MeshFileTransferTest`; interrupted export, provider permissions and multi-device recovery need device tests |
+| Voice notes | `toggleVoiceNote`, `playVoiceNote` | `MainActivity` owns recorder/player and local file selection | No dedicated automated audio lifecycle test was found; permission, focus, interruption and playback need physical-device coverage |
+| Live group voice | `startLiveVoice`, `endLiveVoice` | `MainActivity` microphone permission; `MeshForegroundService` / `MeshLiveVoiceCall` | No dedicated automated audio-call test was found; multi-phone audio, backgrounding and reconnect remain physical-device gates |
+| Wi-Fi Direct | `createWifiDirectGroup`, `discoverWifiDirect`, `connectWifiDirect` | `MainActivity` adapter → `MeshForegroundService` → `MeshWifiDirectTransport` | No focused Wi-Fi Direct unit test file was found; Android permission, discovery, connection and recovery need device tests |
+| Wi-Fi Aware | `resumeWifiAware` | `MainActivity` adapter → `MeshForegroundService` → optional `MeshWifiAwareTransport` | No focused Wi-Fi Aware unit test file was found; support, availability changes and coexistence need device tests |
+| Local offline wallet | `getOfflineWalletAddress`, `copyOfflineWalletAddress`, `sendOfflinePayment`, `retryPendingOfflinePayments` | `MainActivity` local clipboard/read actions; service sends signed vouchers; `MeshOfflineWalletStore` retains wallet evidence | `MeshOfflineWalletStoreTest`, `MeshOfflineWalletEnvelopeTest`; still provisional local units, not globally settled money |
+| Optional online integration switch | `setOnlineIntegrationsEnabled` | `MainActivity` user preference; wallet connection remains disabled unless explicitly enabled | No dedicated preference test found; default-off, persistence and disable behavior need a focused test |
+| Solana Devnet wallet | `connectWallet`, `sendSolanaDevnetTransfer`, `disconnectWallet` | `MainActivity` Mobile Wallet Adapter flow; encrypted `MeshWalletAuthorizationStore`; Devnet transfer implementation | `MeshWalletAuthorizationStoreTest`, `SolanaDevnetTransferTest`; real-wallet approval/restore behavior still needs device validation |
+
+### Automated preservation guard
+
+`scripts/check-bridge-contract.mjs` stores the reviewed 31-method contract and checks that:
+
+- Kotlin still exposes the same annotated method names.
+- TypeScript still declares the same bridge method names.
+- Every active UI command remains referenced by `PhoneWorkspace.tsx` or `App.tsx`.
+- The one intentionally unreferenced compatibility getter remains explicitly recorded.
+
+The Node 22 CI job runs this check before the TypeScript typecheck. It protects the bridge surface against accidental deletion or rename; it does **not** prove that an action's full runtime behavior works. Feature-level tests and physical-device evidence remain mandatory.
+
 ## Execution sequence
 
 ### FP-00 — Freeze the capability baseline
