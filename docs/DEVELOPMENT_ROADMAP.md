@@ -56,7 +56,7 @@ The GitHub requirements set contains 12 open issues (#17–#28). Their state is 
 
 - [x] Raise the queue database schema to v10 and atomically quarantine pre-v6 outbox frames and replay markers before clearing them from active dispatch/replay tables.
 - [x] Expose bounded read-only access to quarantined frame bytes and replay metadata for recovery tooling; quarantined frames are never returned by the live pending queue.
-- [x] Add migration coverage proving the original frame bytes, message metadata, retry count and replay marker survive a v7-to-v10 upgrade, while a compatible v9-to-v10 schema-only upgrade preserves its live outbox.
+- [ ] Validate migration coverage on the exact branch head: original frame bytes, message metadata, retry count and replay markers must survive a v7-to-v10 upgrade, while a compatible v9-to-v10 schema-only upgrade preserves its live outbox.
 - [ ] Add a user-facing export/review/discard flow and physical-device upgrade/interruption/restart evidence. Do not advertise user-facing recovery until that flow exists.
 - [ ] Continue the remaining #32 P0 work: end-to-end group delivery semantics, missing-device-identity fail-closed behavior and independently reviewed per-device session/group-key lifecycle.
 
