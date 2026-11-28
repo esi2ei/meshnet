@@ -126,4 +126,35 @@ class MeshMembershipSyncProtocolTest {
         assertFalse(protocol.requestSync())
         assertFalse(protocol.requestSync(force = true))
     }
+    @Test
+    fun legacyV6SyncRequestReceivesLegacySinglePageMarkerAndBoundedEvents() {
+        val events = (1L..70L).map { counter ->
+            MeshMembershipEvent.create(
+                sender, group, counter,
+                if (counter == 1L || counter % 2L == 0L) MeshMembershipEvent.JOIN else MeshMembershipEvent.LEAVE,
+                createdAt = 1_700_000_000_000L + counter
+            )
+        }
+        senderStore.merge(events)
+        val packets = mutableListOf<String>()
+        val notices = mutableListOf<String>()
+        val senderProtocol = MeshMembershipSyncProtocol(
+            group, sender.nodeId, senderStore,
+            send = { _, payload -> packets.add(payload); true },
+            onEvent = { notices.add(it) }
+        )
+
+        assertTrue(senderProtocol.accept(receiver.nodeId, "~GM1|S|$group"))
+
+        val markers = packets.filter { it.startsWith("~GM1|P|") }
+        val chunks = packets.filter { it.startsWith("~GM1|C|") }
+        assertEquals(1, markers.size)
+        assertEquals(4, markers.single().split('|').size)
+        assertEquals("70", markers.single().split('|')[3])
+        assertTrue(chunks.isNotEmpty())
+        assertFalse(packets.any { it.startsWith("~GM1|P|$group|") && it.split('|').size == 6 })
+        assertTrue(notices.any { it.contains("Legacy peer supports one page only") })
+    }
+
+
 }
