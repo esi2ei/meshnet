@@ -187,3 +187,26 @@ This matrix is intentionally conservative. “Partial” means that some code ex
 - **CI cost controls:** the duplicate Node 24 matrix job was removed (Node 22 remains), npm install reuses the setup-node cache keyed by package.json, and the tested web dist artifact is shared with Android packaging so dependencies/build are not repeated. Android emulator instrumentation is opt-in via manual workflow dispatch. Pull-request CI still performs the web checks and Android debug assembly; emulator instrumentation is reserved for explicit validation.
 
 **Verification boundary:** these changes have been committed to the existing PR branch. Source-level review and regression-test source updates are present, but no claim of passing build or instrumentation is made until the single consolidated PR workflow run reports results. Physical-device checks and external security audits remain separate gates.
+
+
+## Post-merge continuation — 2026-11-28
+
+PR #16 was merged into `main` at `d3ecf7e5d734f577dc6920d4250b4597baeaa903`. The continuation branch `work/offline-mesh-completion` has been recreated from that merge commit so follow-up work remains isolated from `main`.
+
+### Additional receipt-policy hardening
+
+- **Implemented:** `MeshRouter` now rejects ACK/receipt frames by default when no explicit acknowledgement validator is supplied. The previous default accepted every signer, which was inconsistent with the fail-closed delivery policy.
+- **Regression coverage updated:** the broadcast receipt test now exercises the default-deny path; the directed-delivery test supplies an explicit destination identity validator.
+- **Not yet verified:** no local build, instrumentation test, or CI run has been executed for this follow-up. The change is source-level only until those checks are authorized and completed.
+
+### Active issue state after PR #16
+
+The issue traceability matrix above remains authoritative for issues #17–#28. All remain open until their acceptance criteria have implementation and evidence. In particular:
+
+- **#19 messaging/groups:** local signed membership/snapshot/receipt primitives are not yet integrated with v7 frames, router, outbox, UI, and atomic message persistence. Group broadcast ACK remains fail-closed.
+- **#17 networking, #18 security, #22 file sharing, #27 Android/UX:** partial implementations still require adversarial, recovery, privacy and physical-device validation.
+- **#20 governance, #21 reputation, #23 Internet sharing, #26 arbitration:** remain unimplemented or prototype-only; do not advertise as available.
+- **#24 contracts and #25 wallet:** local primitives/prototypes are not production metering or real-money settlement.
+- **#28 traceability:** remains the cross-cutting gate for automated integration evidence and staged delivery.
+
+No issue is closed by this continuation. No production-readiness claim is made. Preserve `[skip ci]` until the user explicitly authorizes validation runs.
