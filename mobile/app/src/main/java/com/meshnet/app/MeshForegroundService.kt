@@ -290,6 +290,7 @@ class MeshForegroundService : Service() {
             announceOfflineLibrary()
             announceIpAddress()
             router?.sendEphemeral(IP_ADDRESS_QUERY)
+            localMembershipJoin?.let { membershipSync?.publish(it) }
             membershipSync?.requestSync(force = true)
         }
         if (!connected) {
@@ -816,6 +817,23 @@ class MeshForegroundService : Service() {
 
     @Synchronized
     private fun stopMesh() {
+        val activeJoin = localMembershipJoin
+        val membershipStore = groupMembershipStore
+        val signingIdentity = deviceIdentity
+        if (activeJoin != null && membershipStore != null && signingIdentity != null) {
+            runCatching {
+                val lastCounter = membershipStore.events(activeJoin.groupId)
+                    .filter { it.memberId == nodeId }
+                    .maxOfOrNull { it.counter } ?: 0L
+                require(lastCounter < Long.MAX_VALUE) { "Membership event counter exhausted" }
+                val leave = MeshMembershipEvent.create(
+                    signingIdentity, activeJoin.groupId, lastCounter + 1L, MeshMembershipEvent.LEAVE
+                )
+                membershipStore.append(leave)
+                membershipSync?.publish(leave)
+            }.onFailure { emit("Could not record local group departure: ${it.message}") }
+        }
+        localMembershipJoin = null
         stopIpOverlay()
         stopService(Intent(this, MeshVpnService::class.java))
         liveVoiceCall?.end()
