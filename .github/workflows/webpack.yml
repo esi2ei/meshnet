@@ -104,13 +104,26 @@ jobs:
           sha256sum "$APK"
 
       - name: Enable KVM for Android emulator
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_android_instrumentation }}
+        if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.run_android_instrumentation) }}
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run Android instrumentation tests on API 36 emulator
+      - name: Run focused Android regression tests on API 36
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7_pro
+          working-directory: mobile
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: MESHNET_PREBUILT_WEB_ASSETS=true bash -o pipefail -c 'gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.meshnet.app.MeshTransferReceiptStoreTest,com.meshnet.app.MeshOfflineWalletStoreTest,com.meshnet.app.MeshGroupMembershipStoreTest,com.meshnet.app.MeshMembershipSyncProtocolTest,com.meshnet.app.BundledDashboardAssetsTest,com.meshnet.app.MeshRouterReceiptTest,com.meshnet.app.MeshGroupDeliveryLedgerTest,com.meshnet.app.MeshOfflineLibraryTest,com.meshnet.app.MeshSecretStoreTest,com.meshnet.app.MeshQueueStoreTest,com.meshnet.app.MeshRouteRegistryTest,com.meshnet.app.MeshIpPacketRouterTest,com.meshnet.app.MeshFileTransferTest,com.meshnet.app.MeshOfflinePortalServerTest,com.meshnet.app.MeshPeerRegistryTest,com.meshnet.app.MeshDeviceIdentityTest,com.meshnet.app.MeshCryptoTest,com.meshnet.app.MeshFrameTest,com.meshnet.app.MeshServiceContractTest,com.meshnet.app.MeshWalletAuthorizationStoreTest,com.meshnet.app.MeshOfflineWalletEnvelopeTest,com.meshnet.app.MeshSocketPolicyTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"'
+
+      - name: Run full Android instrumentation suite on API 36
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_android_instrumentation }}
         uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
@@ -121,7 +134,19 @@ jobs:
           working-directory: mobile
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest
+          script: MESHNET_PREBUILT_WEB_ASSETS=true bash -o pipefail -c 'gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"'
+
+      - name: Upload Android diagnostics on failure
+        if: ${{ !cancelled() && failure() }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: meshnet-android-diagnostics-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/meshnet-android-build.log
+            ${{ runner.temp }}/meshnet-android-tests.log
+            mobile/app/build/reports/
+          if-no-files-found: warn
+          retention-days: 3
 
       # Successful pull-request checks do not need downloadable build artifacts.
       # Keep diagnostics on failure; allow explicit manual runs to retain the APK.
@@ -135,7 +160,7 @@ jobs:
           retention-days: 7
 
       - name: Upload Android test reports
-        if: ${{ failure() || github.event_name == 'workflow_dispatch' }}
+        if: ${{ !cancelled() && (failure() || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request') }}
         uses: actions/upload-artifact@v7.0.2
         with:
           name: meshnet-android-test-reports-${{ github.sha }}
