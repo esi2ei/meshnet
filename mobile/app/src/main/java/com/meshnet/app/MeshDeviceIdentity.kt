@@ -164,8 +164,8 @@ internal class MeshDeviceIdentity private constructor(
                 actualField.p == expectedField.p &&
                 actual.curve.a == expected.curve.a &&
                 actual.curve.b == expected.curve.b &&
-                publicKey.w.affineX == expected.generator.affineX &&
-                publicKey.w.affineY == expected.generator.affineY &&
+                actual.generator.affineX == expected.generator.affineX &&
+                actual.generator.affineY == expected.generator.affineY &&
                 actual.order == expected.order &&
                 actual.cofactor == expected.cofactor
         }.getOrDefault(false)
