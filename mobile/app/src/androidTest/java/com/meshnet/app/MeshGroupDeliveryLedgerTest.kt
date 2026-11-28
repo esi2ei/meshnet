@@ -144,6 +144,29 @@ class MeshGroupDeliveryLedgerTest {
     }
 
     @Test
+    fun membersJoiningAfterSnapshotAreNotAddedRetroactively() {
+        val lateMember = MeshDeviceIdentity.generateEphemeral()
+        val lateJoin = MeshMembershipEvent.create(lateMember, group, 1, MeshMembershipEvent.JOIN)
+        assertTrue(lateJoin.verify())
+        val persisted = ledger.snapshot(snapshot.messageId) ?: error("Missing snapshot")
+        assertEquals(2, persisted.recipients.size)
+        assertFalse(persisted.recipients.any { it.memberId == lateMember.nodeId })
+    }
+
+    @Test
+    fun snapshotRejectsForgedMembershipEvent() {
+        val valid = MeshMembershipEvent.create(memberA, group, 1, MeshMembershipEvent.JOIN)
+        val forged = valid.copy(memberId = memberB.nodeId)
+        val result = runCatching {
+            MeshGroupDeliverySnapshot.create(
+                sender, "message_snapshot_003", group,
+                listOf(forged, MeshMembershipEvent.create(memberB, group, 1, MeshMembershipEvent.JOIN))
+            )
+        }
+        assertTrue(result.isFailure)
+    }
+
+    @Test
     fun incompleteOrConflictedRosterCannotBeSnapshotted() {
         val invalid = listOf(
             MeshMembershipEvent.create(memberA, group, 1, MeshMembershipEvent.JOIN),
