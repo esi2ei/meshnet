@@ -26,7 +26,8 @@ internal class MeshRouter(
     private val sendToPeer: (ByteArray, String) -> Boolean = { _, _ -> false },
     private val sendEphemeralToPeer: (ByteArray, String) -> Boolean = { _, _ -> false },
     private val onRouteObserved: (List<String>, String?) -> Unit = { _, _ -> },
-    private val validateAcknowledgement: (String, String) -> Boolean = { _, _ -> true },
+    // Missing receipt policy must fail closed; callers must explicitly validate the signer and target.
+    private val validateAcknowledgement: (String, String) -> Boolean = { _, _ -> false },
     private val recordDestination: (String, String) -> Unit = { _, _ -> },
     private val forgetDestination: (String) -> Unit = {},
     private val identity: MeshDeviceIdentity? = null
