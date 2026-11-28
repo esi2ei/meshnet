@@ -225,6 +225,15 @@ internal class MeshOfflineLibrary(context: Context) {
             throw error
         }
     }
+    private fun itemJson(item: Item): JSONObject = JSONObject()
+        .put("id", item.id)
+        .put("name", item.name)
+        .put("size", item.size)
+        .put("createdAt", item.createdAt)
+        .put("local", item.local)
+        .put("origin", item.origin ?: JSONObject.NULL)
+        .put("pending", item.pending)
+
     private fun ensureCapacity(incoming:Long){
         require(incoming in 1..MAX_FILE_BYTES.toLong())
         require(local.size<MAX_LOCAL_ITEMS&&local.values.sumOf{it.size}+incoming<=MAX_STORAGE_BYTES){
