@@ -96,3 +96,12 @@ The offline wallet store also now refuses new incoming vouchers after its 4,096-
 
 
 **Local companion binding guard:** the offline portal constructor now rejects wildcard, loopback and public-address binds by default. Loopback binding is available only through an explicit test-only constructor flag; production continues to bind to the device's `100.64.0.0/10` overlay address.
+
+
+## 6. Durable transfer-receipt journal (new primitive; integration pending)
+
+`MeshTransferReceiptStore` persists signed receipt chains in app-private SharedPreferences. Every read and append re-verifies the complete chain from the genesis receipt, including signatures, sequence, byte totals, cumulative capped charge, timestamps and previous-receipt hashes. Exact retries are idempotent; a conflicting receipt at an existing sequence, a gap, a broken chain, malformed storage or oversized journal fails closed rather than silently resetting accounting history.
+
+The journal is bounded to 2,048 receipts and 2 MiB. It stores public signed receipt envelopes only, not private keys. The current implementation is process-local synchronized and uses synchronous preference commits for durability; it is not a cross-process transactional ledger, does not coordinate concurrent devices, and does not settle funds. The contract still must be supplied by the caller and verified on each operation.
+
+**Integration remains incomplete:** no service-offer activation path or file/message receiver currently invokes this journal; actual accepted application payload bytes and their SHA-256 digest are not yet measured at the receiver boundary; dual-signature exchange, wallet reconciliation, crash/retry integration and no-double-billing end-to-end tests remain open. The journal must not be presented as proof of payment or fiat settlement.
