@@ -80,8 +80,13 @@ class MeshForegroundService : Service() {
         walletEnvelopePreferences = getSharedPreferences(WALLET_ENVELOPE_PREFERENCES, MODE_PRIVATE)
         restorePendingOfflinePayments()
         createNotificationChannel()
-        if (!offlineLibrary.isCatalogHealthy) {
-            emit("Offline library catalogue is damaged; stored content files were preserved and library changes are disabled pending recovery")
+        when {
+            offlineLibrary.isCatalogCorrupt ->
+                emit("Offline library catalogue metadata is damaged; stored content files were preserved and catalogue changes are disabled pending recovery")
+            offlineLibrary.isCatalogOverQuota ->
+                emit("Offline library exceeds its configured item or storage limit; existing files were preserved. Remove selected items before adding more")
+            offlineLibrary.corruptBlobCount > 0 ->
+                emit("${offlineLibrary.corruptBlobCount} offline content item(s) failed integrity checks. Files were preserved; explicitly remove or republish the affected content")
         }
     }
 
@@ -214,6 +219,9 @@ class MeshForegroundService : Service() {
     }
     fun offlineLibraryJson(): org.json.JSONArray = offlineLibrary.toJson()
     fun offlineLibraryHealthy(): Boolean = offlineLibrary.isCatalogHealthy
+    fun offlineLibraryCorrupt(): Boolean = offlineLibrary.isCatalogCorrupt
+    fun offlineLibraryOverQuota(): Boolean = offlineLibrary.isCatalogOverQuota
+    fun offlineLibraryCorruptBlobCount(): Int = offlineLibrary.corruptBlobCount
 
     fun publishOfflineContent(uri: Uri): String {
         router ?: throw IllegalStateException("Start the local mesh before publishing offline content")
