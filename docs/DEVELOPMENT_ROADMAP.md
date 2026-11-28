@@ -519,13 +519,15 @@ This section preserves significant earlier defects and test results for traceabi
 - None of those runs validates the later bridge preservation guard, `MeshRuntimeStatusSerializer` extraction or its new tests; those require the current-head workflow below.
 - The full, non-targeted Android instrumentation suite and physical multi-phone/OEM tests have not been completed. No emulator result proves production security, independent cryptographic/smart-contract audit, legal compliance or real-money settlement.
 
-## Current branch review snapshot — 2026-11-28
+## Current delivery status and live checks
 
-- **Branch:** `work/offline-mesh-completion`
-- **Current reviewed branch head:** `21556f7152795ae135a7c5c2f5af33e270527d9d` (includes the roadmap/persistence corrections and Android README route-evidence correction from this review).
-- **PR:** [#29](https://github.com/esi2ei/meshnet/pull/29), open and Draft, targeting `main`. Do not merge automatically.
-- **Current-head CI:** [run #211](https://github.com/esi2ei/meshnet/actions/runs/46132881766) is pending for this exact SHA at the time of this snapshot. No check result is available yet.
-- **Previous run #210** is still associated with the immediately preceding code/documentation head `2e6264388e868a85bb06aa36d6cf942b4e78a6db`; its Node check passed and its Android job was still in progress when inspected. It is not a green check for the current 21556... head.
-- The current exact-head workflow is required to validate the bridge preservation guard and the `MeshRuntimeStatusSerializer` regression class after the final documentation corrections.
-- Run #199/#200 remain the successful historical evidence for the corrected independent-store membership fixture and wallet signing-key-loss regression; their results apply only to their own SHAs.
-- No physical Android device evidence, full (non-targeted) instrumentation run, independent cryptographic audit, smart-contract audit, or legal/carrier approval is claimed by this snapshot.
+Branch heads and Actions runs change with every commit, so this roadmap intentionally does not pin a supposedly current SHA or CI result. Before accepting any PR update:
+
+- Check the current head SHA and Draft/open state in [PR #29](https://github.com/esi2ei/meshnet/pull/29).
+- Check the status of all required jobs for that exact SHA in [PR #29 checks](https://github.com/esi2ei/meshnet/pull/29/checks).
+- Do not use a successful run from an earlier SHA as evidence for newer code, even when the intervening change appears small.
+- The most recent recorded historical validation is run #200 on its exact SHA (189/189 focused API 36 tests). It does not validate later bridge/serializer changes.
+- The full, non-targeted Android instrumentation suite, physical multi-phone/OEM tests, independent cryptographic audit, smart-contract audit and legal/carrier approval remain separate gates.
+
+**Delivery policy:** PR #29 remains Draft until the current-head checks and code-level acceptance criteria pass. No automatic merge to `main`.
+
