@@ -133,4 +133,34 @@ class MeshGroupMembershipStoreTest {
         assertEquals(1, store.events(otherGroup).size)
         assertEquals(0, store.merge(listOf(first, other)))
     }
+    @Test
+    fun rowIdCursorPagesCoverFixedSnapshotWithoutIncludingLaterEvents() {
+        val identity = MeshDeviceIdentity.generateEphemeral()
+        val events = (1L..70L).map { counter ->
+            MeshMembershipEvent.create(
+                identity, group, counter,
+                if (counter == 1L || counter % 2L == 0L) MeshMembershipEvent.JOIN else MeshMembershipEvent.LEAVE
+            )
+        }
+        store.merge(events)
+        val snapshot = store.syncHighWatermark(group)
+        val later = MeshMembershipEvent.create(identity, group, 71L, MeshMembershipEvent.JOIN)
+        assertTrue(store.append(later))
+
+        val collected = mutableListOf<MeshMembershipSyncRecord>()
+        var cursor = 0L
+        while (true) {
+            val page = store.syncEventsAfterRowId(group, cursor, snapshot, 16)
+            if (page.isEmpty()) break
+            assertTrue(page.all { it.rowId > cursor && it.rowId <= snapshot })
+            collected.addAll(page)
+            cursor = page.last().rowId
+        }
+
+        assertEquals(70, collected.size)
+        assertEquals(events.map { it.eventId }.toSet(), collected.map { it.event.eventId }.toSet())
+        assertFalse(collected.any { it.event.eventId == later.eventId })
+        assertEquals(snapshot, collected.last().rowId)
+    }
+
 }
