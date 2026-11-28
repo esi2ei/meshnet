@@ -115,6 +115,8 @@ The journal is bounded to 2,048 receipts and 2 MiB. It stores signed accounting 
 - The signing identity and storage-encryption key are deleted together by the explicit wallet `clear()` operation.
 - Instrumentation coverage is authored for ciphertext-at-rest, reopen/read, legacy migration, missing-key and tamper behavior. These tests are not considered passed until the current PR head's targeted CI run finishes.
 
+**Integrity and capacity policy:** malformed outgoing or incoming history rows fail closed instead of being silently omitted from the UI or retry queue. Receipt history is capped at 1,000 records; when full, new incoming vouchers are rejected with an explicit export/reconcile requirement rather than evicting older receipts. Replay protection remains bounded at 4,096 IDs and is never pruned automatically.
+
 **Limitations:** this is encrypted local storage for provisional `MESH-LOCAL-UNIT` vouchers. It is not a double-entry/global balance ledger, cannot prevent offline double-spend across disconnected devices, does not create fiat settlement, and has no encrypted export/restore or device-migration recovery workflow. Android automatic backup remains disabled.
 
 ## 8. WebView native bridge resource boundary
@@ -128,3 +130,9 @@ Instrumentation coverage checks the allowed origin/path and rejects HTTP, foreig
 `MeshGroupMembershipStore` exposes a rowid high-watermark and bounded cursor pages. A sync request fixes a snapshot upper bound; each page selects rows after the prior cursor and no later than that bound. The peer sends the next cursor only after every event chunk in the page has been queued. The receiver requests the next page, rejects regressions or snapshot changes, and merges signed event IDs idempotently. This removes the prior hard stop at the most recent 64 events for peers using the updated protocol.
 
 **Limitations:** continuation state currently lives in memory and restarts from the beginning after reconnect/process recreation. The protocol is still carried over best-effort v6 ephemeral frames; it is not protocol v7, is not crash-resumable, and does not establish a globally authoritative roster. Snapshot/receipt integration with the message router, durable outbox and UI remains open. Focused instrumentation tests exercise a 70-event sync across multiple pages and fixed-snapshot exclusion of later rows.
+
+## 10. Android compile and targeted-test gate
+
+Run #154 passed the web typecheck/build but failed Android Kotlin compilation before instrumentation. The compiler identified regex-type and SHA-256 helper-scope errors in `MeshGroupDeliveryLedger.kt` and an inaccessible clock-skew constant in `MeshGroupMembershipStore.kt`. These source errors have been corrected on the completion branch. The current head still requires a new build and targeted API 36 instrumentation run; run #154 is not a passing Android result.
+
+The PR workflow now captures the Android build/test console output and build reports as a diagnostic artifact on failure. Focused instrumentation includes receipt journal, offline wallet, membership store/protocol, WebView asset policy, router receipts, group-delivery ledger and secret-store tests. The full suite remains a manual opt-in.
