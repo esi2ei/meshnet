@@ -99,7 +99,7 @@ internal class MeshTransferReceiptStore(context: Context) {
         }
 
         val raw = bytes.toString(Charsets.UTF_8)
-        if (raw.startsWith("$FILE_HEADER\\n")) {
+        if (raw.startsWith("$FILE_HEADER\n")) {
             val plaintext = decryptJournal(raw)
             require(plaintext.toByteArray(Charsets.UTF_8).size <= MAX_JOURNAL_BYTES) {
                 "Decrypted receipt journal exceeds its storage limit"
@@ -150,15 +150,15 @@ internal class MeshTransferReceiptStore(context: Context) {
         cipher.updateAAD(FILE_HEADER.toByteArray(Charsets.UTF_8))
         val ciphertext = cipher.doFinal(plaintext)
         val encoded = buildString {
-            append(FILE_HEADER).append('\\n')
-            append(encodeBase64(cipher.iv)).append('\\n')
+            append(FILE_HEADER).append('\n')
+            append(encodeBase64(cipher.iv)).append('\n')
             append(encodeBase64(ciphertext))
         }
         return encoded.toByteArray(Charsets.UTF_8)
     }
 
     private fun decryptJournal(encoded: String): String = try {
-        val parts = encoded.split('\\n')
+        val parts = encoded.split('\n')
         require(parts.size == 3 && parts[0] == FILE_HEADER) {
             "Receipt journal encryption envelope is malformed"
         }
