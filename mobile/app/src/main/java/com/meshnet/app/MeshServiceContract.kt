@@ -193,4 +193,5 @@ internal data class MeshServiceContract(
 
         private fun encodeBase64(bytes: ByteArray): String =
             Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-    }}
+    }
+}
