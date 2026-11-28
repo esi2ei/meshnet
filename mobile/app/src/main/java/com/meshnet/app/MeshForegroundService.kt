@@ -865,35 +865,73 @@ class MeshForegroundService : Service() {
 
     private fun restorePendingOfflinePayments() {
         pendingOfflinePayments.clear()
-        val stored = runCatching {
-            org.json.JSONArray(walletEnvelopePreferences.getString(KEY_PENDING_WALLET_ENVELOPES, "[]"))
-        }.getOrDefault(org.json.JSONArray())
-        val now = System.currentTimeMillis()
-        for (i in 0 until stored.length()) {
-            runCatching {
-                val item = stored.getJSONObject(i)
-                val id = item.getString("id")
-                val count = item.getInt("count")
-                val createdAt = item.getLong("createdAt")
-                require(id.length in 1..64 && count in 1..MAX_OFFLINE_PAYMENT_CHUNKS)
-                require(createdAt > 0L && now - createdAt <= WALLET_ENVELOPE_TTL_MS)
-                val chunkObject = item.getJSONObject("chunks")
-                val chunks = mutableMapOf<Int, String>()
-                val keys = chunkObject.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    val index = key.toInt()
-                    val value = chunkObject.getString(key)
-                    require(index in 0 until count && value.length <= OFFLINE_PAYMENT_CHUNK_SIZE)
-                    chunks[index] = value
-                }
-                val prefix = item.getString("prefix")
-                require(prefix == OFFLINE_PAYMENT_PREFIX || prefix == OFFLINE_ACK_PREFIX)
-                require(chunks.size <= count)
-                if (pendingOfflinePayments.size < MAX_PENDING_OFFLINE_PAYMENTS) {
-                    pendingOfflinePayments[id] = PendingOfflineWalletEnvelope(count, prefix, chunks, createdAt)
+
+        // Migrate the former standalone plaintext preference into the per-wallet encrypted
+        // Keystore store. Delete the legacy value only after the encrypted commit succeeds.
+        val legacy = walletEnvelopePreferences.getString(KEY_PENDING_WALLET_ENVELOPES, null)
+        val encoded = when {
+            offlineWallet.hasPendingEnvelopeState() -> {
+                offlineWallet.loadPendingEnvelopeState().also {
+                    if (legacy != null) {
+                        check(walletEnvelopePreferences.edit().remove(KEY_PENDING_WALLET_ENVELOPES).commit()) {
+                            "Could not remove migrated plaintext wallet envelope state"
+                        }
+                    }
                 }
             }
+            legacy != null -> {
+                offlineWallet.storePendingEnvelopeState(legacy)
+                check(walletEnvelopePreferences.edit().remove(KEY_PENDING_WALLET_ENVELOPES).commit()) {
+                    "Could not remove migrated plaintext wallet envelope state"
+                }
+                legacy
+            }
+            else -> "[]"
+        }
+        val stored = org.json.JSONArray(encoded)
+        require(stored.length() <= MAX_PENDING_OFFLINE_PAYMENTS) {
+            "Pending offline wallet envelope count exceeds its limit"
+        }
+
+        val now = System.currentTimeMillis()
+        for (i in 0 until stored.length()) {
+            val item = stored.getJSONObject(i)
+            val id = item.getString("id")
+            val count = item.getInt("count")
+            val createdAt = item.getLong("createdAt")
+            val prefix = item.getString("prefix")
+            require(id.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
+                count in 1..MAX_OFFLINE_PAYMENT_CHUNKS) {
+                "Pending wallet envelope $i has invalid identity or chunk count"
+            }
+            require(createdAt in 1..(now + WALLET_ENVELOPE_CLOCK_SKEW_MS)) {
+                "Pending wallet envelope $id has an invalid timestamp"
+            }
+            require(prefix == OFFLINE_PAYMENT_PREFIX || prefix == OFFLINE_ACK_PREFIX) {
+                "Pending wallet envelope $id has an invalid message type"
+            }
+            require(id !in pendingOfflinePayments) { "Duplicate pending wallet envelope ID: $id" }
+
+            // Expired chunks are intentionally discarded by their documented 24-hour TTL.
+            if (now - createdAt > WALLET_ENVELOPE_TTL_MS) continue
+
+            val chunkObject = item.getJSONObject("chunks")
+            val chunks = mutableMapOf<Int, String>()
+            val keys = chunkObject.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val index = key.toIntOrNull()
+                    ?: throw IllegalArgumentException("Pending wallet envelope $id has an invalid chunk index")
+                val value = chunkObject.getString(key)
+                require(index in 0 until count &&
+                    value.matches(Regex("[A-Za-z0-9_-]{1,$OFFLINE_PAYMENT_CHUNK_SIZE}")) &&
+                    (index == count - 1 || value.length == OFFLINE_PAYMENT_CHUNK_SIZE)) {
+                    "Pending wallet envelope $id has an invalid chunk"
+                }
+                chunks[index] = value
+            }
+            require(chunks.size <= count) { "Pending wallet envelope $id has too many chunks" }
+            pendingOfflinePayments[id] = PendingOfflineWalletEnvelope(count, prefix, chunks, createdAt)
         }
         persistPendingOfflinePayments()
     }
@@ -923,9 +961,7 @@ class MeshForegroundService : Service() {
                     .put("chunks", chunks)
             )
         }
-        check(walletEnvelopePreferences.edit().putString(KEY_PENDING_WALLET_ENVELOPES, stored.toString()).commit()) {
-            "Could not persist pending offline wallet chunks"
-        }
+        offlineWallet.storePendingEnvelopeState(stored.toString())
     }
 
     private fun emit(message: String) {
@@ -987,6 +1023,7 @@ class MeshForegroundService : Service() {
         private const val WALLET_ENVELOPE_PREFERENCES = "meshnet_wallet_envelope_v1"
         private const val KEY_PENDING_WALLET_ENVELOPES = "pending_envelopes"
         private const val WALLET_ENVELOPE_TTL_MS = 24L * 60L * 60L * 1000L
+        private const val WALLET_ENVELOPE_CLOCK_SKEW_MS = 5L * 60L * 1000L
         private const val WALLET_AUTO_RETRY_INTERVAL_MS = 30_000L
         private const val OFFLINE_PAYMENT_CHUNK_SIZE = 48
         private const val MAX_OFFLINE_PAYMENT_CHUNKS = 32
