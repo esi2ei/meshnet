@@ -103,7 +103,6 @@ class MeshMembershipSyncProtocolTest {
             batch.filter { it.startsWith("~GM1|P|") }
                 .forEach { assertTrue(receiverProtocol.accept(sender.nodeId, it)) }
             pages++
-            if (continuationRequests.isNotEmpty()) Thread.sleep(180)
         }
 
         assertTrue("More than one page must be used for 70 events", pages > 1)
