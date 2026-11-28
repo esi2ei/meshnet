@@ -131,7 +131,8 @@ internal class MeshMembershipSyncProtocol(
         if (assembly.chunks.size != count) return
 
         assemblies.remove(key)
-        val encoded = (0 until count).joinToString("") { assembly.chunks[it] ?: return }
+        val pieces = (0 until count).map { assembly.chunks[it] ?: return }
+        val encoded = pieces.joinToString("")
         val event = runCatching {
             val bytes = Base64.decode(encoded, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
             require(bytes.size in 1..MAX_EVENT_BYTES)
