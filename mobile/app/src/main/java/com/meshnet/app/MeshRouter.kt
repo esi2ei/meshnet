@@ -26,7 +26,8 @@ internal class MeshRouter(
     private val sendToPeer: (ByteArray, String) -> Boolean = { _, _ -> false },
     private val sendEphemeralToPeer: (ByteArray, String) -> Boolean = { _, _ -> false },
     private val onRouteObserved: (List<String>, String?) -> Unit = { _, _ -> },
-    private val validateAcknowledgement: (String, String) -> Boolean = { _, _ -> true },
+    // Missing receipt policy must fail closed; callers must explicitly validate the signer and target.
+    private val validateAcknowledgement: (String, String) -> Boolean = { _, _ -> false },
     private val recordDestination: (String, String) -> Unit = { _, _ -> },
     private val forgetDestination: (String) -> Unit = {},
     private val identity: MeshDeviceIdentity? = null
@@ -243,9 +244,22 @@ internal class MeshRouter(
         return true
     }
 
+    /**
+     * Keep the v6 TTL/route-length invariant without trusting hop history for loop prevention.
+     * If an untrusted sender already listed this relay, normalize that entry to the final
+     * position and do not charge the same relay hop twice. Local per-frame dedup still ensures
+     * this node forwards a given frame only once.
+     */
+    private fun nextHopMetadata(frame: MeshFrame): Pair<Int, List<String>> {
+        val alreadyRecorded = nodeId in frame.hops
+        val normalizedHops = frame.hops.filterNot { it == nodeId } + nodeId
+        val nextTtl = if (alreadyRecorded) frame.ttl else frame.ttl - 1
+        return nextTtl to normalizedHops
+    }
     private fun relayDirectedEphemeral(frame: MeshFrame, plaintext: String, viaPeer: String?) {
-        if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
-        val nextHopFrame = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId)
+        if (frame.ttl <= 1) return
+        val (nextTtl, nextHops) = nextHopMetadata(frame)
+        val nextHopFrame = frame.copy(ttl = nextTtl, hops = nextHops)
         val (nonce, ciphertext) = crypto.encrypt(plaintext, MeshFrame.aad(nextHopFrame))
         val encoded = nextHopFrame.copy(nonce = nonce, ciphertext = ciphertext).encode()
         val candidates = resolveNextHops(frame.destination.orEmpty()).filter { it != viaPeer }
@@ -258,8 +272,9 @@ internal class MeshRouter(
     }
 
     private fun relayDirected(frame: MeshFrame, plaintext: String, viaPeer: String?) {
-        if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
-        val nextHopFrame = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId)
+        if (frame.ttl <= 1) return
+        val (nextTtl, nextHops) = nextHopMetadata(frame)
+        val nextHopFrame = frame.copy(ttl = nextTtl, hops = nextHops)
         val (nonce, ciphertext) = crypto.encrypt(plaintext, MeshFrame.aad(nextHopFrame))
         val encoded = nextHopFrame.copy(nonce = nonce, ciphertext = ciphertext).encode()
         val candidates = resolveNextHops(frame.destination.orEmpty()).filter { it != viaPeer }
@@ -275,8 +290,9 @@ internal class MeshRouter(
         // Directed traffic is consumed at the final destination; never forward a
         // delivered message or its receipt beyond the node it targets.
         if (frame.destination == nodeId) return
-        if (frame.ttl <= 1 || frame.hops.contains(nodeId)) return
-        val nextHopFrame = frame.copy(ttl = frame.ttl - 1, hops = frame.hops + nodeId)
+        if (frame.ttl <= 1) return
+        val (nextTtl, nextHops) = nextHopMetadata(frame)
+        val nextHopFrame = frame.copy(ttl = nextTtl, hops = nextHops)
         // TTL and route are authenticated; relays re-encrypt after updating route metadata.
         val (nonce, ciphertext) = crypto.encrypt(plaintext, MeshFrame.aad(nextHopFrame))
         val relayed = nextHopFrame.copy(nonce = nonce, ciphertext = ciphertext).encode()
