@@ -62,6 +62,12 @@ At message creation, the sender stores:
 
 The snapshot is immutable for that message. A later JOIN does not retroactively become a recipient; a later LEAVE does not erase the obligation for an already-created message. The user may explicitly cancel or expire an obligation under a visible policy, but it must not be represented as successful delivery.
 
+**Implemented local primitive (not yet connected to message sending):** `MeshGroupDeliverySnapshot` is signed by the sender and binds message ID, group ID, sender key, digest of the observed roster, sorted recipient node IDs/public keys and creation time. Snapshot creation accepts only signature-verified membership events, rejects incomplete/conflicted counter histories, validates every recipient key-to-node-ID binding and excludes the sender from the remote recipient list. `MeshGroupDeliveryLedger` atomically persists the immutable snapshot and pending-recipient rows. A later JOIN cannot alter the stored snapshot.
+
+**Implemented local receipt ledger (not yet transported):** `MeshMemberDeliveryReceipt` signs message/group/member/key/snapshot digest/receipt ID/type/time with a domain-separated P-256 signature. The ledger rejects non-recipients, key substitution and wrong snapshot digests; stores receipt evidence append-only; treats exact retries idempotently; preserves receipt-ID equivocation as an error; and advances per-member state monotonically from ACCEPTED to DELIVERED to READ. Completion is true only when every stored snapshot recipient has DELIVERED or READ. Storage is bounded (6,000 snapshots, 250,000 recipient rows and 250,000 receipt events) and applies backpressure instead of evicting records.
+
+These primitives are not yet bound into MeshFrame v7, encrypted/transmitted over BLE/Wi-Fi, connected to the router/outbox or UI, or committed atomically with the original message. The delivery database is not encrypted at rest. The local observed roster is not globally authoritative.
+
 The snapshot and its digest must be bound into the signed/encrypted origin frame (protocol v7). Relays may update mutable transport routing metadata but may not alter the signed recipient snapshot.
 
 Before sending, the UI must disclose when the roster is stale or incomplete. “Delivered to all group members” must not be displayed; the precise statement is “delivered to all members in this message's recorded snapshot.”
@@ -78,6 +84,7 @@ The receipt contains message ID, recipient node ID, recipient public-key fingerp
 
 The sender verifies:
 - signature and node ID/public-key binding;
+- **Implemented local primitive:** the ledger performs these checks, binds each receipt to the exact stored snapshot, and validates the expected public key for that recipient;
 - receipt message ID and snapshot digest;
 - recipient is a member of that exact snapshot;
 - receipt type is permitted by the UI's completion policy;
@@ -121,8 +128,8 @@ Do not enable “all members delivered” or retire group broadcasts until all o
 1. protocol v7 frame binding and compatibility policy are implemented;
 2. JOIN/LEAVE event verification and local durable log primitives exist; event transport, replay synchronization and lifecycle integration are still required;
 3. roster reconciliation and stale-view signaling are implemented;
-4. immutable snapshots and per-member receipt ledger are transactionally persisted;
-5. sender and receiver adversarial instrumentation tests pass;
+4. local immutable snapshots and per-member receipt events/recipient rows are transactionally persisted; integration with the original outbox message transaction remains required;
+5. sender and receiver adversarial instrumentation tests pass (test source added for local snapshot/receipt primitives; execution is still pending);
 6. physical multi-device offline/reconnect tests pass;
 7. UI clearly distinguishes delivered, partially delivered, offline, expired and cancelled states.
 
