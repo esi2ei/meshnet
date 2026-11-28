@@ -84,7 +84,7 @@ The Android router now consumes a bounded per-peer estimator. BLE scan callbacks
 
 `MeshServiceContract.kt` defines a bounded version-1 contract envelope for peer-provided services. The canonical UTF-8 signing representation is independent of JSON property order and includes the contract ID, service code, provider and consumer addresses, unit price per MiB, maximum billable payload bytes, maximum cost, validity interval, cancellation policy, sorted relay shares, and both public keys. Provider and consumer each sign the same canonical bytes with P-256 / SHA-256 ECDSA; verification requires both signatures and verifies that each encoded public key hashes to the corresponding party address.
 
-- Billing unit is explicitly `APPLICATION_PAYLOAD_BYTES`. Transport headers, routing metadata and retransmissions are excluded; the receiver's accepted application payload is the accounting boundary.
+- Billing unit is explicitly `APPLICATION_PAYLOAD_BYTES`. Transport headers, routing metadata and retransmissions are excluded; the receiver's accepted application payload is the accounting boundary. Unit prices are prorated by bytes, with any partial MiB rounded up; the signed maximum cost is a hard cap. `isActiveAt(now)` requires the caller to supply the current clock.
 - Relay shares are capped at eight distinct node IDs and a combined maximum of 10,000 basis points.
 - The envelope parser is capped at 16 KiB, validates version and field bounds, and rejects non-canonical Base64 encodings and non-P-256 public keys.
 - Allowed cancellation policy identifiers are versioned and enumerated; terms cannot be edited without invalidating both signatures.
