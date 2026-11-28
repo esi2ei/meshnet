@@ -207,4 +207,27 @@ class MeshOfflineWalletStoreTest {
         assertFalse(runCatching { sender.outgoingHistory() }.isSuccess)
     }
 
+    @Test
+    fun malformedOutgoingRecordFailsClosedInsteadOfBeingOmitted() {
+        val preferences = context.getSharedPreferences(
+            "meshnet-offline-wallet-v1-$senderId", Context.MODE_PRIVATE
+        )
+        assertTrue(preferences.edit().putString("outgoing_payment_history", "[{}]").commit())
+
+        val reopened = MeshOfflineWalletStore(context, senderId)
+        assertFalse(runCatching { reopened.outgoingHistory() }.isSuccess)
+        assertFalse(runCatching { reopened.pendingOutgoingVouchers() }.isSuccess)
+    }
+
+    @Test
+    fun malformedReceiptHistoryFailsClosedInsteadOfBeingOmitted() {
+        val preferences = context.getSharedPreferences(
+            "meshnet-offline-wallet-v1-$recipientId", Context.MODE_PRIVATE
+        )
+        assertTrue(preferences.edit().putString("received_payment_history", "[{}]").commit())
+
+        val reopened = MeshOfflineWalletStore(context, recipientId)
+        assertFalse(runCatching { reopened.history() }.isSuccess)
+    }
+
 }
