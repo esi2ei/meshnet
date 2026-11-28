@@ -74,7 +74,7 @@ The Android router now consumes a bounded per-peer estimator. BLE scan callbacks
 
 ## 4. Validation policy for this branch
 
-- Run the GitHub Actions workflow when explicitly requested. The Android workflow produces a debug APK and emulator instrumentation result, but never substitutes for physical-device interoperability testing or independent security review.
+- Pull-request CI runs the focused API 36 instrumentation classes for wallet/receipt encryption, membership pagination, WebView resource policy and router receipts; the full instrumentation suite remains a manual workflow option. The Android workflow produces a debug APK, but neither emulator result substitutes for physical-device interoperability testing or independent security review.
 - A successful source edit or commit is not evidence that Android compiles or that a radio/contract works.
 - Before production, run local Android build + instrumentation tests, device interoperability tests, protocol review, and independent smart-contract audit as applicable.
 - Never fabricate wallet balances, transaction IDs, escrow states, radio metrics, delivery receipts, or test results.
@@ -105,3 +105,26 @@ The offline wallet store also now refuses new incoming vouchers after its 4,096-
 The journal is bounded to 2,048 receipts and 2 MiB. It stores signed accounting metadata only, not payload bytes or private keys. The file is encrypted at rest with AES-GCM using a non-exportable Android Keystore key; a versioned envelope authenticates its header as additional data. Valid legacy plaintext JSON is migrated only after successful parsing and through an atomic replacement. Missing keys, malformed envelopes and failed authentication are fatal and never trigger a silent empty-ledger reset. Android automatic backup is disabled by `android:allowBackup="false"`. The journal is still synchronized only within the app process and uses `AtomicFile` atomic commits; it is not a cross-process transactional ledger, does not coordinate concurrent devices, and does not settle funds. An explicit encrypted export/restore and device-migration recovery workflow remains open. The contract still must be supplied by the caller and verified on each operation.
 
 **Integration remains incomplete:** no service-offer activation path or file/message receiver currently invokes this journal; actual accepted application payload bytes and their SHA-256 digest are not yet measured at the receiver boundary; dual-signature exchange, wallet reconciliation, crash/retry integration and no-double-billing end-to-end tests remain open. The journal must not be presented as proof of payment or fiat settlement.
+
+## 7. Offline wallet record encryption
+
+`MeshOfflineWalletStore` now encrypts its local replay-ID set, incoming receipt history and outgoing signed-voucher journal with AES-GCM. A non-exportable Android Keystore AES key is scoped to the wallet ID. Each preference key is included in GCM additional authenticated data together with a versioned domain and wallet ID, preventing ciphertext from being moved between the replay set, history and outgoing journal.
+
+- Existing legacy `StringSet` replay IDs and plaintext JSON history are migrated on first read using synchronous SharedPreferences commits.
+- A missing storage key, malformed/unknown envelope, failed GCM authentication or malformed stored JSON fails closed rather than returning an empty history.
+- The signing identity and storage-encryption key are deleted together by the explicit wallet `clear()` operation.
+- Instrumentation coverage is authored for ciphertext-at-rest, reopen/read, legacy migration, missing-key and tamper behavior. These tests are not considered passed until the current PR head's targeted CI run finishes.
+
+**Limitations:** this is encrypted local storage for provisional `MESH-LOCAL-UNIT` vouchers. It is not a double-entry/global balance ledger, cannot prevent offline double-spend across disconnected devices, does not create fiat settlement, and has no encrypted export/restore or device-migration recovery workflow. Android automatic backup remains disabled.
+
+## 8. WebView native bridge resource boundary
+
+`MainActivity` exposes `MeshNetNative` through `addJavascriptInterface`, which Android makes visible to every frame. The WebView now serves only the exact HTTPS `appassets.androidplatform.net` origin under `/assets/web/`. Requests for external origins, unexpected paths, user-info URLs, non-default ports and path traversal are answered locally with HTTP 403 rather than falling through to WebView network loading. Top-level external navigation is also rejected. The bundled dashboard Content Security Policy denies frames, network connections, objects and forms.
+
+Instrumentation coverage checks the allowed origin/path and rejects HTTP, foreign hosts, unexpected paths, custom ports and traversal. This narrows the attack surface but does not make an XSS in trusted bundled JavaScript harmless; retain the restrictive CSP, review bundled dependencies and keep native bridge methods narrow. A private authenticated bridge/session protocol and independent security review remain open.
+
+## 9. Membership history paging
+
+`MeshGroupMembershipStore` exposes a rowid high-watermark and bounded cursor pages. A sync request fixes a snapshot upper bound; each page selects rows after the prior cursor and no later than that bound. The peer sends the next cursor only after every event chunk in the page has been queued. The receiver requests the next page, rejects regressions or snapshot changes, and merges signed event IDs idempotently. This removes the prior hard stop at the most recent 64 events for peers using the updated protocol.
+
+**Limitations:** continuation state currently lives in memory and restarts from the beginning after reconnect/process recreation. The protocol is still carried over best-effort v6 ephemeral frames; it is not protocol v7, is not crash-resumable, and does not establish a globally authoritative roster. Snapshot/receipt integration with the message router, durable outbox and UI remains open. Focused instrumentation tests exercise a 70-event sync across multiple pages and fixed-snapshot exclusion of later rows.
