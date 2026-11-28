@@ -14,7 +14,9 @@ import java.io.FileNotFoundException
  * complete receipt chain from genesis before returning or extending it; it never treats
  * a single valid signature as proof of a valid chain or as settled money.
  *
- * Receipts contain public accounting data only. No private signing keys are persisted.
+ * The journal stores signed accounting metadata only, not payload bytes or private keys.
+ * App-private storage is not equivalent to encryption at rest; callers must not treat this
+ * journal as protected from device-level data extraction or backup access.
  */
 internal class MeshTransferReceiptStore(context: Context) {
     private val journal = AtomicFile(
