@@ -20,9 +20,11 @@ internal class MeshMembershipSyncProtocol(
         val chunks: MutableMap<Int, String> = mutableMapOf()
     )
     private data class SyncProgress(val snapshotRowId: Long, val cursorRowId: Long)
+    private data class ServedSync(val snapshotRowId: Long, val nextCursorRowId: Long)
 
     private val assemblies = linkedMapOf<String, Assembly>()
     private val syncProgressByPeer = linkedMapOf<String, SyncProgress>()
+    private val servedSyncByPeer = linkedMapOf<String, ServedSync>()
     private val lastResponseByPeer = linkedMapOf<String, Long>()
     private val lastPublishedByEvent = linkedMapOf<String, Long>()
     private var lastSyncRequestAt = 0L
@@ -75,18 +77,26 @@ internal class MeshMembershipSyncProtocol(
                 if (afterRowId < 0L || requestedSnapshot < 0L || afterRowId > requestedSnapshot) return true
 
                 val now = System.currentTimeMillis()
-                if (now - (lastResponseByPeer[origin] ?: 0L) < PAGE_RESPONSE_INTERVAL_MS) return true
-                if (lastResponseByPeer.size >= MAX_SYNC_PEERS && origin !in lastResponseByPeer) {
-                    lastResponseByPeer.remove(lastResponseByPeer.keys.first())
-                }
-                lastResponseByPeer[origin] = now
-
                 val highWatermark = store.syncHighWatermark(groupId)
                 val snapshot = if (requestedSnapshot == 0L) highWatermark else requestedSnapshot
                 if (snapshot > highWatermark || afterRowId > snapshot) {
                     onEvent("Rejected membership sync cursor outside the local snapshot")
                     return true
                 }
+
+                if (requestedSnapshot == 0L) {
+                    // Throttle new full-history syncs, but never slow a valid page continuation.
+                    if (now - (lastResponseByPeer[origin] ?: 0L) < SYNC_RESPONSE_INTERVAL_MS) return true
+                    if (lastResponseByPeer.size >= MAX_SYNC_PEERS && origin !in lastResponseByPeer) {
+                        lastResponseByPeer.remove(lastResponseByPeer.keys.first())
+                    }
+                    lastResponseByPeer[origin] = now
+                } else {
+                    val served = servedSyncByPeer[origin] ?: return true
+                    // A peer may request only the next cursor we explicitly issued for this snapshot.
+                    if (served.snapshotRowId != snapshot || served.nextCursorRowId != afterRowId) return true
+                }
+
                 val page = store.syncEventsAfterRowId(groupId, afterRowId, snapshot, MAX_SYNC_EVENTS)
                 val completePageQueued = page.all { record ->
                     sendEvent(record.event, origin) == expectedChunkCount(record.event)
@@ -99,6 +109,14 @@ internal class MeshMembershipSyncProtocol(
                 }
                 val nextCursor = page.lastOrNull()?.rowId ?: afterRowId
                 val done = page.size < MAX_SYNC_EVENTS || nextCursor >= snapshot
+                if (done) {
+                    servedSyncByPeer.remove(origin)
+                } else {
+                    if (servedSyncByPeer.size >= MAX_SYNC_PEERS && origin !in servedSyncByPeer) {
+                        servedSyncByPeer.remove(servedSyncByPeer.keys.first())
+                    }
+                    servedSyncByPeer[origin] = ServedSync(snapshot, nextCursor)
+                }
                 send(origin, "$PREFIX|P|$groupId|$snapshot|$nextCursor|${if (done) 1 else 0}")
                 return true
             }
@@ -245,7 +263,7 @@ internal class MeshMembershipSyncProtocol(
         private const val SYNC_REQUEST_INTERVAL_MS = 15_000L
         private const val MIN_FORCED_SYNC_INTERVAL_MS = 2_000L
         private const val PUBLISH_INTERVAL_MS = 10_000L
-        private const val PAGE_RESPONSE_INTERVAL_MS = 150L
+        private const val SYNC_RESPONSE_INTERVAL_MS = 10_000L
         private const val MAX_SYNC_PEERS = 64
         private const val ASSEMBLY_TTL_MS = 10L * 60L * 1000L
     }
