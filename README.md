@@ -21,7 +21,7 @@ Optional online integrations are disabled by default and can be enabled in the d
 
 ## Web development
 
-Requirements: Node.js 22+. Pull requests run the web build/typecheck on Node 22 and Node 24, plus Android API 36 instrumentation validation. Manual workflow dispatch is available when a downloadable APK or test report is explicitly needed.
+Requirements: Node.js 22+. Pull requests run the web build/typecheck on Node 22 and focused Android API 36 instrumentation tests. The complete Android instrumentation suite remains a manual workflow option. Manual workflow dispatch is available when a downloadable APK or test report is explicitly needed.
 
     npm install
     npm run dev
@@ -30,7 +30,7 @@ The browser dashboard can preview the interface, but native Bluetooth and Wi-Fi 
 
 ## Native Android build
 
-Requirements: JDK 17, Android SDK Platform 36, Gradle 8.11.1, and Node.js/npm. The Gradle `preBuild` task runs `npm run build` and packages the generated dashboard assets automatically.
+Requirements: JDK 17, Android SDK Platform 36, Gradle 8.13, and Node.js/npm. The Gradle `preBuild` task runs `npm run build` and packages the generated dashboard assets automatically.
 
     npm install
     cd mobile
@@ -46,4 +46,4 @@ The debug APK is written to `mobile/app/build/outputs/apk/debug/app-debug.apk`. 
 - The offline wallet prototype now has a durable sender journal and a signed recipient-acknowledgement path: the recipient verifies and persists the voucher before signing an acknowledgement, and the sender verifies that acknowledgement against the queued voucher. The signed voucher is retained in the sender's private journal and can be retried unchanged after interruption or a lost acknowledgement. It still uses provisional `MESH-LOCAL-UNIT` receipts only; there is no issuance, spendable balance, authoritative ledger, global double-spend protection or final settlement, so it is not a real-money or cryptocurrency wallet. The Solana escrow program is not built, tested, deployed, audited or integrated with Android transactions. Do not use this prototype to accept or transfer real funds.
 - Review [SECURITY.md](SECURITY.md) before reporting security issues, and see [mobile/SECURITY_AND_ESCROW.md](mobile/SECURITY_AND_ESCROW.md) for technical boundaries.
 
-GitHub Actions validates pull requests with the Node 22/24 web checks and Android API 36 instrumentation tests. Successful routine PR runs do not upload APK or test-report artifacts; failure diagnostics remain available, and an explicit manual dispatch can retain the APK and reports. Artifact retention is three days. Physical-device radio interoperability still requires separate device testing.
+GitHub Actions validates pull requests with Node 22 web checks, Android debug APK assembly/signature verification, and focused API 36 instrumentation tests. The complete Android instrumentation suite remains a manual workflow option. Successful routine PR runs do not upload APK or test-report artifacts; the tested web bundle is retained for one day only so Android packaging can reuse the exact build. Failure diagnostics and manual-run test reports are retained for three days; a requested debug APK is retained for seven days. Physical-device radio interoperability still requires separate device testing.
