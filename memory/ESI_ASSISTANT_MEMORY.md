@@ -202,3 +202,9 @@ MeshNet is intended to be a fully offline-capable, decentralized, peer-to-peer m
 - PR #38 is intentionally Draft pending exact-head CI. Run #247 (`46157922019`) on the final head: Node 22 typecheck and production build passed; Android job still in progress at `Build debug APK` at closeout; no Android build/signature/instrumentation result yet. Earlier runs #245/#246 were canceled because the branch was updated and are not authoritative.
 - Current PR #38 head and base were rechecked; PR mergeable was true but GitHub mergeability state unstable. PR was converted back to Draft to prevent unsafe merge while CI is incomplete. No merge of PR #38 has been done; do not claim the fixed APK is available until run #247 completes and artifact is verified.
 - Source-browser removal prevents the application from embedding a full browsable repository snapshot; it cannot prevent reverse engineering of a public repository or compiled JavaScript/Android bytecode. Full Android instrumentation remains manual-only in workflow; physical-device testing is not represented as passed.
+
+
+## New user-authorized completion mission — 2026-11-28
+- User explicitly requested: fix all remaining MeshNet repository problems and perform merges. Revalidate all live facts from GitHub; previous checkpoints are historical.
+- Preserve safe repository operations: no force-push, no protection bypass, no suppression of required checks. Merge only current-head validated PRs. Separate objectively fixable code/docs/CI defects from hardware, signing-key, independent-audit and owner-decision gates that cannot honestly be fabricated.
+- Start state: memory was read from `assistant-memory` at blob `6469d1da04a07d4b41d5fe58dc35835ee7b6ed68`. New execution begins now; first action is fresh live GitHub revalidation. Previous source-viewer PR #38 and run #247 details are historical until rechecked.
