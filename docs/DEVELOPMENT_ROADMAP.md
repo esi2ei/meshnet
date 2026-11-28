@@ -25,7 +25,8 @@ This document is the working source of truth for the completion branch. It disti
 The mandatory rules and capability inventory are maintained in [docs/FEATURE_PRESERVATION_PLAN.md](FEATURE_PRESERVATION_PLAN.md). This work is a structural refactor, not a reduction of product scope.
 
 - [x] Preserve the current product inventory and distinguish implemented, partial, prototype and planned capabilities.
-- [ ] Map every user-visible action to its UI entry, bridge command, native owner, persistent store and regression test.
+- [x] Inventory all 31 native bridge methods, reconcile their Kotlin and TypeScript declarations, and document their UI areas, native owners, stores and existing test evidence in the feature-preservation contract.
+- [ ] Add focused automated runtime bridge/status tests and close the per-feature behavior/device gaps listed in the contract.
 - [ ] Add characterization/contract tests before moving each responsibility.
 - [ ] Keep existing bridge and service entry points as compatibility facades while internals are extracted incrementally.
 - [ ] Preserve protocol v6 behavior while any future protocol version is negotiated and tested.
