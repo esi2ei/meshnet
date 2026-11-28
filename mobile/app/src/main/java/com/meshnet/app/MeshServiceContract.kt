@@ -42,13 +42,23 @@ internal data class MeshServiceContract(
     init { validateTerms() }
 
     fun signAsProvider(privateKey: PrivateKey): MeshServiceContract {
-        require(addressFor(decodeKey(providerPublicKey)) == provider) { "Provider key does not match provider address" }
-        return copy(providerSignature = sign(privateKey, canonicalBytes()))
+        val publicBytes = decodeKey(providerPublicKey)
+        require(addressFor(publicBytes) == provider) { "Provider key does not match provider address" }
+        val publicKey = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(publicBytes))
+        val bytes = canonicalBytes()
+        val signature = sign(privateKey, bytes)
+        require(verifySignature(publicKey, signature, bytes)) { "Provider private key does not match the contract identity" }
+        return copy(providerSignature = signature)
     }
 
     fun signAsConsumer(privateKey: PrivateKey): MeshServiceContract {
-        require(addressFor(decodeKey(consumerPublicKey)) == consumer) { "Consumer key does not match consumer address" }
-        return copy(consumerSignature = sign(privateKey, canonicalBytes()))
+        val publicBytes = decodeKey(consumerPublicKey)
+        require(addressFor(publicBytes) == consumer) { "Consumer key does not match consumer address" }
+        val publicKey = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(publicBytes))
+        val bytes = canonicalBytes()
+        val signature = sign(privateKey, bytes)
+        require(verifySignature(publicKey, signature, bytes)) { "Consumer private key does not match the contract identity" }
+        return copy(consumerSignature = signature)
     }
 
     fun verify(): Boolean = runCatching {
@@ -61,8 +71,11 @@ internal data class MeshServiceContract(
         val consumerKey = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(consumerBytes))
         require(providerKey is ECPublicKey && isP256(providerKey))
         require(consumerKey is ECPublicKey && isP256(consumerKey))
-        verifySignature(providerKey, providerSignature ?: return false, canonicalBytes()) &&
-            verifySignature(consumerKey, consumerSignature ?: return false, canonicalBytes())
+        val providerSig = providerSignature ?: throw IllegalArgumentException("Provider signature is missing")
+        val consumerSig = consumerSignature ?: throw IllegalArgumentException("Consumer signature is missing")
+        val signedBytes = canonicalBytes()
+        verifySignature(providerKey, providerSig, signedBytes) &&
+            verifySignature(consumerKey, consumerSig, signedBytes)
     }.getOrDefault(false)
 
     fun encode(): String = JSONObject()
