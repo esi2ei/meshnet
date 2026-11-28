@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, Bluetooth, Code2, ShieldCheck, Smartphone, Wifi } from 'lucide-react';
+import { Activity, Bluetooth, ShieldCheck, Smartphone, Wifi } from 'lucide-react';
 import MeshSimulator, { type LivePeer } from './components/MeshSimulator';
 import PhoneWorkspace from './components/PhoneWorkspace';
 import SystemInfo from './components/SystemInfo';
-import CodeExporter from './components/CodeExporter';
 
 type ObservedRoute = { id: string; nodes: string[]; observedAt: number; observations: number };
 
@@ -90,10 +89,6 @@ export default function App() {
           </section>
           <MeshSimulator native={runtime.native} running={runtime.running} peers={runtime.connectedPeers} routes={runtime.observedRoutes} localNodeId={runtime.localNodeId} />
           <SystemInfo native={runtime.native} events={runtime.recentEvents} />
-          <section className="rounded-2xl border border-slate-800 bg-[#11151B] p-4 sm:p-5">
-            <div className="mb-3 flex items-center gap-2"><Code2 className="h-4 w-4 text-cyan-300" /><h2 className="text-sm font-semibold text-white">Application source code</h2></div>
-            <CodeExporter />
-          </section>
         </div>
         <aside className="min-w-0">
           <div className="mb-3 text-center">
