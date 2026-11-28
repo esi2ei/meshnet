@@ -15,7 +15,7 @@ MainActivity + WebViewAssetLoader
         v
 MeshForegroundService
   |-- MeshPeerRegistry       live, established transport connections
-  |-- MeshRouteRegistry      authenticated observations + bounded reverse next hops
+  |-- MeshRouteRegistry      signed-origin observations + bounded reverse next hops
   |-- MeshBleTransport       BLE/GATT
   |-- MeshWifiDirectTransport user-started Wi-Fi Direct
   |-- MeshWifiAwareTransport optional Wi-Fi Aware
@@ -37,7 +37,7 @@ The APK serves Vite output from its own assets through AndroidX WebViewAssetLoad
 |---|---|
 | `src/App.tsx` | Dashboard composition and native runtime polling |
 | `src/components/PhoneWorkspace.tsx` | User-facing native service controls |
-| `src/components/MeshSimulator.tsx` | Direct radio links and observed multi-hop frame routes |
+| `src/components/MeshSimulator.tsx` | Direct radio links and signed-origin observations |
 | `src/components/SystemInfo.tsx` | Native service and transport event history |
 | `src/components/CodeExporter.tsx` | Read-only local source browser populated at Vite build time |
 | `mobile/app/src/main/java/com/meshnet/app/` | Android activity, foreground service, transports, protocol and storage |
@@ -47,7 +47,7 @@ The APK serves Vite output from its own assets through AndroidX WebViewAssetLoad
 | `solana/programs/meshnet-escrow/` | Anchor escrow program source; not production-deployed or Android-integrated |
 | `test/fixtures/` | Legacy, explicitly non-production simulation fixtures |
 | `docs/` | Architecture and maintenance documentation |
-| `.github/workflows/` | Manual-only validation workflow |
+| `.github/workflows/` | Pull-request regression CI and manual full-suite workflow |
 
 ## Live peer lifecycle
 
@@ -55,7 +55,7 @@ A peer is inserted into `MeshPeerRegistry` only after a transport establishes it
 
 The peer registry key combines transport and remote address so the same IP/address observed on two transports remains distinct. Disconnect callbacks remove only the matching transport peer. Stopping the mesh clears the registry.
 
-The router reports a route observation only after a frame is decoded and authenticated, and only when the current node is not already in the frame's hop history. The observed path is the group-key-authenticated hop list plus this receiving node. `MeshRouteRegistry` validates node IDs and loop-free paths, caps history at 64 paths, and expires observations after 30 minutes. It also learns up to three reverse next-hop candidates per destination from the immediate transport peer, ranking fewer hops first and fresher observations second. BLE, Wi-Fi Direct and Wi-Fi Aware expose peer-specific writes so directed frames can use a selected next hop and try alternatives when a write is rejected. If no usable route is known, the directed frame is flooded to other connected peers (excluding ingress) to discover a path; a reply can then use the reverse route. The dashboard renders observed frame paths separately from direct links. It does not claim that a previously observed hop is currently online. Candidate next hops are now scored using measured per-peer observations: BLE scan RSSI plus targeted-write acceptance/failure and local write-completion latency for transports that expose it. Scores are smoothed, bounded, and decay toward neutral after five minutes without fresh measurements; route cost combines hop distance and link score. This is a local transport-quality estimate, not end-to-end RTT, throughput, or proof of future reachability.
+The router records a route observation only after decrypting a frame and verifying its per-device origin signature. It deliberately does not trust `frame.hops` as a path proof: every member holds the shared group key and can rewrite that mutable metadata. For an accepted remote frame, the observation contains only the verified origin and this receiving node; the actual ingress transport peer is stored as the reverse next-hop candidate for that origin. The dashboard presents these records as signed-origin observations, not as certified intermediary paths or live links. `MeshRouteRegistry` bounds its history to 64 records, expires observations after 30 minutes and retains up to three reverse next-hop candidates per destination. Directed frames use transport-specific peer writes and try alternatives when a write is rejected; unknown destinations fall back to bounded flooding across connected peers (excluding ingress). Candidate ranking combines route distance, freshness and smoothed per-peer measurements such as BLE RSSI, targeted-write acceptance/failure and write-completion latency where available. Measurements decay toward neutral after five minutes without fresh observations. These are local transport-quality estimates, not end-to-end RTT, throughput or proof of future reachability.
 
 Current topology sources:
 - BLE/GATT: the remote MeshNet service and writable characteristic must be discovered before the client-side peer is registered; server-side peers are registered on accepted GATT connections.
@@ -82,9 +82,9 @@ The viewer is a read-only snapshot of the source at build time. It is not an edi
 
 ## Known boundaries
 
-- The direct graph shows established transport links; the separate route graph shows only authenticated paths that actually reached this node. Neither is a complete network map or a live route-quality calculation.
-- Destination-aware routing is supported for directed text frames using authenticated reverse-path observations and up to three next-hop alternatives. Next-hop ranking now incorporates smoothed BLE RSSI and observed targeted-write outcomes/latency where available; metrics expire toward neutral after five minutes. Unknown destinations still use bounded flooding; there is no complete route-discovery control plane, cryptographic device identity binding, or proof that a cached next hop remains online.
-- Group AES-GCM is not Signal Protocol and does not provide per-device identity or forward secrecy.
+- The direct graph shows established transport links. The separate observation view shows verified message origins that reached this node; it does not reconstruct authenticated intermediate hops or claim those origins are direct radio peers. Neither view is a complete network map or a live end-to-end route-quality calculation.
+- Destination-aware routing is supported for directed text frames using signed-origin observations and the actual ingress peer as a reverse next-hop candidate, with up to three alternatives. Ranking incorporates route distance, observation freshness and smoothed radio/write measurements where available; metrics decay toward neutral after five minutes. Unknown destinations still use bounded flooding. There is no complete route-discovery control plane, owner-approved enrollment/revocation or proof that a cached next hop remains online.
+- Group AES-GCM uses one shared group key; it is not Signal Protocol and does not provide per-device session confidentiality, ratcheting or forward secrecy. Device-origin signing keys bind frame origins but do not implement owner-controlled enrollment or revocation.
 - Offline local-unit vouchers are not money, a spendable ledger, or a settlement system.
 - The Anchor escrow source is not deployed, audited, or integrated into the Android wallet flow.
 - Physical BLE/Wi-Fi, file interruption, live-audio quality, and OEM background behavior require multi-device validation.

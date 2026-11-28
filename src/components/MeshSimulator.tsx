@@ -30,14 +30,13 @@ export default function MeshSimulator({ running, native, peers, routes, localNod
     return { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
   });
 
-  // Route observations are group-key-authenticated frame histories that reached this device.
-  // Keep their graph separate from live radio links: a recently observed path is not
-  // proof that every hop is still connected at this instant.
+  // The router records the verified origin and this receiver only. Mutable hop history
+  // is controlled by the shared group key and is not a trusted end-to-end path.
+  // Keep signed-origin observations separate from live radio connections.
   const allValidRoutes = routes.filter(route =>
-    route.nodes.length >= 3 &&
-    route.nodes.length <= 9 &&
+    route.nodes.length === 2 &&
     localNodeId !== null &&
-    route.nodes[route.nodes.length - 1] === localNodeId
+    route.nodes[1] === localNodeId
   );
   const validRoutes = allValidRoutes.slice(0, 8);
   const depthByNode = new Map<string, number>();
@@ -122,19 +121,19 @@ export default function MeshSimulator({ running, native, peers, routes, localNod
           <div className="mt-5 border-t border-slate-800 pt-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h4 className="text-sm font-semibold text-white">Observed multi-hop routes</h4>
-                <p className="mt-1 text-xs text-slate-500">Paths reconstructed from group-key-authenticated frame hop histories</p>
+                <h4 className="text-sm font-semibold text-white">Observed signed origins</h4>
+                <p className="mt-1 text-xs text-slate-500">Verified device origins whose frames reached this node; intermediaries are not proven</p>
               </div>
-              <span className="rounded-lg border border-slate-700 px-2 py-1 text-[10px] text-slate-400">{allValidRoutes.length} observed path{allValidRoutes.length === 1 ? '' : 's'}</span>
+              <span className="rounded-lg border border-slate-700 px-2 py-1 text-[10px] text-slate-400">{allValidRoutes.length} observed origin{allValidRoutes.length === 1 ? '' : 's'}</span>
             </div>
             {allValidRoutes.length === 0 || !localNodeId ? (
               <p className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-500">
-                No forwarded route has reached this device yet. When a message crosses relay nodes, its group-key-authenticated hop history will appear here. These observations expire and are not presented as currently active links.
+                No signed frame from a remote device has been observed yet. When a frame is accepted, its verified origin and last-seen time will appear here. This does not establish a direct radio connection or a complete route.
               </p>
             ) : (
               <>
                 <div className="mt-3 overflow-hidden rounded-xl border border-slate-800 bg-[#0d1117]">
-                  <svg viewBox={`0 0 ${routeWidth} ${routeHeight}`} role="img" aria-label="Observed multi-hop routes from group-key-authenticated mesh frames" className="h-auto w-full">
+                  <svg viewBox={`0 0 ${routeWidth} ${routeHeight}`} role="img" aria-label="Verified message origins observed by this device" className="h-auto w-full">
                     <defs><pattern id="route-grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M 24 0 L 0 0 0 24" fill="none" stroke="#1e293b" strokeWidth="0.7" /></pattern></defs>
                     <rect width={routeWidth} height={routeHeight} fill="url(#route-grid)" />
                     {routeEdges.map(edge => {
@@ -153,7 +152,7 @@ export default function MeshSimulator({ running, native, peers, routes, localNod
                 </div>
                 <ul className="mt-3 divide-y divide-slate-800">
                   {validRoutes.slice(0, 6).map(route => <li key={route.id} className="py-2 text-xs">
-                    <p className="break-all font-mono leading-5 text-slate-300">{route.nodes.join(' → ')}</p>
+                    <p className="break-all font-mono leading-5 text-slate-300">Origin {route.nodes[0]} → this device</p>
                     <p className="mt-1 text-[10px] text-slate-500">{route.observations} observation{route.observations === 1 ? '' : 's'} · last seen {new Date(route.observedAt).toLocaleTimeString()}</p>
                   </li>)}
                 </ul>
