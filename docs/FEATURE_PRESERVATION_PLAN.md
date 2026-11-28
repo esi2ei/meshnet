@@ -115,7 +115,7 @@ The native JavaScript bridge is a product surface, not disposable glue. The curr
 
 **Default-branch status at the PR #36 base:** `scripts/check-bridge-contract.mjs` is not present on `main` at `0fe421254c8b8e60ec0b03f064d5309bea278079`, and the default-branch workflow does not yet enforce this check. Do not assume accidental bridge removals are currently blocked on `main`.
 
-**Draft PR #29 only (not yet merged):** head `c41e48dfbc89c63619776baf1ba6c4503bee7259` adds `scripts/check-bridge-contract.mjs`, which stores the reviewed 31-method contract and checks that Kotlin, TypeScript and active UI command references remain aligned. Its Node 22 CI job runs the check before typecheck. Exact-head workflow run #237 was still in progress when this document was revised; the guard's source and test step have passed, but the overall run is not yet complete.
+**Draft PR #29 only (not yet merged):** head `c41e48dfbc89c63619776baf1ba6c4503bee7259` adds `scripts/check-bridge-contract.mjs`, which stores the reviewed 31-method contract and checks that Kotlin, TypeScript and active UI command references remain aligned. Its Node 22 CI job runs the check before typecheck. Exact-head workflow run #237 completed successfully on 2026-11-28: the bridge guard, Node 22 typecheck and production build, Android debug APK assembly/signature verification, and 197 focused API 36 instrumentation tests all passed. The full Android instrumentation suite remains a separate manual workflow_dispatch option and was not run.
 
 The guard protects the bridge surface against accidental deletion or rename; it does **not** prove that an action's full runtime behavior works. Feature-level tests and physical-device evidence remain mandatory. The guard should be considered part of the default-branch controls only after PR #29 is accepted and merged.
 
@@ -137,7 +137,7 @@ The guard protects the bridge surface against accidental deletion or rename; it 
 - [ ] Add the new test to the focused API 36 instrumentation target.
 - [ ] Accept this slice only after the bridge guard, Android build and focused instrumentation test pass on the exact branch head.
 
-**Status at the PR #36 `main` baseline:** the extraction and its focused tests are not present on `main`; `MainActivity.runtimeStatusJson()` remains the implementation. The serializer, tests and bridge guard are present only on Draft PR #29 (head `c41e48dfbc89c63619776baf1ba6c4503bee7259`). The exact-head run #237 had passed the focused test step but had not yet completed overall when this document was revised. Keep the checklist open until that PR has completed exact-head CI and is merged.
+**Status at the PR #36 `main` baseline:** the extraction and its focused tests are not present on `main`; `MainActivity.runtimeStatusJson()` remains the implementation. The serializer, tests and bridge guard are present only on Draft PR #29 (head `c41e48dfbc89c63619776baf1ba6c4503bee7259`). Exact-head run #237 subsequently completed successfully: 197 focused API 36 tests passed, alongside the bridge guard, Node 22 checks, APK build and signature verification. The full Android suite was not run. Keep the checklist open because these files remain on Draft PR #29 and are not yet part of main.
 
 This slice deliberately does not move radio, messaging, wallet, file or voice ownership yet. It creates a tested boundary around the dashboard status contract before larger extractions.
 
