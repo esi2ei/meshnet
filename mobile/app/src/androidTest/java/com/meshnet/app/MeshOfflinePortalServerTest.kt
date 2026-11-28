@@ -31,7 +31,7 @@ class MeshOfflinePortalServerTest {
     }
 
     @Test fun servesCatalogueAndOnlyContentAddressedPublishedFiles() {
-        portal = MeshOfflinePortalServer("127.0.0.1", library, 0)
+        portal = MeshOfflinePortalServer("127.0.0.1", library, 0, allowLoopbackForTests = true)
         assertTrue(portal!!.start())
         val catalogue = request("/api/catalog")
         assertTrue(catalogue.contains("portal-test.txt"))
@@ -46,4 +46,9 @@ class MeshOfflinePortalServerTest {
         socket.getOutputStream().write("GET $path HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".toByteArray())
         socket.getInputStream().readBytes().toString(Charsets.UTF_8)
     }
+    @Test(expected = IllegalArgumentException::class)
+    fun refusesWildcardOrPublicAddressBindingOutsideTestMode() {
+        MeshOfflinePortalServer("0.0.0.0", library)
+    }
+
 }
