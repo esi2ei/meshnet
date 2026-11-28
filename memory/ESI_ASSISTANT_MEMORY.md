@@ -117,3 +117,10 @@ MeshNet is intended to be a fully offline-capable, decentralized, peer-to-peer m
 - PR #36 exact head `8a39982dab8cf46166e181bd76b74fd49bd397eb`, base `0fe421254c8b8e60ec0b03f064d5309bea278079`, docs-only, non-draft, mergeable. Run #235 is active: Node22 typecheck/web build passed, Android APK and focused emulator test job still running at last check. Do not merge until run #235 passes on this exact head.
 - Latest GitHub-visible open PRs are #2, #29 and #36. PR #34 and #35 are merged; main HEAD is `0fe421254c8b8e60ec0b03f064d5309bea278079`.
 - Issue #31 comments include merged action pin result, unresolved main protection/npm lockfile/security-alert access, and PR #36 roadmap repair. Issue #32 continues to track full VPN reliability beyond diagnostics. PR #2/#29 have been given fresh synchronization status comments.
+
+
+## Mission revalidation — 2026-11-28 (new execution)
+- User re-authorized end-to-end completion of existing open PRs, with strict conditions: do not bypass branch protection, do not force-push, do not suppress required checks, and merge only after actual required GitHub checks pass and the target branch is current.
+- Before work, verified the canonical repository is `esi2ei/meshnet` (repository ID `1268313307`), public, default branch `main`; connected GitHub identity has admin/maintain/push permissions. The dedicated `assistant-memory` branch exists, and this file was read from it.
+- Revalidation of all live PRs, workflow runs, issues/roadmap and current main is in progress. The prior status entries above are historical checkpoints, not assumptions about the current live state.
+- No new merge, force-push, branch-protection bypass or direct push to `main` is authorized or performed by this entry.
