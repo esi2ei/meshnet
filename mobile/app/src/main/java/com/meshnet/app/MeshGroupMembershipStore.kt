@@ -12,6 +12,8 @@ import java.util.UUID
  * Self-authenticating membership event. A signature proves control of one device key only;
  * it does not prove that the signer is authorized by a group owner or that this roster is global.
  */
+private const val MEMBERSHIP_MAX_CLOCK_SKEW_MS = 5L * 60L * 1000L
+
 internal data class MeshMembershipEvent(
     val groupId: String,
     val eventId: String,
@@ -34,7 +36,7 @@ internal data class MeshMembershipEvent(
         if (!memberId.matches(Regex("[A-Za-z0-9_-]{20,32}"))) return false
         if (!publicKey.matches(Regex("[A-Za-z0-9_-]{80,160}"))) return false
         if (counter <= 0L || createdAt <= 0L) return false
-        if (createdAt > System.currentTimeMillis() + MAX_CLOCK_SKEW_MS) return false
+        if (createdAt > System.currentTimeMillis() + MEMBERSHIP_MAX_CLOCK_SKEW_MS) return false
         if (type != JOIN && type != LEAVE) return false
         return MeshDeviceIdentity.verifyDetached(
             publicKey, memberId, SIGNATURE_DOMAIN, canonicalPayload(), signature
@@ -317,6 +319,5 @@ internal class MeshGroupMembershipStore(context: Context) : SQLiteOpenHelper(
         private const val MAX_TOTAL_EVENTS = 50000
         private const val MAX_MERGE_BATCH = 512
         private const val MAX_SYNC_PAGE = 64
-        private const val MAX_CLOCK_SKEW_MS = 5L * 60L * 1000L
     }
 }
