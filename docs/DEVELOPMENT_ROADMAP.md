@@ -172,3 +172,13 @@ This matrix is intentionally conservative. “Partial” means that some code ex
 - To avoid another automatic run, this documentation correction is committed with the GitHub Actions skip marker.
 - GitHub issues remain open until their own acceptance criteria have implementation and evidence. This batch does not convert deferred physical-device or independent-audit requirements into completed work.
 - The current VPN is a private overlay/intranet only. Internet gateway/NAT, public Internet resale, metered sharing and automatic cheapest-provider selection are not implemented.
+
+## Incremental audit fixes — 2026-11-28
+
+- **Route poisoning mitigation (partial):** route learning now records only the cryptographically verified frame origin through the actual ingress peer. The mutable hops list is no longer trusted as a route proof. This prevents a fabricated hop list from teaching a route to an unrelated victim. Per-hop signed path attestations, authenticated peer sessions, and stronger loop/TTL guarantees remain open.
+- **Outbox data preservation:** the outbox no longer deletes the oldest rows to satisfy its 6,000-entry cap. A full queue rejects the new enqueue with false (backpressure) and preserves existing unacknowledged frames. Automatic outbox age-based deletion was removed; frame/replay retention is now 30 days. User-visible expired-message management and per-member group delivery receipts remain open.
+- **IPv4 correctness:** incoming overlay packets now require a valid IPv4 header checksum. Regression-test packet builders generate checksums and a corrupted-header test is included.
+- **Address collision recovery (partial):** remote address-conflict records expire after the same 180-second claim TTL, allowing fresh announcements to be learned. A collision with this device's own stable address remains fail-closed; dynamic address leases/reassignment and deterministic collision-free allocation remain open.
+- **CI cost controls:** the duplicate Node 24 matrix job was removed (Node 22 remains), npm uses npm ci with dependency caching, and Android emulator instrumentation is opt-in via manual workflow dispatch. Pull-request CI still performs the web checks and Android debug assembly; emulator instrumentation is reserved for explicit validation.
+
+**Verification boundary:** these changes have been committed to the existing PR branch. Source-level review and regression-test source updates are present, but no claim of passing build or instrumentation is made until the single consolidated PR workflow run reports results. Physical-device checks and external security audits remain separate gates.

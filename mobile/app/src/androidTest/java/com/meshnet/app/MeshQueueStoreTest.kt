@@ -58,6 +58,35 @@ class MeshQueueStoreTest {
     }
 
     @Test
+    fun fullOutboxRejectsNewFramesWithoutEvictingOldestUnacknowledgedMessage() {
+        val db = store.writableDatabase
+        val now = System.currentTimeMillis()
+        db.beginTransaction()
+        try {
+            repeat(6000) { index ->
+                val id = "queued_$index"
+                db.insertOrThrow("outbox", null, ContentValues().apply {
+                    put("frame_id", "seed_$index")
+                    put("frame", frame(id, MeshFrame.KIND_MESSAGE).encode())
+                    put("message_id", id)
+                    put("frame_kind", MeshFrame.KIND_MESSAGE)
+                    put("created_at", now + index)
+                    put("attempts", 0)
+                })
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+
+        assertFalse(store.canAcceptBatch(1))
+        assertFalse(store.enqueue(frame("new_message_01", MeshFrame.KIND_MESSAGE).encode()))
+        val oldest = MeshFrame.decode(store.pending(1).single())
+        assertEquals("queued_0", oldest.id)
+        assertEquals(6000, store.pending().size)
+    }
+
+    @Test
     fun duplicateReceiptIdDoesNotGrowOutbox() {
         val first = frame("receipt_02", MeshFrame.KIND_ACK, "message_02")
         val retry = first.copy(nonce = "new-nonce", ciphertext = "new-ciphertext")
