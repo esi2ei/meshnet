@@ -68,6 +68,16 @@ class MeshTransferReceiptStoreTest {
     }
 
     @Test
+    fun malformedPerContractJournalEntryFailsClosed() {
+        val root = org.json.JSONObject().put(contract.id, "not-an-array")
+        File(context.filesDir, "meshnet-transfer-receipts.json").writeText(root.toString())
+
+        assertFalse(runCatching {
+            MeshTransferReceiptStore(context).verifiedChain(contract)
+        }.isSuccess)
+    }
+
+    @Test
     fun secondReceiptMustExtendPersistedHashAndCumulativeTotals() {
         val store = MeshTransferReceiptStore(context)
         val first = receipt(1, 1024, 1024, MeshTransferReceipt.GENESIS_RECEIPT_HASH)
