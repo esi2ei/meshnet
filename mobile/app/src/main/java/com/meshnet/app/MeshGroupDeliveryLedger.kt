@@ -41,7 +41,10 @@ internal data class MeshGroupDeliverySnapshot(
         if (!rosterDigest.matches(HEX_64) || createdAt <= 0L) return false
         if (recipients.isEmpty() || recipients.size > MAX_RECIPIENTS) return false
         if (recipients.map { it.memberId }.distinct().size != recipients.size) return false
-        if (recipients.any { !it.memberId.matches(NODE_PATTERN) || !it.publicKey.matches(KEY_PATTERN) }) return false
+        if (recipients.any {
+                !it.memberId.matches(NODE_PATTERN) || !it.publicKey.matches(KEY_PATTERN) ||
+                    !MeshDeviceIdentity.verifyPublicKeyBinding(it.publicKey, it.memberId)
+            }) return false
         if (senderId in recipients.map { it.memberId }) return false
         return MeshDeviceIdentity.verifyDetached(
             senderPublicKey, senderId, SNAPSHOT_DOMAIN, canonicalPayload(), signature
@@ -75,13 +78,30 @@ internal data class MeshGroupDeliverySnapshot(
             identity: MeshDeviceIdentity,
             messageId: String,
             groupId: String,
-            observedRoster: List<MeshMembershipState>,
+            observedEvents: List<MeshMembershipEvent>,
             createdAt: Long = System.currentTimeMillis()
         ): MeshGroupDeliverySnapshot {
             require(messageId.matches(ID_PATTERN) && groupId.matches(HEX_64))
             require(createdAt > 0L)
-            require(observedRoster.isNotEmpty() && observedRoster.size <= MAX_RECIPIENTS * 2)
-            require(observedRoster.map { it.memberId }.distinct().size == observedRoster.size)
+            require(observedEvents.isNotEmpty() && observedEvents.size <= MAX_RECIPIENTS * 2)
+            require(observedEvents.all { it.groupId == groupId && it.verify() }) {
+                "Snapshot requires verified membership events for this group"
+            }
+            val observedRoster = observedEvents.groupBy { it.memberId }.map { (memberId, memberEvents) ->
+                val keyConflict = memberEvents.map { it.publicKey }.distinct().size != 1
+                val byCounter = memberEvents.groupBy { it.counter }.toSortedMap()
+                val counterConflict = byCounter.values.any { it.map { event -> event.digest }.distinct().size > 1 }
+                val ordered = byCounter.values.mapNotNull { it.singleOrNull() }
+                val hasGap = byCounter.keys.withIndex().any { (index, value) -> value != index + 1L }
+                val status = when {
+                    keyConflict || counterConflict -> "CONFLICTED"
+                    hasGap || ordered.isEmpty() || ordered.first().type != MeshMembershipEvent.JOIN -> "INCOMPLETE"
+                    ordered.last().type == MeshMembershipEvent.JOIN -> "ACTIVE"
+                    else -> "LEFT"
+                }
+                MeshMembershipState(memberId, memberEvents.first().publicKey, status, byCounter.keys.maxOrNull() ?: 0L)
+            }
+            require(observedRoster.size <= MAX_RECIPIENTS * 2)
             require(observedRoster.all { it.status == "ACTIVE" || it.status == "LEFT" }) {
                 "Cannot snapshot an incomplete or conflicted local roster"
             }
