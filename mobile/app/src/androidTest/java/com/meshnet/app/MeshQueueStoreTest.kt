@@ -190,9 +190,10 @@ class MeshQueueStoreTest {
         assertTrue(store.enqueue(encoded))
 
         val expiredAt = System.currentTimeMillis() - 31L * 24L * 60L * 60L * 1000L
+        val expiredFrame = message.copy(createdAt = expiredAt).encode()
         store.writableDatabase.execSQL(
-            "UPDATE outbox SET created_at = ? WHERE message_id = ?",
-            arrayOf(expiredAt, message.id)
+            "UPDATE outbox SET frame = ?, created_at = ? WHERE message_id = ?",
+            arrayOf(expiredFrame, expiredAt, message.id)
         )
 
         // Expired frames cannot pass the receiver's v6 timestamp check; pending() must
@@ -201,7 +202,7 @@ class MeshQueueStoreTest {
         val quarantined = store.quarantinedFrames().single()
         assertEquals(message.id, quarantined.messageId)
         assertEquals(MeshFrame.KIND_MESSAGE, quarantined.frameKind)
-        assertTrue(encoded.contentEquals(quarantined.frame))
+        assertTrue(expiredFrame.contentEquals(quarantined.frame))
         assertEquals(expiredAt, quarantined.createdAt)
         assertEquals(MeshFrame.PROTOCOL_VERSION, quarantined.sourceVersion)
         assertTrue(quarantined.reason.contains("30-day"))
