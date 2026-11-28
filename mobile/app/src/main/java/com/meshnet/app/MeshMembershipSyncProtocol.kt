@@ -22,6 +22,7 @@ internal class MeshMembershipSyncProtocol(
 
     private val assemblies = linkedMapOf<String, Assembly>()
     private val lastResponseByPeer = linkedMapOf<String, Long>()
+    private val lastPublishedByEvent = linkedMapOf<String, Long>()
     private var lastSyncRequestAt = 0L
 
     init {
@@ -32,14 +33,24 @@ internal class MeshMembershipSyncProtocol(
     @Synchronized
     fun publish(event: MeshMembershipEvent): Int {
         require(event.groupId == groupId && event.verify())
-        return sendEvent(event, null)
+        val now = System.currentTimeMillis()
+        if (now - (lastPublishedByEvent[event.eventId] ?: 0L) < PUBLISH_INTERVAL_MS) return 0
+        val sent = sendEvent(event, null)
+        if (sent > 0) {
+            if (lastPublishedByEvent.size >= MAX_SYNC_PEERS && event.eventId !in lastPublishedByEvent) {
+                lastPublishedByEvent.remove(lastPublishedByEvent.keys.first())
+            }
+            lastPublishedByEvent[event.eventId] = now
+        }
+        return sent
     }
 
     /** Broadcast a bounded sync request; peers reply with their most recent event page. */
     @Synchronized
     fun requestSync(force: Boolean = false): Boolean {
         val now = System.currentTimeMillis()
-        if (!force && now - lastSyncRequestAt < SYNC_REQUEST_INTERVAL_MS) return false
+        val minimumInterval = if (force) MIN_FORCED_SYNC_INTERVAL_MS else SYNC_REQUEST_INTERVAL_MS
+        if (now - lastSyncRequestAt < minimumInterval) return false
         lastSyncRequestAt = now
         return send(null, "$PREFIX|S|$groupId")
     }
@@ -179,6 +190,8 @@ internal class MeshMembershipSyncProtocol(
         private const val MAX_ASSEMBLIES = 64
         private const val MAX_SYNC_EVENTS = 64
         private const val SYNC_REQUEST_INTERVAL_MS = 15_000L
+        private const val MIN_FORCED_SYNC_INTERVAL_MS = 2_000L
+        private const val PUBLISH_INTERVAL_MS = 10_000L
         private const val SYNC_RESPONSE_INTERVAL_MS = 10_000L
         private const val MAX_SYNC_PEERS = 64
         private const val ASSEMBLY_TTL_MS = 10L * 60L * 1000L
