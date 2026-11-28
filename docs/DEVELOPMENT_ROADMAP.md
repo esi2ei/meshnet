@@ -526,7 +526,8 @@ Branch heads and Actions runs change with every commit, so this roadmap intentio
 - Check the current head SHA and Draft/open state in [PR #29](https://github.com/esi2ei/meshnet/pull/29).
 - Check the status of all required jobs for that exact SHA in [PR #29 checks](https://github.com/esi2ei/meshnet/pull/29/checks).
 - Do not use a successful run from an earlier SHA as evidence for newer code, even when the intervening change appears small.
-- The most recent recorded historical validation is run #200 on its exact SHA (189/189 focused API 36 tests). It does not validate later bridge/serializer changes.
+- **Run #210** on code/test SHA `2e6264388e868a85bb06aa36d6cf942b4e78a6db` passed the Node 22 bridge-preservation guard, TypeScript typecheck and production web build; Android debug APK assembly and signature/checksum verification; and the focused Android API 36 instrumentation step. The full Android instrumentation suite was skipped by design. This run validates the new bridge guard and runtime-status serializer regression class.
+- The later comparison from `2e6264388e868a85bb06aa36d6cf942b4e78a6db` to the review branch head contained documentation-only changes in `docs/DEVELOPMENT_ROADMAP.md` and `mobile/README.md`; no application, test, workflow or package source changed in that interval. Run #213 is validating the newest documentation head: its Node 22 job passed and its Android job was still in progress at the time of review.
 - The full, non-targeted Android instrumentation suite, physical multi-phone/OEM tests, independent cryptographic audit, smart-contract audit and legal/carrier approval remain separate gates.
 
 **Delivery policy:** PR #29 remains Draft until the current-head checks and code-level acceptance criteria pass. No automatic merge to `main`.
