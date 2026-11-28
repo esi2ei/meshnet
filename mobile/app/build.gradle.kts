@@ -10,6 +10,10 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import javax.inject.Inject
 
+plugins {
+    id("com.android.application")
+}
+
 abstract class BundleWebDashboard : DefaultTask() {
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -28,10 +32,6 @@ abstract class BundleWebDashboard : DefaultTask() {
             into(outputDirectory.get().asFile)
         }
     }
-}
-
-plugins {
-    id("com.android.application")
 }
 
 // Build the React dashboard from the repository root and package it as local APK assets.
