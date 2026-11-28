@@ -4,7 +4,6 @@ import org.gradle.api.tasks.Sync
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 // Build the React dashboard from the repository root and package it as local APK assets.
