@@ -20,6 +20,278 @@ This document is the working source of truth for the completion branch. It disti
 - **External gate**: requires an independent audit, owner-provided credentials, legal/store decision, or deployment evidence.
 - **Not implemented**: do not advertise as available.
 
+## Complete product and engineering roadmap
+
+**This is the integrated execution plan** for the requirements discussed in this conversation and GitHub issues [#17–#28](https://github.com/esi2ei/meshnet/issues). The detailed capability-preservation rules remain in [FEATURE_PRESERVATION_PLAN.md](FEATURE_PRESERVATION_PLAN.md); issue-level evidence and implementation notes remain in the traceability matrix below.
+
+### Product principles and non-negotiable decisions
+
+1. **No feature reduction as a refactoring shortcut.** Existing dashboard, radio, messaging, voice, file/library, VPN, wallet, Devnet and source-viewer capabilities must remain present. Partial, prototype and planned items remain in scope and retain honest status labels.
+2. **Offline-first core.** Discovery, local messaging, files, voice and the private intranet must work without a cloud account or an Internet connection wherever the relevant hardware is available. Internet access, wallet RPC, marketplace settlement and other online services remain explicit, opt-in extensions.
+3. **Trust is separate from discovery.** Finding a device or receiving its advertisement never grants membership, identity ownership, private-file access or permission to relay a user's private data.
+4. **Preserve data and protocol compatibility.** Existing identities, messages, outbox records, membership events, receipts, library content, pending transfers and wallet evidence must survive upgrades. Protocol v6 remains a compatibility baseline until a versioned successor is negotiated and tested.
+5. **Do not overstate prototype behavior.** Shared-key group encryption is not per-device end-to-end session security; a local voucher is not money; a private IPv4 overlay is not public Internet sharing; an escrow source file is not a deployed or audited escrow service.
+6. **Small, reversible delivery.** Move one responsibility at a time behind compatibility facades. No big-bang rewrite, silent bridge removal, schema reset, or automatic merge to `main`.
+
+### Current audit baseline
+
+The GitHub requirements set contains 12 open issues (#17–#28). Their state is intentionally not changed by this roadmap.
+
+| Issue | Repository reality at audit | Plan |
+|---|---|---|
+| [#17 Network discovery/routing](https://github.com/esi2ei/meshnet/issues/17) | Partial: BLE/GATT, Wi-Fi Direct, Wi-Fi Aware, TTL relay, route observations and a local IPv4 overlay exist; physical convergence, route recovery, radio fallback and OEM background behavior are not proven | Phase 2 |
+| [#18 Identity/trust/E2EE](https://github.com/esi2ei/meshnet/issues/18) | Partial: P-256 device identity, signed origins and encrypted local stores exist; shared group AES key, device approval/revocation, portability and per-device ratchets do not | Phase 3 |
+| [#19 Spaces/messages/media](https://github.com/esi2ei/meshnet/issues/19) | Partial: direct messaging, queue, signed membership log, snapshots, receipt ledger and voice/file primitives exist; durable protocol-v7 group integration, context ACLs, full offline delivery, edit/delete/expiry and video are incomplete | Phase 4 |
+| [#20 Public-channel governance](https://github.com/esi2ei/meshnet/issues/20) | Design only; no complete election, eligibility, complaint or manager-replacement lifecycle | Phase 9 |
+| [#21 Reputation/trust endorsements](https://github.com/esi2ei/meshnet/issues/21) | Design only; device signatures alone do not provide Sybil-resistant account reputation | Phase 9, after identity |
+| [#22 Distributed storage/search](https://github.com/esi2ei/meshnet/issues/22) | Partial: explicit publication, content addressing, bounded resumable transfer and local recovery exist; private ACL, authorized multi-hop search, encrypted peer backup and export/restore are missing | Phase 5 |
+| [#23 Metering/marketplace/Internet sharing](https://github.com/esi2ei/meshnet/issues/23) | Not implemented: current VPN is a private 100.64.0.0/10 intranet, not a gateway/NAT or metered Internet service | Phase 7, after network/security |
+| [#24 Contracts/receipts/accounting](https://github.com/esi2ei/meshnet/issues/24) | Partial: signed contract/receipt and encrypted journal primitives exist, but no receiver-measured live transfer integration, mutual settlement lifecycle or recovery export | Phase 8 |
+| [#25 Wallet/real-money controls](https://github.com/esi2ei/meshnet/issues/25) | Prototype/partial: encrypted local vouchers and Devnet SOL transfer exist; no authoritative offline balance, global double-spend prevention or fiat settlement | Phase 8 |
+| [#26 Peer arbitration](https://github.com/esi2ei/meshnet/issues/26) | Design only; depends on identity, reputation, signed contracts and evidence preservation | Phase 9 |
+| [#27 Android background/local companion/UX](https://github.com/esi2ei/meshnet/issues/27) | Partial: bundled local dashboard, bridge, foreground service, permission controls and resource features exist; background/OEM, accessibility, onboarding and recovery need validation | Continuous; Phases 1, 2, 6 and 10 |
+| [#28 Traceability/integration delivery](https://github.com/esi2ei/meshnet/issues/28) | Partial: detailed roadmap, focused API 36 CI and tests exist; exact-head bridge/status regression and complete requirement evidence are still being validated | Phase 0 and continuous |
+
+The three major prerequisite chains are:
+
+- **Network and communication:** requirements inventory → safe architecture boundaries → transport reliability → device trust/session security → durable message/group delivery → media and file completion.
+- **Economy:** device trust → private routing and consent → receiver-measured transfer evidence → mutually signed contracts → auditable ledger/reconciliation → optional external settlement.
+- **Community governance:** stable identity/admission → Sybil and abuse model → privacy-aware reputation → deterministic channel governance → peer arbitration and appeal.
+
+### Phase 0 — Baseline, traceability and preservation
+
+**Goal:** make the current product and all open requirements measurable before further restructuring.
+
+- [x] Record the 12 requirement issues (#17–#28), current status and known acceptance gaps.
+- [x] Record the complete 31-method Android JavaScript bridge contract against its TypeScript declarations; protect active UI calls with a Node CI guard.
+- [x] Add the feature-preserving refactor contract and link it from the roadmap, architecture and README.
+- [x] Extract dashboard runtime-status JSON serialization into a focused class without changing the existing bridge method or payload fields.
+- [ ] Obtain green CI evidence for the exact latest branch head, including the new runtime-status serializer test and bridge guard.
+- [ ] Create one traceability row for every visible user action: screen/control → bridge method → native owner → persistent store → test → physical/external evidence.
+- [ ] Record the exact current baseline for test counts, Android API level, web toolchain, supported hardware and known limitations.
+- [ ] Keep issue status conservative; no issue is closed solely because source code or a design exists.
+
+**Exit gate:** each existing feature and each requirement has an owner, status, code/test evidence and a remaining acceptance statement. No undocumented deletion or untracked requirement is allowed.
+
+### Phase 1 — Architecture, processing engines and data ownership
+
+**Goal:** simplify internal responsibility without changing product behavior.
+
+**Target logical architecture**
+
+```text
+React/Vite dashboard (all existing screens)
+            |
+      stable native bridge
+            |
+     application coordinator
+            |
+ +----------+-----------+------------+------------------+
+ |          |           |            |                  |
+Transport  Message    Identity/    Product capability  Query
+supervisor engine     security     engines             engine
+                                  files / voice / VPN /
+                                  wallet / governance
+ |          |           |            |                  |
+ +----------+-----------+------------+------------------+
+            |
+       persistence and OS adapters
+            |
+ SQLite / Android Keystore / filesystem / radio / VPN
+```
+
+- [ ] Keep `MainActivity` as the Android UI/permission/bridge adapter, not the owner of all domain rules.
+- [ ] Keep `MeshForegroundService` as the compatibility entry point while extracting transport supervision, router/outbox, membership, file/library, voice, VPN coordination and wallet orchestration behind narrow interfaces.
+- [ ] Preserve every current `MeshNetNative` method and the workspace screens during extraction; add/keep contract tests before changing the bridge.
+- [ ] Move one responsibility per reviewable change. Avoid changing radio lifecycle, cryptographic behavior, persistence and UI in the same refactor.
+- [ ] Define typed request/result/error models for native bridge operations. Add bridge version/capability negotiation only as an additive change.
+- [ ] Replace the duplicate/poll-heavy status path with native event delivery where available; keep a bounded polling fallback for reconnect/recovery and browser preview.
+- [ ] Define ownership and thread boundaries: UI/main for rendering and platform UI callbacks, IO for database/files/network waits, CPU dispatcher for hashing/compression/serialization, and bounded serial actors/queues for mutable transport/session state.
+- [ ] Give each long-running operation cancellation, timeouts, back-pressure, lifecycle ownership and observable error states.
+
+**Data architecture decision from the conversation**
+
+- **SQLite is the authoritative persistent database today.** Existing SQLite-backed stores are retained first; no second shadow database is introduced merely to make the architecture look modular.
+- **Room is not a separate database engine alongside SQLite.** Room is an abstraction/DAO layer over SQLite. Evaluate it as a gradual access layer for suitable tables only if it can share the same database, migrations, constraints and transaction semantics. Do not copy records into a parallel Room database.
+- **Query Engine:** a single application query/repository layer owns indexed lookup, filters, paging, ordering, transaction boundaries and projections for messages, peers, membership, receipts, library, wallet and activity. It reads/writes the authoritative stores; it is not another persistence engine.
+- **JSON/Protocol Engine:** JSON is for validated bridge DTOs, settings/configuration, protocol envelopes and explicit export/import. It is not a second database. Binary/compact wire encoding may be evaluated for BLE limits, but only through versioned protocol negotiation and tests.
+- [ ] Produce a schema ownership map and migration plan before any database consolidation.
+- [ ] Decide table-by-table whether existing SQLite APIs remain or Room is adopted over the same file. Do not migrate all stores as one operation.
+- [ ] Make message + immutable recipient snapshot + outbox rows atomic where the delivery design requires it.
+- [ ] Add versioned migration fixtures, interrupted migration/restart tests, idempotency, backup/export and rollback/recovery evidence. Never wipe a user's store to fix a migration.
+
+**Exit gate:** old bridge callers, stored data and protocol-v6 peers retain behavior; a documented database decision and tested migrations exist before storage ownership changes.
+
+### Phase 2 — Network reliability, power and Android lifecycle
+
+**Goal:** make the existing local transports work predictably across device combinations and background conditions.
+
+- [ ] Build an explicit transport supervisor for BLE/GATT, Wi-Fi Direct and Wi-Fi Aware; each transport reports availability, permission state, discovery, connection, backoff and failure independently.
+- [ ] Preserve BLE server/client dual roles and Wi-Fi Direct user-controlled actions. Keep Wi-Fi Aware optional and hardware-dependent.
+- [ ] Add Android Wi-Fi Aware availability-change handling and restart/recovery instead of relying only on a one-time availability check.
+- [ ] Replace permanent high-duty BLE scan/advertise behavior with measured operating profiles: discovery burst, connected/active transfer and idle/background. Never sacrifice active connection reliability without measured fallback.
+- [ ] Evaluate supported background discovery/companion mechanisms and current Android foreground-service restrictions; document behavior by Android/API/OEM rather than promising always-on service.
+- [ ] Define capability negotiation so devices without Aware, Wi-Fi Direct or BLE peripheral support can still use the remaining mutual transport.
+- [ ] Verify link loss, stale peer expiry, relay loss, route convergence, duplicate suppression, TTL, bounded flooding, retry/back-pressure and no route-poisoning.
+- [ ] Harden the IPv4 TUN packet plane: MTU/fragment boundaries, malformed packets, duplicate/conflicting fragments, incomplete assembly expiry, congestion, bounded retries and loop/resource limits.
+- [ ] Verify DNS forwarding, transaction matching, SERVFAIL without uplink, captive portal/private DNS, upstream Network handover and decide/test TCP fallback for large DNS responses.
+- [ ] Validate VPN consent/revoke, service death/recreation, foreground-service notification, Android 8–16 behavior, underlying network handover and OEM battery restrictions.
+- [ ] Keep public Internet traffic outside the current overlay until the separate opt-in gateway project is designed and approved.
+
+**Physical-device gate:** two-phone BLE/GATT bidirectional messaging; three-phone relay with end devices out of direct range; Wi-Fi Direct; supported-device Wi-Fi Aware; coexistence/fallback; screen-off/process-death/reconnect; VPN/DNS and portal through a relay. Record device model, OEM build, Android API, topology, logs and measured outcome.
+
+### Phase 3 — Identity, trust and private-session security
+
+**Goal:** move from signed device origin plus shared group key to an explicit trust and cryptographic lifecycle.
+
+- [ ] Publish a threat model: malicious member/relay, spoofed identity, replay, Sybil accounts, compromised/lost device, traffic analysis, malicious file metadata, key loss and offline partitions.
+- [ ] Separate device identity, user/profile identity, group membership and session keys. Support multiple devices per user without pretending one device key is a full account identity.
+- [ ] Design QR/fingerprint-based onboarding, explicit device approval, blocking/reporting, leave, revoke, lost-device handling and recovery/portability with proof of ownership.
+- [ ] Add per-recipient private message/file sessions so relays and unrelated group members cannot decrypt private payloads.
+- [ ] Design secure group-key distribution, rotation and membership change semantics.
+- [ ] Evaluate an established audited group/session protocol (e.g. MLS/OpenMLS or a maintained pairwise ratchet implementation) using a small Android JNI/NDK proof and persistence prototype before adoption. Do not integrate a candidate merely because it builds on a desktop host.
+- [ ] Keep protocol v6 readers and senders during a documented migration window; define capability/version negotiation, unknown fields, downgrade rejection, replay policy, recovery and old-peer UX.
+- [ ] Encrypt sensitive durable membership/delivery databases and user exports; keep Android Keystore keys non-exportable where appropriate.
+- [ ] Add independent cryptographic review of the exact implementation and protocol transition.
+
+**Exit gate:** threat-model closure, test vectors/interoperability, lifecycle/revocation/recovery tests, relay confidentiality tests and independent review. Until then, UI and docs must not label shared-key group traffic as Signal-grade E2EE.
+
+### Phase 4 — Messaging spaces, durable group delivery and multimedia
+
+**Goal:** complete the communication model without confusing real-time sessions with offline messages.
+
+- [ ] Implement distinct authorization contexts for public space, public channels, private groups and one-to-one messages.
+- [ ] Make signed JOIN/LEAVE synchronization durable and resumable across process death, partitions and reconnects. A page cursor must be persisted and bound to its exact event snapshot.
+- [ ] Bind membership history, immutable recipient snapshots and per-member signed ACCEPTED/DELIVERED/READ receipts into a versioned protocol frame (planned v7), then integrate with router, durable outbox, UI and transactions.
+- [ ] Atomically persist message identity, payload reference, immutable recipient snapshot and pending-recipient records before transmission.
+- [ ] Keep fail-closed broadcast receipt retirement until every recipient in the original snapshot reaches an explicitly defined terminal state. A late joiner must not be added retroactively; a leave must not erase a prior obligation.
+- [ ] Expose truthful states: local queued, accepted, relayed/forwarded where evidence exists, delivered, seen (only with consent), partially delivered, failed, expired and cancelled.
+- [ ] Add privacy controls for read receipts, blocking, reporting, message retention and optional expiration.
+- [ ] Implement edit history and deletion semantics with clear distinctions between local deletion, group tombstone and remote deletion request.
+- [ ] Complete image/video/file attachments using bounded chunking, resumable transfer, per-chunk and whole-object integrity, quotas and access control.
+- [ ] Preserve voice notes and live group voice; test permission timing, audio focus, interruption, invitation expiry, mute/end/reconnect and multi-speaker behavior.
+- [ ] Keep queued store-and-forward messages separate from live audio/video streams. Do not queue a live-call stream as if it were a message.
+- [ ] Add video calls only after real-time transport quality, congestion control, audio behavior and resource measurement are proven.
+
+**Exit gate:** adversarial protocol tests, crash/restart tests, at least three-device tests with an offline recipient, and UI tests demonstrating truthful per-recipient delivery states.
+
+### Phase 5 — Private library, distributed files and search
+
+**Goal:** expand the existing offline library without exposing private data or losing content.
+
+- [ ] Keep explicit owner publication, content-addressed SHA-256, integrity checks, resumable chunks, current quotas and non-destructive recovery.
+- [ ] Introduce explicit visibility modes (private, group-authorized and public) with authorization enforced at both search and fetch.
+- [ ] Encrypt private content and metadata; relays and backup hosts store opaque ciphertext and cannot infer file names or read contents.
+- [ ] Implement reliable unpublish/revocation/expiry semantics and define what can remain cached by already-authorized peers.
+- [ ] Build local-first hybrid search, followed by bounded multi-hop search with TTL, hop/node/time/result-size limits, deduplication, per-peer rate limits and incremental result streaming.
+- [ ] Add owner-controlled storage allocation, quota, availability, retention, bandwidth and backup placement.
+- [ ] Add encrypted export/restore and optional encrypted peer backups with owner-controlled key/revocation and expiry.
+- [ ] Make portal access follow the same ACL rules as in-app search/fetch; no bypass through the HTTP portal.
+- [ ] Add abuse tests for catalogue spam, oversized metadata, path traversal, decompression bombs, search floods and malicious chunk claims.
+
+**Exit gate:** unauthorized peers cannot discover private metadata or fetch private bytes; corrupted or interrupted transfers never become verified library entries.
+
+### Phase 6 — Performance, concurrency and game-development techniques
+
+**Goal:** scale topology, media and data handling without changing correctness or silently dropping work.
+
+These techniques are applied to the appropriate layer, not copied blindly from a game engine:
+
+- **LOD (Level of Detail):** reduce topology-map detail for distant/low-priority visual nodes (for example hide labels or aggregate edge detail). LOD affects rendering only; it must not reduce peer discovery, routing, security checks, message delivery or stored data.
+- **Culling:** render only visible nodes, links and labels in a large topology viewport. Off-screen network peers still remain active in the network model; occlusion or viewport culling must never cancel message, file or relay processing.
+- **Asynchronous loading:** move database reads, file hashing, thumbnails, media decoding, imports/exports, source-browser indexing and large result sets off the UI thread. Use paging and incremental rendering.
+- **Multithreading:** define bounded Kotlin coroutine dispatchers/executors for IO, CPU-heavy compression/hash/crypto and stateful per-peer/per-store actors. Avoid unbounded thread creation and concurrent mutation of protocol or SQLite state. Keep UI updates on the main thread.
+- **Resource compression:** evaluate image thumbnails, audio/video profiles and transfer compression with CPU/battery/network measurements. Compress before encryption only where beneficial; do not recompress already-compressed media by default. Keep size limits, streaming decompression and decompression-bomb defenses. Preserve content hashes over a clearly defined canonical/original object so compression does not break SHA-256 identity or resumable chunks.
+- **Radio and battery modes:** add user-visible balanced/low-power/active transfer modes only after physical measurement; show why a transport is sleeping or unavailable.
+- **Query performance:** index common queries, bound result sets, page activity/messages/library listings and measure query latency and database growth. Use the Query Engine described in Phase 1 rather than adding ad-hoc JSON scans over unbounded histories.
+- [ ] Establish a reproducible baseline for battery drain, CPU, memory, queue growth, radio scan duty, transfer goodput, packet loss, p50/p95 latency, UI frame time, database query time and file decode time.
+- [ ] Add representative stress fixtures: many peers, long event history, large library catalogues, queued messages, fragmented files and repeated reconnects.
+- [ ] Ship an optimization only with before/after measurements and unchanged correctness/regression results.
+
+**Exit gate:** improved measured responsiveness/battery/throughput at a fixed feature and correctness baseline; no unbounded memory, queue or thread growth.
+
+### Phase 7 — Opt-in Internet gateway and service marketplace
+
+**Goal:** turn Internet sharing and provider services into a consent-based, safe and transparent extension, not an accidental property of the VPN.
+
+- [ ] Complete legal, carrier, platform-policy and abuse-risk review for tethering/resale in target regions before enabling the feature.
+- [ ] Design an isolated opt-in gateway service with explicit owner/consumer consent, per-device ACLs, firewalling, routing isolation, kill switch, abuse limits and no hidden traffic forwarding.
+- [ ] Define provider offers: free, public fixed rate (same public rate for receivers) and negotiated offers; include capacity, validity, service scope, quality and data limits.
+- [ ] Define billable bytes at the receiver/provider boundary and distinguish payload, protocol overhead, retransmissions, failed chunks and unrelated device traffic.
+- [ ] Make route selection consider accepted price, user budget, security, trust, latency, throughput, route reliability and provider consent—not price alone.
+- [ ] Require every relay to explicitly consent to a signed revenue share before the contract becomes active. Active shares cannot change without a new mutual agreement.
+- [ ] Add spending caps, alerts, preview of price/terms, explicit accept/reject, pause and immediate stop controls.
+- [ ] Keep Internet gateway and marketplace disabled by default until all isolation and legal gates pass.
+
+**Exit gate:** receiver and provider independently reconcile the same measured transfer, no hidden traffic or charging, and legal/platform approval exists for the exact release region.
+
+### Phase 8 — Contracts, accounting, wallet and settlement
+
+**Goal:** evolve current cryptographic storage prototypes into verifiable accounting without claiming offline finality.
+
+- [ ] Connect signed service contracts to actual offer acceptance and transfer initiation. Contracts must include parties, service, price, billable-byte rules, maximum volume/cost, validity, cancellation, relay shares and dispute policy.
+- [ ] Persist contract copies and identifiers on both sides; require all affected parties to consent to material changes.
+- [ ] Create receiver-measured receipts bound to the contract, transfer/chunk IDs, byte count and content digest; signatures must be mutual where required, monotonic and replay-resistant.
+- [ ] Integrate receipts at the real accepted-payload boundary and reconcile them idempotently with transfer resume/retry so no chunk is double-billed.
+- [ ] Link every ledger entry to the contract and receipt chain; support pause, fail, refund, reverse and dispute states.
+- [ ] Keep the local-unit wallet visibly provisional. Define issuance authority, offline exposure limits, conflict/reconciliation rules and double-spend risk before calling it a balance.
+- [ ] Add pending/confirmed/failed/reversed fiat states; external provider confirmation, not an offline peer receipt, is the finality boundary for fiat.
+- [ ] Add budgets, alerts, spending limits, automatic stop and optional economic route selection.
+- [ ] Add encrypted user-controlled export/restore, device migration and recovery without exposing seeds, credentials or plaintext wallet data.
+- [ ] Keep Devnet separate and opt-in. Add a hard no-mainnet-by-default guard and exact cluster/mint/recipient/amount confirmation before any future production token flow.
+- [ ] Build/deploy escrow only after program tests, deterministic program ID/admin ownership, canonical token mint, upgrade-authority policy and independent smart-contract audit. No production funds before approval.
+
+**Exit gate:** end-to-end retry/crash/no-double-charge tests, bilateral offline verification, external provider confirmation for real-money claims, independent contract/program audit and recovery/export evidence.
+
+### Phase 9 — Reputation, public governance and peer arbitration
+
+**Goal:** implement decentralized community controls only after identity and abuse prerequisites exist.
+
+- [ ] Resolve account/device identity, multi-device ownership, admission and Sybil cost before reputation scoring is used for eligibility.
+- [ ] Define reputation inputs, decay, scope, thresholds, caps, endorsement rate limits and anti-reciprocal-farming controls. Keep unverified reports distinct from adjudicated violations.
+- [ ] Build privacy-aware endorsements, evidence submission, right of response, appeal and human-verifiable audit history; no irreversible punishment from an unverified report alone.
+- [ ] Implement public-channel eligibility, creation quota, activity/inactivity rules, voting window, active-member criteria, quorum, tie, replacement and recovery while peers are offline.
+- [ ] Implement manager complaint review with reversible temporary suspension that does not remove ordinary member participation or right of response.
+- [ ] Implement peer arbitration with verifiable random selection, independent eligible arbitrators, conflict-of-interest controls, timeout/replacement, minimum quorum, privacy-minimized evidence and appeal.
+- [ ] Connect contract dispute state to arbitration outcomes only after evidence and ledger verification.
+- [ ] Add Sybil, collusion, brigading, vote replay, duplicate-vote, quorum-loss and offline-partition simulations.
+
+**Exit gate:** deterministic and reproducible decisions, verifiable signed records, privacy policy, appeal/reversal and adversarial tests across partitioned peers.
+
+### Phase 10 — UX, release, hardware expansion and platform strategy
+
+**Goal:** make the complete product comprehensible, recoverable and releasable.
+
+- [ ] Keep current Network, Chat & media, Library, Wallet and Activity workspaces and all existing actions while improving hierarchy and onboarding.
+- [ ] Audit every visible control for permission timing, disabled/busy states, progress, empty/error states, accessibility and stop/cancel/retry behavior.
+- [ ] Show the actual transport and route evidence, battery mode, data used, file scope, message delivery state, price and contract terms where applicable.
+- [ ] Separate local intranet, Internet gateway, online wallet, local voucher, confirmed payment and escrow labels so the UI cannot imply unavailable capabilities.
+- [ ] Build identity, message, library and wallet recovery/export flows with clear data-loss warnings and owner control.
+- [ ] Test first-use onboarding, QR trust, device loss, app upgrade and recovery with non-developer users.
+- [ ] Complete physical-device matrix and accessibility/privacy review for the supported Android release scope.
+- [ ] Keep trial/debug artifacts distinct from production artifacts. Create a protected release keystore outside Git; build/sign/verify AAB; complete privacy policy, data safety, support, permission rationale, store/legal and supply-chain review.
+- [ ] Decide iOS only after Android transport, identity, persistence and bridge/domain APIs are stable. Keep all future capabilities in the cross-platform domain model; do not claim iOS support before a real client and device tests exist.
+- [ ] Evaluate optional external radio adapters (for example LoRa companion hardware) as separate transport adapters after the phone-to-phone Android baseline is stable; do not make external hardware mandatory for the core app.
+
+**Exit gate:** user-visible scope matches actual behavior, recoverability and data-safety evidence exists, the signed release artifact is reproducible and store/legal/security approvals are complete.
+
+### Cross-phase engineering rules
+
+- Every implementation batch includes: linked issue(s), capability impact, code owner, test plan, migration/protocol compatibility note, rollback note and documentation update.
+- Prefer reusing successful tests for unchanged code. New or modified behavior must be tested on the exact new head; do not repeatedly rerun unrelated full suites solely for activity. The manual full Android suite, physical-device matrix and external audits remain separate, explicitly scheduled gates.
+- CI green means code/build/emulator evidence only. It does not prove physical radios, battery, OEM background behavior, security audit, legal compliance or settlement.
+- No issue is closed until its own acceptance criteria are satisfied with evidence. A prototype or document alone does not close an issue.
+- All work remains on `work/offline-mesh-completion` and reviewable Draft PRs until explicitly approved. Never merge into `main` automatically.
+
+### Next execution order
+
+1. Complete Phase 0 validation for the exact current PR head (bridge preservation guard, web checks, Android build and focused runtime-status instrumentation test).
+2. Continue Phase 1 with a baseline bridge/service responsibility map and the SQLite/Room/JSON decision record; do not make a schema migration yet.
+3. Extract one low-risk responsibility from the large foreground service behind a compatibility facade, with characterization tests.
+4. Start Phase 2 device evidence and transport recovery work, keeping the existing transports and user controls.
+5. In parallel at the design/test level, complete the Phase 3 threat model; do not make marketplace or wallet settlement depend on unfinished security.
+6. Proceed through Phases 4–10 only when their explicit prerequisite gates pass. Their scope remains preserved now, even when execution is later.
+
 ## Feature-preserving refactor contract
 
 The mandatory rules and capability inventory are maintained in [docs/FEATURE_PRESERVATION_PLAN.md](FEATURE_PRESERVATION_PLAN.md). This work is a structural refactor, not a reduction of product scope.
