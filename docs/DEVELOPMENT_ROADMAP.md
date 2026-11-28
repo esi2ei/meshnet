@@ -522,9 +522,10 @@ This section preserves significant earlier defects and test results for traceabi
 ## Current branch review snapshot — 2026-11-28
 
 - **Branch:** `work/offline-mesh-completion`
-- **Current roadmap/code head at this snapshot:** `2e6264388e868a85bb06aa36d6cf942b4e78a6db`
+- **Current reviewed branch head:** `21556f7152795ae135a7c5c2f5af33e270527d9d` (includes the roadmap/persistence corrections and Android README route-evidence correction from this review).
 - **PR:** [#29](https://github.com/esi2ei/meshnet/pull/29), open and Draft, targeting `main`. Do not merge automatically.
-- **Current-head CI:** [run #210](https://github.com/esi2ei/meshnet/actions/runs/46132465743) is in progress. The Node 22 typecheck/production-build check has passed; the Android debug APK/instrumentation job is still running. The result is **not green yet**.
-- This run includes the bridge preservation guard and the new runtime-status serializer regression class. The exact 2e626... head must finish successfully before Phase 0 accepts that refactor slice.
-- The branch includes the isolated sender/receiver membership database fixture; run #199/#200 are the later successful evidence for that code family. The #200 evidence remains exact to its earlier SHA.
+- **Current-head CI:** [run #211](https://github.com/esi2ei/meshnet/actions/runs/46132881766) is pending for this exact SHA at the time of this snapshot. No check result is available yet.
+- **Previous run #210** is still associated with the immediately preceding code/documentation head `2e6264388e868a85bb06aa36d6cf942b4e78a6db`; its Node check passed and its Android job was still in progress when inspected. It is not a green check for the current 21556... head.
+- The current exact-head workflow is required to validate the bridge preservation guard and the `MeshRuntimeStatusSerializer` regression class after the final documentation corrections.
+- Run #199/#200 remain the successful historical evidence for the corrected independent-store membership fixture and wallet signing-key-loss regression; their results apply only to their own SHAs.
 - No physical Android device evidence, full (non-targeted) instrumentation run, independent cryptographic audit, smart-contract audit, or legal/carrier approval is claimed by this snapshot.
