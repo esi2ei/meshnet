@@ -230,4 +230,38 @@ class MeshOfflineWalletStoreTest {
         assertFalse(runCatching { reopened.history() }.isSuccess)
     }
 
+    @Test
+    fun partialVoucherAndAcknowledgementChunksAreEncryptedAtRest() {
+        val pending = """[{"id":"voucher_123","count":2,"prefix":"MESHOP1","createdAt":1700000000000,"chunks":{"0":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}]"""
+        sender.storePendingEnvelopeState(pending)
+
+        val preferences = context.getSharedPreferences(
+            "meshnet-offline-wallet-v1-$senderId", Context.MODE_PRIVATE
+        )
+        val stored = preferences.getString("pending_offline_payment_envelopes", null)
+        assertTrue(stored?.startsWith("MNW1|") == true)
+        assertFalse(stored!!.contains("voucher_123"))
+        assertFalse(stored.contains("MESHOP1"))
+        assertEquals(pending, MeshOfflineWalletStore(context, senderId).loadPendingEnvelopeState())
+    }
+
+    @Test
+    fun pendingEnvelopeStateFailsClosedWhenStorageKeyIsMissing() {
+        sender.storePendingEnvelopeState("""[{"id":"voucher_123"}]""")
+        val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        keyStore.deleteEntry("meshnet-offline-wallet-storage-$senderId")
+
+        assertFalse(runCatching { MeshOfflineWalletStore(context, senderId).loadPendingEnvelopeState() }.isSuccess)
+    }
+
+    @Test
+    fun pendingEnvelopeStateRejectsOversizedOrMalformedJson() {
+        assertFalse(runCatching {
+            sender.storePendingEnvelopeState("{")
+        }.isSuccess)
+        assertFalse(runCatching {
+            sender.storePendingEnvelopeState("[" + " ".repeat(600 * 1024) + "]")
+        }.isSuccess)
+    }
+
 }
