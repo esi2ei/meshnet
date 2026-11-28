@@ -19,13 +19,31 @@ internal class MeshOfflineLibrary(context: Context) {
     private val local=linkedMapOf<String,Item>()
     private val remote=linkedMapOf<String,Item>()
     private val pending=linkedSetOf<String>()
-    @Volatile private var catalogHealthy = true
-    val isCatalogHealthy: Boolean get() = catalogHealthy
+    @Volatile private var catalogMetadataCorrupt = false
+    @Volatile private var catalogOverQuota = false
+    private val corruptBlobIds = linkedSetOf<String>()
+    val isCatalogHealthy: Boolean
+        get() = !catalogMetadataCorrupt && !catalogOverQuota && corruptBlobIds.isEmpty()
+    val isCatalogCorrupt: Boolean get() = catalogMetadataCorrupt
+    val isCatalogOverQuota: Boolean get() = catalogOverQuota
+    val corruptBlobCount: Int get() = corruptBlobIds.size
+
+    private fun requireTrustedCatalog() {
+        check(!catalogMetadataCorrupt) {
+            "Offline library catalogue metadata is damaged; content files were preserved and destructive recovery is disabled"
+        }
+    }
 
     private fun requireHealthyCatalog() {
-        check(catalogHealthy) {
-            "Offline library catalogue is damaged; content files were preserved and catalogue mutations are disabled until recovery"
+        requireTrustedCatalog()
+        check(!catalogOverQuota && corruptBlobIds.isEmpty()) {
+            "Offline library needs recovery: remove over-quota items or explicitly replace/remove corrupt content before adding more"
         }
+    }
+
+    private fun refreshQuotaState() {
+        catalogOverQuota = local.size > MAX_LOCAL_ITEMS ||
+            local.values.sumOf { it.size } > MAX_STORAGE_BYTES
     }
 
     init { load() }
@@ -52,9 +70,17 @@ internal class MeshOfflineLibrary(context: Context) {
                     return existing
                 }
             }
-            ensureCapacity(size)
+            requireTrustedCatalog()
+            if (id in corruptBlobIds) {
+                // Re-publishing the same verified content is an explicit repair of this blob.
+                corruptBlobIds.remove(id)
+                local.remove(id)
+                refreshQuotaState()
+            }
+            requireHealthyCatalog()
             val name=safeName(queryName(uri))
             val dest=fileFor(id)
+            ensureCapacity(size, if (dest.isFile) dest.length() else 0L)
             if (dest.exists() && (dest.length() != size || runCatching { digest(dest) }.getOrNull() != id)) {
                 check(dest.delete()) { "Unable to replace corrupt offline content" }
             }
@@ -87,9 +113,9 @@ internal class MeshOfflineLibrary(context: Context) {
         val item=local[id]?:return null
         val file=fileFor(id)
         if(!file.isFile||file.length()!=item.size||runCatching{digest(file)}.getOrNull()!=id){
-            local.remove(id)
-            runCatching { file.delete() }
-            persist()
+            // Preserve a damaged or missing blob for explicit recovery; never delete it
+            // merely because an integrity check failed during a read.
+            corruptBlobIds.add(id)
             return null
         }
         return file
@@ -108,8 +134,16 @@ internal class MeshOfflineLibrary(context: Context) {
         }
         val existingLocalIsValid = local[id]?.let { localFile(id) != null } == true
         if (!existingLocalIsValid) {
-            ensureCapacity(advertised.size)
+            requireTrustedCatalog()
+            if (id in corruptBlobIds) {
+                corruptBlobIds.remove(id)
+                local.remove(id)
+                refreshQuotaState()
+            }
             val temp=File(root,"$id.tmp")
+            val dest=fileFor(id)
+            requireHealthyCatalog()
+            ensureCapacity(advertised.size, if (dest.isFile) dest.length() else 0L)
             try {
                 received.inputStream().use { input ->
                     FileOutputStream(temp).use { output ->
@@ -120,7 +154,6 @@ internal class MeshOfflineLibrary(context: Context) {
                 check(temp.length() == advertised.size && digest(temp) == id) {
                     "Downloaded content changed while being committed"
                 }
-                val dest = fileFor(id)
                 if (dest.exists() && (dest.length() != advertised.size || runCatching { digest(dest) }.getOrNull() != id)) {
                     check(dest.delete()) { "Unable to replace corrupt offline content" }
                 }
@@ -134,13 +167,20 @@ internal class MeshOfflineLibrary(context: Context) {
                 throw error
             }
             local[id]=advertised.copy(createdAt=System.currentTimeMillis(),local=true,origin=null,pending=false)
+            refreshQuotaState()
         }
         pending.remove(id);remote.remove(id);persist();return true
     }
     @Synchronized fun removeLocal(id:String):Boolean {
-        requireHealthyCatalog()
-        if(local.remove(id)==null)return false
-        fileFor(id).delete();persist();return true
+        requireTrustedCatalog()
+        if(local[id]==null)return false
+        val file = fileFor(id)
+        check(!file.exists() || file.delete()) { "Unable to remove the selected offline content item" }
+        local.remove(id)
+        corruptBlobIds.remove(id)
+        refreshQuotaState()
+        persist()
+        return true
     }
     @Synchronized fun items(now:Long=System.currentTimeMillis()):List<Item>{
         pruneRemote(now)
@@ -161,51 +201,67 @@ internal class MeshOfflineLibrary(context: Context) {
             JSONObject(raw)
         } catch (_: Exception) {
             // Preserve all content blobs when the catalogue itself cannot be trusted.
-            catalogHealthy = false
+            catalogMetadataCorrupt = true
             return
         }
+        val localValue = json.opt("local")
+        if (localValue !is JSONArray) {
+            catalogMetadataCorrupt = true
+            return
+        }
+        val remoteValue = json.opt("remote")
+        val pendingValue = json.opt("pending")
+        if ((remoteValue != null && remoteValue !is JSONArray) ||
+            (pendingValue != null && pendingValue !is JSONArray)
+        ) {
+            catalogMetadataCorrupt = true
+            return
+        }
+
         val now = System.currentTimeMillis()
-        val locals = json.optJSONArray("local") ?: JSONArray()
-        var recoveredLocalBytes = 0L
+        val locals = localValue
         for (i in 0 until locals.length()) {
             val entry = try {
                 locals.getJSONObject(i)
             } catch (_: Exception) {
-                catalogHealthy = false
+                catalogMetadataCorrupt = true
                 local.clear()
                 return
             }
             val id = try { entry.getString("id") } catch (_: Exception) {
-                catalogHealthy = false; local.clear(); return
+                catalogMetadataCorrupt = true; local.clear(); return
             }
             val size = try { entry.getLong("size") } catch (_: Exception) {
-                catalogHealthy = false; local.clear(); return
+                catalogMetadataCorrupt = true; local.clear(); return
             }
             val createdAt = try { entry.getLong("createdAt") } catch (_: Exception) {
-                catalogHealthy = false; local.clear(); return
+                catalogMetadataCorrupt = true; local.clear(); return
             }
             if (!id.matches(Regex("[a-f0-9]{64}")) ||
                 size !in 1..MAX_FILE_BYTES.toLong() ||
-                createdAt !in 1..(now + MAX_FUTURE_CLOCK_SKEW_MS)
+                createdAt !in 1..(now + MAX_FUTURE_CLOCK_SKEW_MS) ||
+                id in local
             ) {
-                // A malformed local record may still own a content blob. Never prune or
-                // overwrite the index when its ownership metadata cannot be verified.
-                catalogHealthy = false
+                // Invalid ownership metadata or duplicate IDs make the index untrusted.
+                catalogMetadataCorrupt = true
                 local.clear()
                 return
             }
-            val file = fileFor(id)
-            if (file.isFile && file.length() == size && digest(file) == id &&
-                id !in local && local.size < MAX_LOCAL_ITEMS &&
-                size <= MAX_STORAGE_BYTES - recoveredLocalBytes
-            ) {
-                local[id] = Item(id, safeName(entry.optString("name")), size, createdAt, true, null)
-                recoveredLocalBytes += size
-            }
-        }
 
-        val remotes = json.optJSONArray("remote") ?: JSONArray()
+            val file = fileFor(id)
+            if (!file.isFile || file.length() != size || runCatching { digest(file) }.getOrNull() != id) {
+                // Keep the catalogue row and file path; the owner can explicitly remove
+                // or replace the corrupt item. Never delete it as a side effect of startup.
+                corruptBlobIds.add(id)
+            }
+            local[id] = Item(id, safeName(entry.optString("name")), size, createdAt, true, null)
+        }
+        refreshQuotaState()
+
+        val remotes = remoteValue as? JSONArray ?: JSONArray()
         for (i in 0 until remotes.length()) {
+            // Remote catalogue records are untrusted peer advertisements. Ignore only the
+            // malformed advertisement, not subsequent valid entries or local file ownership.
             runCatching {
                 val entry = remotes.getJSONObject(i)
                 val id = entry.getString("id")
@@ -223,34 +279,27 @@ internal class MeshOfflineLibrary(context: Context) {
             }
         }
 
-        val pendingEntries = json.optJSONArray("pending") ?: JSONArray()
+        val pendingEntries = pendingValue as? JSONArray ?: JSONArray()
         for (i in 0 until pendingEntries.length()) {
             val id = pendingEntries.optString(i)
             if (remote.containsKey(id) && pending.size < MAX_PENDING_DOWNLOADS) pending.add(id)
         }
         pruneRemote(now)
-        if (!catalogHealthy) return
+        if (!isCatalogHealthy) return
         pruneOrphanedFiles()
         persist()
     }
 
     private fun pruneOrphanedFiles() {
-        val retainedIds = local.keys
+        // A .blob without an index row may be the result of a crash after the blob commit
+        // and before the AtomicFile index commit. Preserve it so a later explicit publish
+        // of the same content can re-index it. Temporary partial writes are safe to remove.
         root.listFiles()?.forEach { file ->
-            val name = file.name
-            when {
-                name.endsWith(".blob") -> {
-                    val id = name.removeSuffix(".blob")
-                    if (id.matches(Regex("[a-f0-9]{64}")) && id !in retainedIds) {
-                        runCatching { file.delete() }
-                    }
-                }
-                name.endsWith(".tmp") -> runCatching { file.delete() }
-            }
+            if (file.name.endsWith(".tmp")) runCatching { file.delete() }
         }
     }
     private fun persist(){
-        requireHealthyCatalog()
+        requireTrustedCatalog()
         val json = JSONObject().put("local", JSONArray().apply {
             local.values.forEach { put(itemJson(it)) }
         }).put("remote", JSONArray().apply {
@@ -276,10 +325,15 @@ internal class MeshOfflineLibrary(context: Context) {
         .put("origin", item.origin ?: JSONObject.NULL)
         .put("pending", item.pending)
 
-    private fun ensureCapacity(incoming:Long){
+    private fun ensureCapacity(incoming:Long, replacingBlobBytes:Long = 0L){
         require(incoming in 1..MAX_FILE_BYTES.toLong())
-        require(local.size<MAX_LOCAL_ITEMS&&local.values.sumOf{it.size}+incoming<=MAX_STORAGE_BYTES){
-            "Offline library is full; remove an item before publishing or downloading more content"
+        require(replacingBlobBytes >= 0L)
+        val physicalBlobBytes = root.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".blob") }
+            ?.sumOf { it.length() } ?: 0L
+        val projectedBytes = (physicalBlobBytes - replacingBlobBytes).coerceAtLeast(0L) + incoming
+        require(local.size < MAX_LOCAL_ITEMS && projectedBytes <= MAX_STORAGE_BYTES) {
+            "Offline library is full; remove a selected item or re-index recovered content before adding more"
         }
     }
     private fun pruneRemote(now:Long){
