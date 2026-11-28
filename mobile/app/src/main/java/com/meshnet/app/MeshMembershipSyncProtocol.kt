@@ -89,12 +89,19 @@ internal class MeshMembershipSyncProtocol(
     }
 
     private fun sendEvent(event: MeshMembershipEvent, destination: String?): Int {
+        val eventBytes = event.encode().toByteArray(Charsets.UTF_8)
+        if (eventBytes.size !in 1..MAX_EVENT_BYTES) {
+            onEvent("Membership event ${event.eventId.take(8)} exceeds the bounded sync record size")
+            return 0
+        }
         val encoded = Base64.encodeToString(
-            event.encode().toByteArray(Charsets.UTF_8),
-            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+            eventBytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
         )
         val chunks = encoded.chunked(CHUNK_CHARS)
-        require(chunks.size in 1..MAX_CHUNKS) { "Membership event exceeds sync frame budget" }
+        if (chunks.size !in 1..MAX_CHUNKS) {
+            onEvent("Membership event ${event.eventId.take(8)} exceeds the bounded sync frame count")
+            return 0
+        }
         var accepted = 0
         chunks.forEachIndexed { index, chunk ->
             val payload = "$PREFIX|C|$groupId|${event.eventId}|$index|${chunks.size}|$chunk"
