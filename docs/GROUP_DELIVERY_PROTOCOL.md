@@ -141,3 +141,9 @@ Until all gates pass, retain the current fail-closed broadcast ACK behavior. The
 The former most-recent-64-only response is removed for updated peers. A responder now captures a rowid high-watermark, returns up to 16 signed events per page, and records the exact next cursor it has issued to that peer. The requester cannot jump over rows or change the snapshot. The continuation is still in memory only, and the chunks remain v6 ephemeral (not durable outbox messages). This is a bounded best-effort reconciliation improvement, not a crash-resumable or globally authoritative membership protocol.
 
 The current PR adds targeted API 36 regression coverage for more than 64 events, immediate page continuation, reversed fragment arrival, and rejection of an unissued cursor. These tests are not considered passed until the corrected CI run reports their results for the current PR head.
+
+## Compatibility with older protocol-v6 peers
+
+Updated peers request cursor paging with the extended five-field sync request. When a responder receives the original three-field `~GM1|S|<groupId>` request, it preserves the legacy exchange: one bounded page of at most 64 events and the original four-field total-count marker. If the sender has more than 64 records, it emits a partial-history warning; an older peer cannot consume the new cursor continuation. This maintains wire compatibility without falsely claiming full history delivery to older clients. To obtain all pages, both peers must support the extended cursor form.
+
+Regression-test source verifies both the 70-event cursor path between updated peers and the legacy single-page marker for an older three-field request. These are authored tests, not passing evidence until the corrected current-head API 36 run completes.
