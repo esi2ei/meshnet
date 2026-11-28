@@ -164,11 +164,11 @@ internal class MeshMembershipSyncProtocol(
 
     companion object {
         private const val PREFIX = "~GM1"
-        private const val GROUP_TAG_CHARS = 16
-        private const val CHUNK_CHARS = 48
+        private const val GROUP_TAG_CHARS = 24
+        private const val CHUNK_CHARS = 40
         private const val MAX_CHUNKS = 24
         private const val MAX_PAYLOAD_BYTES = 120
-        private const val MAX_EVENT_BYTES = 864
+        private const val MAX_EVENT_BYTES = 720
         private const val MAX_ASSEMBLIES = 64
         private const val MAX_SYNC_EVENTS = 64
         private const val SYNC_REQUEST_INTERVAL_MS = 15_000L
