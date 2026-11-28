@@ -64,3 +64,11 @@ MeshNet is intended to be a fully offline-capable, decentralized, peer-to-peer m
 - User prefers Persian.
 - During requirements discovery, ask one question at a time unless the user asks for all remaining questions together.
 - User previously asked to transfer accumulated decisions and remaining proposed requirements into GitHub issues; keep that traceability in view and verify the current issue set.
+
+
+## Follow-up verification — 2026-11-28
+- PR #29 exact head `0b7a301a0b9f37697c54b8ef934ceb778d2c77fc` completed GitHub Actions run #231 successfully. Node 22 bridge-contract validation, TypeScript typecheck, Vite production build, Android debug APK assembly, APK signature/checksum verification, and focused API 36 instrumentation all passed. Instrumentation executed 195/195 tests, 0 failed and 0 skipped. Full Android instrumentation was skipped because it is a manual-only workflow input. No physical-device/radio/OEM/VPN hardware validation is claimed.
+- Successful run #231 retained only the web dashboard artifact (335,831 bytes, one-day retention); no APK or test report artifact was uploaded on success. No before/after artifact baseline was available, so no quantitative saving is claimed.
+- Added PR conversation comments #7238766596 to PR #29 with exact-head CI and Pending / Not Run physical-test status, and #7238766924 to PR #2 documenting current-head Android AAR failure and 142-commit divergence from main.
+- Both PRs remain open Draft. PR #2 is deferred due actual Android API 37 / AGP compatibility failure and stale branch; PR #29 remains unmerged because product/security acceptance gates remain unresolved despite green configured PR CI.
+- Current main remains reported unprotected, no active repo rulesets were returned, and detailed branch-protection read remains blocked to this integration. Owner/admin must configure and verify a `main` ruleset requiring CI checks and restricting force pushes/deletion. Do not merge or push directly to main as a workaround.
