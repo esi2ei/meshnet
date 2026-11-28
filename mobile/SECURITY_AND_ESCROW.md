@@ -78,3 +78,18 @@ The Android router now consumes a bounded per-peer estimator. BLE scan callbacks
 - A successful source edit or commit is not evidence that Android compiles or that a radio/contract works.
 - Before production, run local Android build + instrumentation tests, device interoperability tests, protocol review, and independent smart-contract audit as applicable.
 - Never fabricate wallet balances, transaction IDs, escrow states, radio metrics, delivery receipts, or test results.
+
+
+## 5. Mutually signed service-contract envelope (new, not yet integrated)
+
+`MeshServiceContract.kt` defines a bounded version-1 contract envelope for peer-provided services. The canonical UTF-8 signing representation is independent of JSON property order and includes the contract ID, service code, provider and consumer addresses, unit price per MiB, maximum billable payload bytes, maximum cost, validity interval, cancellation policy, sorted relay shares, and both public keys. Provider and consumer each sign the same canonical bytes with P-256 / SHA-256 ECDSA; verification requires both signatures and verifies that each encoded public key hashes to the corresponding party address.
+
+- Billing unit is explicitly `APPLICATION_PAYLOAD_BYTES`. Transport headers, routing metadata and retransmissions are excluded; the receiver's accepted application payload is the accounting boundary.
+- Relay shares are capped at eight distinct node IDs and a combined maximum of 10,000 basis points.
+- The envelope parser is capped at 16 KiB, validates version and field bounds, and rejects non-canonical Base64 encodings and non-P-256 public keys.
+- Allowed cancellation policy identifiers are versioned and enumerated; terms cannot be edited without invalidating both signatures.
+- Instrumentation coverage is authored in `MeshServiceContractTest.kt` for dual signatures, tampering, envelope round-trip and relay-share bounds.
+
+**Integration boundary:** this type is currently a standalone protocol primitive. It is not yet attached to service offers, file/message transfer, byte counters, wallet ledger, or settlement. It does not prove that data was delivered and it does not prevent double spending. A separate monotonic, replay-resistant transfer-receipt protocol and idempotent reconciliation are still required. Do not treat a signed contract as a payment or a completed transfer.
+
+The offline wallet store also now refuses new incoming vouchers after its 4,096-entry replay-ID guard reaches capacity rather than evicting old replay IDs and accidentally allowing a previously accepted voucher to be imported again. The human-readable receipt history is separately capped at 1,000 entries; the replay-protection set is never silently pruned. Outgoing voucher history is capped at 4,096 entries. A future export/reconciliation workflow is required before these fail-closed limits can be safely operationalized.
