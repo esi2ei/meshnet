@@ -80,6 +80,9 @@ class MeshForegroundService : Service() {
         walletEnvelopePreferences = getSharedPreferences(WALLET_ENVELOPE_PREFERENCES, MODE_PRIVATE)
         restorePendingOfflinePayments()
         createNotificationChannel()
+        if (!offlineLibrary.isCatalogHealthy) {
+            emit("Offline library catalogue is damaged; stored content files were preserved and library changes are disabled pending recovery")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -210,6 +213,7 @@ class MeshForegroundService : Service() {
         liveVoiceCall?.accept(origin, plaintext)
     }
     fun offlineLibraryJson(): org.json.JSONArray = offlineLibrary.toJson()
+    fun offlineLibraryHealthy(): Boolean = offlineLibrary.isCatalogHealthy
 
     fun publishOfflineContent(uri: Uri): String {
         router ?: throw IllegalStateException("Start the local mesh before publishing offline content")
