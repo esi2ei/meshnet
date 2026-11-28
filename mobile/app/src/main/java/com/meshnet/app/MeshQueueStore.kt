@@ -149,6 +149,34 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
         db.execSQL("CREATE INDEX IF NOT EXISTS received_created_at ON received_ids(created_at)")
     }
 
+    /**
+     * Frames older than the protocol validity window cannot be accepted by a receiver.
+     * Preserve their exact bytes and metadata in quarantine before removing them from the
+     * dispatch queue, so stale records neither loop forever nor permanently consume capacity.
+     */
+    private fun quarantineExpiredOutbox(db: SQLiteDatabase, now: Long = System.currentTimeMillis()): Int {
+        val cutoff = now - MAX_AGE_MS
+        val quarantinedAt = now
+        val reason = "Outbound frame exceeded the 30-day protocol validity window; original bytes retained and not replayed."
+        db.beginTransaction()
+        try {
+            db.execSQL(
+                """INSERT OR IGNORE INTO outbox_quarantine(
+                    frame_id, frame, message_id, frame_kind, created_at, attempts,
+                    quarantined_at, source_version, reason
+                )
+                SELECT frame_id, frame, message_id, frame_kind, created_at, attempts, ?, ?, ?
+                FROM outbox WHERE created_at < ?""".trimIndent(),
+                arrayOf<Any>(quarantinedAt, MeshFrame.PROTOCOL_VERSION, reason, cutoff)
+            )
+            val removed = db.delete("outbox", "created_at < ?", arrayOf(cutoff.toString()))
+            db.setTransactionSuccessful()
+            return removed
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     @Synchronized
     fun enqueue(frame: ByteArray): Boolean {
         if (frame.isEmpty() || frame.size > MeshFrame.MAX_FRAME_BYTES) return false
@@ -156,7 +184,8 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
         val decoded = try { MeshFrame.decode(frame) } catch (_: Exception) { return false }
         val id = digest(frame)
         val db = writableDatabase
-        if (db.rawQuery("SELECT 1 FROM outbox WHERE frame_id = ?", arrayOf(id)).use { it.moveToFirst() }) {
+        quarantineExpiredOutbox(db, now)
+        if (db.rawQuery("SELECT 1 FROM outbox WHERE frame_id = ?", arrayOf(id)).use { it.moveToFirst() })
             return true
         }
         if (decoded.kind == MeshFrame.KIND_ACK) {
@@ -258,7 +287,9 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     @Synchronized
     fun canAcceptBatch(count: Int): Boolean {
         if (count < 0 || count > MAX_ENTRIES) return false
-        val current = writableDatabase.rawQuery("SELECT COUNT(*) FROM outbox", null).use {
+        val db = writableDatabase
+        quarantineExpiredOutbox(db)
+        val current = db.rawQuery("SELECT COUNT(*) FROM outbox", null).use {
             if (it.moveToFirst()) it.getInt(0) else MAX_ENTRIES
         }
         return current + count <= MAX_ENTRIES
@@ -267,13 +298,14 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     @Synchronized
     fun pending(limit: Int = MAX_ENTRIES): List<ByteArray> {
         val db = writableDatabase
+        quarantineExpiredOutbox(db)
         return db.rawQuery(
             "SELECT frame FROM outbox ORDER BY created_at ASC LIMIT ?",
             arrayOf(limit.coerceIn(1, MAX_ENTRIES).toString())
         ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getBlob(0)) } }
     }
 
-    /** Removes a locally originated message only after an authenticated group receipt arrives. */
+    /** Removes a locally originated directed message only after its authenticated destination ACK is accepted. */
     @Synchronized
     fun acknowledge(messageId: String): Int {
         if (messageId.isBlank()) return 0
@@ -319,6 +351,7 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     fun receiptMatches(messageId: String, receiptOrigin: String): Boolean {
         if (messageId.isBlank() || receiptOrigin.isBlank()) return false
         val db = writableDatabase
+        quarantineExpiredOutbox(db)
         db.delete("directed_targets", "created_at < ?", arrayOf((System.currentTimeMillis() - MAX_AGE_MS).toString()))
         val recordedDestination = db.rawQuery(
             "SELECT destination FROM directed_targets WHERE message_id = ? LIMIT 1",
