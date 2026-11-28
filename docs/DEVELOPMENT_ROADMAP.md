@@ -167,7 +167,8 @@ This matrix is intentionally conservative. “Partial” means that some code ex
 
 ### Verification boundary for this work batch
 
-- The user explicitly requested that CI not be run. No workflow, build, emulator, instrumentation or other CI job is to be triggered for this batch.
-- Any code or documentation change made under this constraint is **not CI-verified**. Do not infer success from a prior run or from a successful GitHub write.
+- The user explicitly requested that CI not be run. No workflow was manually dispatched. GitHub nevertheless automatically queued PR workflow run #138 after branch synchronization; Node 22/24 typecheck and web production-build jobs completed, while the Android job was still in progress at last inspection. This was unintended, and the connected GitHub actions do not expose cancellation.
+- No local build or test was manually executed. Do not infer Android compile/test success or release readiness until the automatic run reaches a final result; this run was not requested validation.
+- To avoid another automatic run, this documentation correction is committed with the GitHub Actions skip marker.
 - GitHub issues remain open until their own acceptance criteria have implementation and evidence. This batch does not convert deferred physical-device or independent-audit requirements into completed work.
 - The current VPN is a private overlay/intranet only. Internet gateway/NAT, public Internet resale, metered sharing and automatic cheapest-provider selection are not implemented.
