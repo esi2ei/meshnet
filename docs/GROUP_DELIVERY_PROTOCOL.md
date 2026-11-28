@@ -1,7 +1,7 @@
 # Group Membership and Delivery Protocol
 
-Status: design proposal for PR #16 / Issue #19  
-Protocol target: MeshNet frame protocol v7 (not implemented)
+Status: partial implementation in PR #16; end-to-end group delivery is not implemented  
+Protocol target: frame-bound group delivery remains a protocol v7 gate; current frame format remains v6
 
 ## 1. Problem and safety invariant
 
@@ -39,6 +39,8 @@ Membership is represented as an append-only, signed event log, not a mutable lis
 
 - JOIN is signed by the joining device.
 - LEAVE is signed by the member leaving.
+- **Implemented local primitive (not yet transported):** `MeshMembershipEvent` uses a canonical, domain-separated P-256 signature tied to group ID, event ID, member ID, public key, counter, type and timestamp. `MeshGroupMembershipStore` persists verified events in an append-only SQLite table, deduplicates exact retries, retains same-counter equivocation, supports bounded idempotent merge, and projects `ACTIVE`, `LEFT`, `INCOMPLETE` or `CONFLICTED` local state. The journal is bounded to 10,000 events per group / 50,000 total.
+- These records are not yet sent or reconciled over MeshNet transports. The current frame protocol remains v6; no protocol-v7 frame binding, automatic JOIN/LEAVE, group-ID derivation from the credential, roster freshness UX, or sender/recipient integration exists. The local SQLite journal is not encrypted at rest.
 - Events are keyed by event ID and deduplicated.
 - A member's counter must increase; conflicting events at the same counter are retained as equivocation evidence and must not be resolved by “last write wins.”
 - Roster state is a deterministic projection of verified events.
@@ -117,11 +119,11 @@ Offline members remain pending. A message may be marked “partially delivered�
 
 Do not enable “all members delivered” or retire group broadcasts until all of these are true:
 1. protocol v7 frame binding and compatibility policy are implemented;
-2. JOIN/LEAVE event verification and durable log are implemented;
+2. JOIN/LEAVE event verification and local durable log primitives exist; event transport, replay synchronization and lifecycle integration are still required;
 3. roster reconciliation and stale-view signaling are implemented;
 4. immutable snapshots and per-member receipt ledger are transactionally persisted;
 5. sender and receiver adversarial instrumentation tests pass;
 6. physical multi-device offline/reconnect tests pass;
 7. UI clearly distinguishes delivered, partially delivered, offline, expired and cancelled states.
 
-Until then, retain the current fail-closed broadcast ACK behavior.
+Until all gates pass, retain the current fail-closed broadcast ACK behavior. The new local membership log is foundational storage only and must not be used to retire a broadcast.
