@@ -84,8 +84,8 @@ jobs:
         run: |
           set -euo pipefail
           packages="$(sdkmanager --list --channel=3)"
-          platform_package="$(printf '%s\n' "$packages" | awk -F'|' '/platforms;android-37([.]|[[:space:]]|$)/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1; exit }')"
-          build_tools_package="$(printf '%s\n' "$packages" | awk -F'|' '/build-tools;37([.]|[[:space:]]|$)/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1; exit }')"
+          platform_package="$(printf '%s\n' "$packages" | awk -F'|' '/platforms;android-37([.]|[[:space:]]|$)/ && !found { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1; found=1 }')"
+          build_tools_package="$(printf '%s\n' "$packages" | awk -F'|' '/build-tools;37([.]|[[:space:]]|$)/ && !found { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1; found=1 }')"
           if [[ -z "$platform_package" || -z "$build_tools_package" ]]; then
             printf '%s\n' "$packages" | grep -E 'platforms;android-37|build-tools;37' || true
             echo "Android 17 SDK Platform 37 and Build Tools 37 are not published to this runner's SDK repositories."
