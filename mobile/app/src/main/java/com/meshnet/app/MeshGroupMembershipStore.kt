@@ -212,6 +212,34 @@ internal class MeshGroupMembershipStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
+    /** Bounded chronological page for best-effort peer synchronization. */
+    @Synchronized
+    fun eventsForSync(groupId: String, limit: Int = 64): List<MeshMembershipEvent> {
+        require(groupId.matches(Regex("[a-f0-9]{64}")))
+        require(limit in 1..MAX_SYNC_PAGE)
+        return readableDatabase.rawQuery(
+            "SELECT encoded FROM membership_events WHERE group_id = ? ORDER BY created_at DESC, event_id DESC LIMIT ?",
+            arrayOf(groupId, limit.toString())
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val event = MeshMembershipEvent.decode(cursor.getString(0))
+                    require(event.verify()) { "Stored membership event failed signature verification" }
+                    add(event)
+                }
+            }.asReversed()
+        }
+    }
+
+    @Synchronized
+    fun eventCount(groupId: String): Int {
+        require(groupId.matches(Regex("[a-f0-9]{64}")))
+        return readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM membership_events WHERE group_id = ?",
+            arrayOf(groupId)
+        ).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+    }
+
     /**
      * Computes only the locally observed state. Gaps and same-counter conflicts are not
      * resolved by timestamp; they remain INCOMPLETE or CONFLICTED until reconciled.
@@ -242,5 +270,6 @@ internal class MeshGroupMembershipStore(context: Context) : SQLiteOpenHelper(
         private const val MAX_EVENTS_PER_GROUP = 10000
         private const val MAX_TOTAL_EVENTS = 50000
         private const val MAX_MERGE_BATCH = 512
+        private const val MAX_SYNC_PAGE = 64
     }
 }
