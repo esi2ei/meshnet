@@ -108,12 +108,13 @@ The journal is bounded to 2,048 receipts and 2 MiB. It stores signed accounting 
 
 ## 7. Offline wallet record encryption
 
-`MeshOfflineWalletStore` now encrypts its local replay-ID set, incoming receipt history and outgoing signed-voucher journal with AES-GCM. A non-exportable Android Keystore AES key is scoped to the wallet ID. Each preference key is included in GCM additional authenticated data together with a versioned domain and wallet ID, preventing ciphertext from being moved between the replay set, history and outgoing journal.
+`MeshOfflineWalletStore` now encrypts its local replay-ID set, incoming receipt history, outgoing signed-voucher journal and partial incoming voucher/acknowledgement chunks with AES-GCM. A non-exportable Android Keystore AES key is scoped to the wallet ID. Each preference key is included in GCM additional authenticated data together with a versioned domain and wallet ID, preventing ciphertext from being moved between replay protection, history, outgoing vouchers and in-progress envelopes. The old standalone plaintext pending-envelope preference is migrated into the encrypted wallet store and removed only after the encrypted commit succeeds.
 
-- Existing legacy `StringSet` replay IDs and plaintext JSON history are migrated on first read using synchronous SharedPreferences commits.
-- A missing storage key, malformed/unknown envelope, failed GCM authentication or malformed stored JSON fails closed rather than returning an empty history.
+- Existing legacy `StringSet` replay IDs, plaintext JSON history and the former separate plaintext pending-envelope preference are migrated into the encrypted wallet store using synchronous commits; the plaintext pending-envelope value is deleted only after the encrypted write succeeds.
+- A missing storage key, malformed/unknown envelope, failed GCM authentication or malformed stored JSON fails closed rather than returning an empty history or silently dropping individual rows.
+- In-progress chunks are bounded by 16 envelopes, 512 KiB total, chunk count/index/length, valid message prefix and a 24-hour TTL; malformed records fail closed.
 - The signing identity and storage-encryption key are deleted together by the explicit wallet `clear()` operation.
-- Instrumentation coverage is authored for ciphertext-at-rest, reopen/read, legacy migration, missing-key and tamper behavior. These tests are not considered passed until the current PR head's targeted CI run finishes.
+- Instrumentation coverage is authored for ciphertext-at-rest, reopen/read, legacy migration, missing-key, tamper, malformed rows and encrypted pending-envelope persistence. These tests are not considered passed until the current PR head's targeted CI run finishes.
 
 **Integrity and capacity policy:** malformed outgoing or incoming history rows fail closed instead of being silently omitted from the UI or retry queue. Receipt history is capped at 1,000 records; when full, new incoming vouchers are rejected with an explicit export/reconcile requirement rather than evicting older receipts. Replay protection remains bounded at 4,096 IDs and is never pruned automatically.
 
@@ -136,3 +137,16 @@ Instrumentation coverage checks the allowed origin/path and rejects HTTP, foreig
 Run #154 passed the web typecheck/build but failed Android Kotlin compilation before instrumentation. The compiler identified regex-type and SHA-256 helper-scope errors in `MeshGroupDeliveryLedger.kt` and an inaccessible clock-skew constant in `MeshGroupMembershipStore.kt`. These source errors have been corrected on the completion branch. The current head still requires a new build and targeted API 36 instrumentation run; run #154 is not a passing Android result.
 
 The PR workflow now captures the Android build/test console output and build reports as a diagnostic artifact on failure. Focused instrumentation includes receipt journal, offline wallet, membership store/protocol, WebView asset policy, router receipts, group-delivery ledger and secret-store tests. The full suite remains a manual opt-in.
+
+## 11. Offline-library catalogue and blob recovery
+
+`MeshOfflineLibrary` now distinguishes untrusted catalogue metadata, a valid but over-quota catalogue and individual corrupt/missing content blobs:
+
+- An unreadable root index, invalid local ownership record or duplicate local content ID makes the catalogue metadata untrusted. The library preserves blobs, does not overwrite the untrusted index and blocks mutating operations that cannot safely establish ownership.
+- A syntactically valid catalogue that exceeds the configured count/storage quota is loaded without evicting records or deleting blobs. New writes are blocked, while the owner may explicitly remove selected items; writes resume once the configured quota is restored.
+- A missing, wrong-sized or digest-mismatched blob is retained and marked as needing recovery. The owner can explicitly remove that item or republish the same content to repair it. Multiple simultaneously corrupt items require resolving them individually rather than partially resetting metadata.
+- Unindexed `.blob` files are preserved because they may be the result of a crash after a blob commit but before the atomic catalogue-index commit. Publishing the same content can re-index a matching orphan. Temporary `.tmp` files are not treated as published content and may be cleaned during healthy recovery.
+- Capacity checks include physical blob storage, including retained unindexed blobs, so preserving recoverable content does not silently permit unlimited disk growth.
+- Runtime status exposes catalogue corruption, over-quota and corrupt-blob count to the Android dashboard/service; physical crash and storage-pressure behavior still requires device testing.
+
+Instrumentation source covers malformed local rows/root JSON, over-quota preservation and owner removal, orphan re-indexing, and explicit same-content repair of a corrupted blob.
