@@ -1,9 +1,11 @@
 package com.meshnet.app
 
 import android.content.Context
+import android.util.AtomicFile
 import org.json.JSONArray
 import org.json.JSONObject
-import java.security.MessageDigest
+import java.io.File
+import java.io.FileNotFoundException
 
 /**
  * Durable, bounded and idempotent journal for mutually signed transfer receipts.
@@ -15,8 +17,8 @@ import java.security.MessageDigest
  * Receipts contain public accounting data only. No private signing keys are persisted.
  */
 internal class MeshTransferReceiptStore(context: Context) {
-    private val preferences = context.applicationContext.getSharedPreferences(
-        PREFERENCES, Context.MODE_PRIVATE
+    private val journal = AtomicFile(
+        File(context.applicationContext.filesDir, JOURNAL_FILE)
     )
 
     /** Returns true when appended, false when the exact same receipt was already stored. */
@@ -57,9 +59,7 @@ internal class MeshTransferReceiptStore(context: Context) {
             require(encoded.toByteArray(Charsets.UTF_8).size <= MAX_JOURNAL_BYTES) {
                 "Receipt journal storage limit reached"
             }
-            check(preferences.edit().putString(KEY_JOURNAL, encoded).commit()) {
-                "Could not durably persist transfer receipt"
-            }
+            writeAtomically(encoded)
             true
         }
 
@@ -71,7 +71,11 @@ internal class MeshTransferReceiptStore(context: Context) {
         }
 
     private fun readRoot(): JSONObject {
-        val raw = preferences.getString(KEY_JOURNAL, "{}") ?: "{}"
+        val raw = try {
+            journal.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } catch (_: FileNotFoundException) {
+            "{}"
+        }
         require(raw.toByteArray(Charsets.UTF_8).size <= MAX_JOURNAL_BYTES) {
             "Receipt journal exceeds its storage limit; refusing to discard accounting history"
         }
@@ -79,6 +83,17 @@ internal class MeshTransferReceiptStore(context: Context) {
             JSONObject(raw)
         } catch (error: Exception) {
             throw IllegalStateException("Receipt journal is corrupt; refusing to discard accounting history", error)
+        }
+    }
+
+    private fun writeAtomically(encoded: String) {
+        val output = journal.startWrite()
+        try {
+            output.write(encoded.toByteArray(Charsets.UTF_8))
+            journal.finishWrite(output)
+        } catch (error: Exception) {
+            journal.failWrite(output)
+            throw IllegalStateException("Could not durably persist transfer receipt", error)
         }
     }
 
@@ -105,8 +120,7 @@ internal class MeshTransferReceiptStore(context: Context) {
     }
 
     companion object {
-        private const val PREFERENCES = "meshnet-transfer-receipt-journal-v1"
-        private const val KEY_JOURNAL = "chains"
+        private const val JOURNAL_FILE = "meshnet-transfer-receipts.json"
         private const val MAX_RECEIPTS = 2048
         private const val MAX_JOURNAL_BYTES = 2 * 1024 * 1024
         private val PROCESS_LOCK = Any()
