@@ -54,6 +54,9 @@ class MeshMembershipSyncProtocolTest {
 
         packets.forEach { receiverProtocol.accept(sender.nodeId, it) }
         assertEquals(1, receiverStore.events(group).size)
+        packets.clear()
+        senderProtocol.accept(receiver.nodeId, "~GM1|S|$group")
+        assertTrue("Repeated sync response should be rate limited", packets.isEmpty())
     }
 
     @Test
@@ -96,5 +99,6 @@ class MeshMembershipSyncProtocolTest {
         val protocol = MeshMembershipSyncProtocol(group, receiver.nodeId, receiverStore, send = { _, _ -> true })
         assertTrue(protocol.requestSync(force = true))
         assertFalse(protocol.requestSync())
+        assertFalse(protocol.requestSync(force = true))
     }
 }
