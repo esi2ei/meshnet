@@ -7,48 +7,110 @@ import android.database.sqlite.SQLiteOpenHelper
 import java.security.MessageDigest
 
 /** Bounded durable outbox and persistent receiver replay cache. */
+data class QuarantinedOutboxFrame(
+    val frameId: String,
+    val frame: ByteArray,
+    val messageId: String?,
+    val frameKind: String,
+    val createdAt: Long,
+    val attempts: Int,
+    val quarantinedAt: Long,
+    val sourceVersion: Int,
+    val reason: String
+)
+
+data class QuarantinedReplayId(
+    val frameId: String,
+    val createdAt: Long,
+    val quarantinedAt: Long,
+    val sourceVersion: Int,
+    val reason: String
+)
+
 class MeshQueueStore(context: Context) : SQLiteOpenHelper(
-    context.applicationContext, "meshnet-outbox.db", null, 9
+    context.applicationContext, "meshnet-outbox.db", null, 10
 ) {
     override fun onCreate(db: SQLiteDatabase) {
         createOutbox(db)
         createReceived(db)
         createDirectedTargets(db)
+        createQuarantine(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // SQLiteOpenHelper runs onUpgrade inside one transaction. Archive incompatible
+        // protocol state before removing it from the live replay/dispatch tables.
+        createQuarantine(db)
         if (oldVersion < 2) createReceived(db)
         if (oldVersion < 3) {
             db.execSQL("ALTER TABLE outbox ADD COLUMN message_id TEXT")
             db.execSQL("ALTER TABLE outbox ADD COLUMN frame_kind TEXT NOT NULL DEFAULT 'MESSAGE'")
             db.execSQL("CREATE INDEX IF NOT EXISTS outbox_message_id ON outbox(message_id)")
         }
-        if (oldVersion < 4) {
-            // Protocol v2 changes the authenticated-data schema; v1 frames cannot be replayed safely.
-            db.delete("outbox", null, null)
-            db.delete("received_ids", null, null)
-        }
-        if (oldVersion < 5) {
-            // Protocol v3 authenticates TTL and route metadata; v2 frames cannot be replayed.
-            db.delete("outbox", null, null)
-            db.delete("received_ids", null, null)
-        }
-        if (oldVersion < 6) {
-            // Protocol v4 adds ephemeral group media; v3 frames must not be replayed.
-            db.delete("outbox", null, null)
-            db.delete("received_ids", null, null)
-        }
-        if (oldVersion < 7) {
-            // Protocol v5 authenticates an optional destination field; v4 frames cannot be replayed.
-            db.delete("outbox", null, null)
-            db.delete("received_ids", null, null)
-        }
         if (oldVersion < 8) {
-            // Protocol v6 adds a signed device identity; unsigned v5 frames must not be replayed.
-            db.delete("outbox", null, null)
-            db.delete("received_ids", null, null)
+            // Protocol v6 changes the authenticated frame identity. Old frames and
+            // replay markers must not be dispatched, but their original bytes/evidence
+            // are retained atomically for explicit recovery or export.
+            quarantineLegacyProtocolState(db, oldVersion)
         }
         if (oldVersion < 9) createDirectedTargets(db)
+    }
+
+    private fun createQuarantine(db: SQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS outbox_quarantine (
+                frame_id TEXT NOT NULL,
+                frame BLOB NOT NULL,
+                message_id TEXT,
+                frame_kind TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                attempts INTEGER NOT NULL,
+                quarantined_at INTEGER NOT NULL,
+                source_version INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                PRIMARY KEY(frame_id, source_version)
+            )""".trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS outbox_quarantine_order ON outbox_quarantine(quarantined_at, created_at)"
+        )
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS received_ids_quarantine (
+                frame_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                quarantined_at INTEGER NOT NULL,
+                source_version INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                PRIMARY KEY(frame_id, source_version)
+            )""".trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS received_ids_quarantine_order ON received_ids_quarantine(quarantined_at, created_at)"
+        )
+    }
+
+    private fun quarantineLegacyProtocolState(db: SQLiteDatabase, sourceVersion: Int) {
+        val quarantinedAt = System.currentTimeMillis()
+        val reason = "Legacy protocol state is incompatible with the authenticated v6 frame envelope; retained and not replayed."
+        db.execSQL(
+            """INSERT OR IGNORE INTO outbox_quarantine(
+                frame_id, frame, message_id, frame_kind, created_at, attempts,
+                quarantined_at, source_version, reason
+            )
+            SELECT frame_id, frame, message_id, frame_kind, created_at, attempts, ?, ?, ?
+            FROM outbox""".trimIndent(),
+            arrayOf<Any>(quarantinedAt, sourceVersion, reason)
+        )
+        db.execSQL(
+            """INSERT OR IGNORE INTO received_ids_quarantine(
+                frame_id, created_at, quarantined_at, source_version, reason
+            )
+            SELECT frame_id, created_at, ?, ?, ?
+            FROM received_ids""".trimIndent(),
+            arrayOf<Any>(quarantinedAt, sourceVersion, reason)
+        )
+        db.delete("outbox", null, null)
+        db.delete("received_ids", null, null)
     }
 
     private fun createOutbox(db: SQLiteDatabase) {
@@ -128,6 +190,68 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             return true
         } finally {
             db.endTransaction()
+        }
+    }
+
+    /**
+     * Returns preserved legacy frames for explicit recovery/export. These records are
+     * deliberately excluded from pending() and are never replayed automatically.
+     */
+    @Synchronized
+    fun quarantinedFrames(limit: Int = MAX_ENTRIES): List<QuarantinedOutboxFrame> {
+        if (limit <= 0) return emptyList()
+        return writableDatabase.rawQuery(
+            """SELECT frame_id, frame, message_id, frame_kind, created_at, attempts,
+                      quarantined_at, source_version, reason
+               FROM outbox_quarantine
+               ORDER BY quarantined_at ASC, created_at ASC
+               LIMIT ?""".trimIndent(),
+            arrayOf(limit.coerceAtMost(MAX_QUARANTINED_READ_LIMIT).toString())
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(
+                        QuarantinedOutboxFrame(
+                            frameId = cursor.getString(0),
+                            frame = cursor.getBlob(1),
+                            messageId = cursor.getString(2),
+                            frameKind = cursor.getString(3),
+                            createdAt = cursor.getLong(4),
+                            attempts = cursor.getInt(5),
+                            quarantinedAt = cursor.getLong(6),
+                            sourceVersion = cursor.getInt(7),
+                            reason = cursor.getString(8)
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    /** Returns archived replay markers for diagnostics and explicit recovery tooling. */
+    @Synchronized
+    fun quarantinedReplayIds(limit: Int = MAX_RECEIVED_IDS): List<QuarantinedReplayId> {
+        if (limit <= 0) return emptyList()
+        return writableDatabase.rawQuery(
+            """SELECT frame_id, created_at, quarantined_at, source_version, reason
+               FROM received_ids_quarantine
+               ORDER BY quarantined_at ASC, created_at ASC
+               LIMIT ?""".trimIndent(),
+            arrayOf(limit.coerceAtMost(MAX_QUARANTINED_READ_LIMIT).toString())
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(
+                        QuarantinedReplayId(
+                            frameId = cursor.getString(0),
+                            createdAt = cursor.getLong(1),
+                            quarantinedAt = cursor.getLong(2),
+                            sourceVersion = cursor.getInt(3),
+                            reason = cursor.getString(4)
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -296,6 +420,7 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
     companion object {
         private const val MAX_ENTRIES = 6000
         private const val MAX_RECEIVED_IDS = 8192
+        private const val MAX_QUARANTINED_READ_LIMIT = 50_000
         private const val MAX_AGE_MS = 30L * 24L * 60L * 60L * 1000L
     }
 }
