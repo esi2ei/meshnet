@@ -118,7 +118,7 @@ const typescriptMethods = [...bridgeBlock[1].matchAll(
 const sourceForUiCalls = `${workspace}\n${app}`;
 const uiCalls = expectedBridgeMethods.filter((name) => {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?:native|bridge|MeshNetNative)\\??\\.\${escaped}\\s*\\(`).test(sourceForUiCalls);
+  return new RegExp(`(?:native|bridge|MeshNetNative)\\??\\.${escaped}\\s*\\(`).test(sourceForUiCalls);
 });
 
 let ok = true;
