@@ -30,7 +30,7 @@ The browser dashboard can preview the interface, but native Bluetooth and Wi-Fi 
 
 ## Native Android build
 
-Requirements: JDK 17, Android SDK Platform 36, Gradle 8.13, and Node.js/npm. The Gradle `preBuild` task runs `npm run build` and packages the generated dashboard assets automatically.
+Requirements: JDK 17, Android SDK Platform 37, Gradle 9.3.1, and Node.js/npm. The Gradle `preBuild` task runs `npm run build` and packages the generated dashboard assets automatically.
 
     npm install
     cd mobile
