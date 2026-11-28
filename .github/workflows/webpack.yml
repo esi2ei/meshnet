@@ -125,7 +125,7 @@ jobs:
             set -o pipefail
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
               gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest \
-                -Pandroid.testInstrumentationRunnerArguments.class=com.meshnet.app.MeshTransferReceiptStoreTest,com.meshnet.app.MeshOfflineWalletStoreTest,com.meshnet.app.MeshGroupMembershipStoreTest,com.meshnet.app.MeshMembershipSyncProtocolTest,com.meshnet.app.BundledDashboardAssetsTest,com.meshnet.app.MeshRouterReceiptTest,com.meshnet.app.MeshGroupDeliveryLedgerTest,com.meshnet.app.MeshSecretStoreTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"
+                -Pandroid.testInstrumentationRunnerArguments.class=com.meshnet.app.MeshTransferReceiptStoreTest,com.meshnet.app.MeshOfflineWalletStoreTest,com.meshnet.app.MeshGroupMembershipStoreTest,com.meshnet.app.MeshMembershipSyncProtocolTest,com.meshnet.app.BundledDashboardAssetsTest,com.meshnet.app.MeshRouterReceiptTest,com.meshnet.app.MeshGroupDeliveryLedgerTest,com.meshnet.app.MeshOfflineLibraryTest,com.meshnet.app.MeshSecretStoreTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"
             else
               gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"
             fi
