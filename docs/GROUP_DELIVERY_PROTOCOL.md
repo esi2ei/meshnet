@@ -40,7 +40,8 @@ Membership is represented as an append-only, signed event log, not a mutable lis
 - JOIN is signed by the joining device.
 - LEAVE is signed by the member leaving.
 - **Implemented local primitive (not yet transported):** `MeshMembershipEvent` uses a canonical, domain-separated P-256 signature tied to group ID, event ID, member ID, public key, counter, type and timestamp. `MeshGroupMembershipStore` persists verified events in an append-only SQLite table, deduplicates exact retries, retains same-counter equivocation, supports bounded idempotent merge, and projects `ACTIVE`, `LEFT`, `INCOMPLETE` or `CONFLICTED` local state. The journal is bounded to 10,000 events per group / 50,000 total.
-- These records are not yet sent or reconciled over MeshNet transports. The current frame protocol remains v6; no protocol-v7 frame binding, automatic JOIN/LEAVE, group-ID derivation from the credential, roster freshness UX, or sender/recipient integration exists. The local SQLite journal is not encrypted at rest.
+- **Implemented best-effort transport primitive:** `MeshCrypto.groupId` derives a stable domain-separated SHA-256 group identifier from the derived AES group key (the passphrase itself is never sent). `MeshForegroundService` appends a signed local JOIN on startup. `MeshMembershipSyncProtocol` sends signed membership events in bounded chunks over existing device-signed, group-encrypted v6 ephemeral frames; peers request history when a transport peer connects. Chunk assembly is bounded (64 concurrent assemblies, 10-minute TTL, 24 fragments/event), uses a 96-bit group tag plus the full group ID inside the signed event, and rate-limits history responses per peer.
+- Synchronization currently returns only the latest 64 events. If more exist, the peer emits an explicit partial-history warning; there is no pagination or complete partition reconciliation yet. Ephemeral chunks are best-effort and are retried by a later sync request rather than retained in the durable outbox. The current frame protocol remains v6; no dedicated protocol-v7 frame binding, stale-roster UX or sender/recipient integration exists. The local SQLite journal is not encrypted at rest.
 - Events are keyed by event ID and deduplicated.
 - A member's counter must increase; conflicting events at the same counter are retained as equivocation evidence and must not be resolved by “last write wins.”
 - Roster state is a deterministic projection of verified events.
@@ -66,7 +67,7 @@ The snapshot is immutable for that message. A later JOIN does not retroactively 
 
 **Implemented local receipt ledger (not yet transported):** `MeshMemberDeliveryReceipt` signs message/group/member/key/snapshot digest/receipt ID/type/time with a domain-separated P-256 signature. The ledger rejects non-recipients, key substitution and wrong snapshot digests; stores receipt evidence append-only; treats exact retries idempotently; preserves receipt-ID equivocation as an error; and advances per-member state monotonically from ACCEPTED to DELIVERED to READ. Completion is true only when every stored snapshot recipient has DELIVERED or READ. Storage is bounded (6,000 snapshots, 250,000 recipient rows and 250,000 receipt events) and applies backpressure instead of evicting records.
 
-These primitives are not yet bound into MeshFrame v7, encrypted/transmitted over BLE/Wi-Fi, connected to the router/outbox or UI, or committed atomically with the original message. The delivery database is not encrypted at rest. The local observed roster is not globally authoritative.
+These delivery primitives are not yet bound into MeshFrame v7, connected to the router/outbox or UI, or committed atomically with the original message. The membership event transport uses current v6 ephemeral frames; it is best-effort and only synchronizes the latest 64 events per response. The delivery database is not encrypted at rest. The local observed roster is not globally authoritative.
 
 The snapshot and its digest must be bound into the signed/encrypted origin frame (protocol v7). Relays may update mutable transport routing metadata but may not alter the signed recipient snapshot.
 
@@ -125,8 +126,8 @@ Offline members remain pending. A message may be marked “partially delivered�
 ## 8. Implementation gates
 
 Do not enable “all members delivered” or retire group broadcasts until all of these are true:
-1. protocol v7 frame binding and compatibility policy are implemented;
-2. JOIN/LEAVE event verification and local durable log primitives exist; event transport, replay synchronization and lifecycle integration are still required;
+1. protocol v7 frame binding and compatibility policy are implemented (current membership transport is a bounded v6 ephemeral application envelope, not the final frame-bound protocol);
+2. JOIN/LEAVE event verification, local durable log, automatic local JOIN, and bounded best-effort ephemeral peer synchronization exist; complete paged reconciliation, replay recovery and lifecycle/roster UX remain required;
 3. roster reconciliation and stale-view signaling are implemented;
 4. local immutable snapshots and per-member receipt events/recipient rows are transactionally persisted; integration with the original outbox message transaction remains required;
 5. sender and receiver adversarial instrumentation tests pass (test source added for local snapshot/receipt primitives; execution is still pending);
