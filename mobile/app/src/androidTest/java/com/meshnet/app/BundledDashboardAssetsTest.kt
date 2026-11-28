@@ -55,9 +55,20 @@ class BundledDashboardAssetsTest {
             "The runtime bundle must not actively request remote Unsplash images",
             remoteUnsplashRequest.containsMatchIn(js)
         )
-        assertTrue("The source browser must bundle the Android peer registry", js.contains("MeshPeerRegistry.kt"))
-        assertTrue("The source browser must bundle route registry and router sources", js.contains("MeshRouteRegistry.kt") && js.contains("MeshRouter.kt"))
-        assertTrue("The source browser must bundle instrumentation tests and architecture docs", js.contains("MeshRouteRegistryTest.kt") && js.contains("ARCHITECTURE.md"))
-        assertTrue("Legacy mock code must remain clearly isolated as a fixture", js.contains("legacy_mesh_driver_simulation.ts"))
+        assertFalse(
+            "The production APK must not expose a repository source browser",
+            js.contains("Bundled project source") || js.contains("Application source code")
+        )
+        listOf(
+            "MeshPeerRegistry.kt",
+            "MeshRouteRegistry.kt",
+            "MeshRouter.kt",
+            "MeshRouteRegistryTest.kt",
+            "ARCHITECTURE.md",
+            "legacy_mesh_driver_simulation.ts"
+        ).forEach { marker ->
+            assertFalse("The dashboard bundle must not embed repository source marker: $marker", js.contains(marker))
+        }
+        assertFalse("Source maps must not be packaged with dashboard assets", assetNames.any { it.endsWith(".map") })
     }
 }
