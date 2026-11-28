@@ -92,13 +92,29 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
 
-      - name: Install Android 16 SDK packages
-        run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
+      - name: Install Android 17 SDK packages
+        id: install-android-sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages="$(sdkmanager --list --channel=3)"
+          platform_package="$(printf '%s\n' "$packages" | awk -F'|' '/platforms;android-37([.]|[[:space:]]|$)/ && !found { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1; found=1 }')"
+          build_tools_package="$(printf '%s\n' "$packages" | awk -F'|' '/build-tools;37([.]|[[:space:]]|$)/ && !found { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1; found=1 }')"
+          if [[ -z "$platform_package" || -z "$build_tools_package" ]]; then
+            printf '%s\n' "$packages" | grep -E 'platforms;android-37|build-tools;37' || true
+            echo "Android 17 SDK Platform 37 and Build Tools 37 are not published to this runner's SDK repositories."
+            exit 1
+          fi
+          echo "Installing SDK packages: $platform_package and $build_tools_package"
+          sdkmanager --channel=3 "$platform_package" "$build_tools_package"
+          build_tools_version="${build_tools_package#build-tools;}"
+          echo "build_tools_version=$build_tools_version" >> "$GITHUB_OUTPUT"
+          find "$ANDROID_HOME/platforms" -maxdepth 2 -name android.jar -print
 
-      - name: Set up Gradle 8.13
+      - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with:
-          gradle-version: "8.13"
+          gradle-version: "9.3.1"
           cache-read-only: false
 
       - name: Build debug APK
@@ -114,7 +130,7 @@ jobs:
         run: |
           APK="mobile/app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/${{ steps.install-android-sdk.outputs.build_tools_version }}/apksigner" verify --verbose "$APK"
           sha256sum "$APK"
 
       - name: Enable KVM for Android emulator
