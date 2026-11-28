@@ -27,7 +27,7 @@ The source browser includes frontend, Android, instrumentation-test, Rust/Anchor
 
 ## Build locally (no CI)
 
-Requirements: Node.js/npm 22+, JDK 17, Android SDK Platform 37, Android Gradle Plugin 9.1.1, Kotlin Gradle Plugin 2.4.21, and Gradle 9.3.1 or a compatible newer Gradle installation. From the repository root, install the web dependencies, then build Android. The Android Gradle preBuild task runs the Vite production build and bundles its output:
+Requirements: Node.js/npm 22+, JDK 17, Android SDK Platform 37, Android Gradle Plugin 9.1.1 with its built-in Kotlin support, and Gradle 9.3.1 or a compatible newer Gradle installation. From the repository root, install the web dependencies, then build Android. The Android Gradle preBuild task runs the Vite production build and bundles its output:
 
 Google Play has required new apps and updates to target Android 16 (API 36) or higher since August 31, 2026. This branch is configured for API 36; confirm API-level behavior and device compatibility in your manual test pass.
 
