@@ -1,11 +1,19 @@
 package com.meshnet.app
 
 import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.util.AtomicFile
+import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileNotFoundException
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 /**
  * Durable, bounded and idempotent journal for mutually signed transfer receipts.
@@ -15,8 +23,10 @@ import java.io.FileNotFoundException
  * a single valid signature as proof of a valid chain or as settled money.
  *
  * The journal stores signed accounting metadata only, not payload bytes or private keys.
- * App-private storage is not equivalent to encryption at rest; callers must not treat this
- * journal as protected from device-level data extraction or backup access.
+ * Its contents are AES-GCM encrypted with a non-exportable Android Keystore key. A missing
+ * key or failed authentication is fatal: the journal is never reset to an empty ledger.
+ * Android backup is disabled for this app, so the journal is device-install bound and must
+ * be exported by an explicit future recovery flow before uninstall or device migration.
  */
 internal class MeshTransferReceiptStore(context: Context) {
     private val journal = AtomicFile(
@@ -79,30 +89,130 @@ internal class MeshTransferReceiptStore(context: Context) {
     }
 
     private fun readRoot(): JSONObject {
-        val raw = try {
-            journal.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
+        val bytes = try {
+            journal.openRead().use { it.readBytes() }
         } catch (_: FileNotFoundException) {
-            "{}"
+            return JSONObject()
         }
-        require(raw.toByteArray(Charsets.UTF_8).size <= MAX_JOURNAL_BYTES) {
+        require(bytes.size <= MAX_ENCRYPTED_JOURNAL_BYTES) {
             "Receipt journal exceeds its storage limit; refusing to discard accounting history"
         }
-        return try {
-            JSONObject(raw)
-        } catch (error: Exception) {
-            throw IllegalStateException("Receipt journal is corrupt; refusing to discard accounting history", error)
+
+        val raw = bytes.toString(Charsets.UTF_8)
+        if (raw.startsWith("$FILE_HEADER\\n")) {
+            val plaintext = decryptJournal(raw)
+            require(plaintext.toByteArray(Charsets.UTF_8).size <= MAX_JOURNAL_BYTES) {
+                "Decrypted receipt journal exceeds its storage limit"
+            }
+            return parseRoot(plaintext)
         }
+
+        // Migrate the previous plaintext JSON format only after it has parsed successfully.
+        // If migration cannot be completed, the original AtomicFile is left intact.
+        require(bytes.size <= MAX_JOURNAL_BYTES && raw.trimStart().startsWith("{")) {
+            "Receipt journal format is unknown; refusing to discard accounting history"
+        }
+        val legacyRoot = parseRoot(raw)
+        writeAtomically(legacyRoot.toString())
+        return legacyRoot
+    }
+
+    private fun parseRoot(raw: String): JSONObject = try {
+        JSONObject(raw)
+    } catch (error: Exception) {
+        throw IllegalStateException(
+            "Receipt journal is corrupt; refusing to discard accounting history",
+            error
+        )
     }
 
     private fun writeAtomically(encoded: String) {
+        val plaintext = encoded.toByteArray(Charsets.UTF_8)
+        require(plaintext.size <= MAX_JOURNAL_BYTES) { "Receipt journal storage limit reached" }
+        val encrypted = encryptJournal(plaintext)
+        require(encrypted.size <= MAX_ENCRYPTED_JOURNAL_BYTES) {
+            "Encrypted receipt journal exceeds its storage limit"
+        }
+
         val output = journal.startWrite()
         try {
-            output.write(encoded.toByteArray(Charsets.UTF_8))
+            output.write(encrypted)
             journal.finishWrite(output)
         } catch (error: Exception) {
             journal.failWrite(output)
             throw IllegalStateException("Could not durably persist transfer receipt", error)
         }
+    }
+
+    private fun encryptJournal(plaintext: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+        cipher.updateAAD(FILE_HEADER.toByteArray(Charsets.UTF_8))
+        val ciphertext = cipher.doFinal(plaintext)
+        val encoded = buildString {
+            append(FILE_HEADER).append('\\n')
+            append(encodeBase64(cipher.iv)).append('\\n')
+            append(encodeBase64(ciphertext))
+        }
+        return encoded.toByteArray(Charsets.UTF_8)
+    }
+
+    private fun decryptJournal(encoded: String): String = try {
+        val parts = encoded.split('\\n')
+        require(parts.size == 3 && parts[0] == FILE_HEADER) {
+            "Receipt journal encryption envelope is malformed"
+        }
+        val iv = decodeBase64(parts[1])
+        require(iv.size == GCM_IV_BYTES) { "Receipt journal IV is invalid" }
+        val ciphertext = decodeBase64(parts[2])
+        require(ciphertext.size >= GCM_TAG_BYTES) { "Receipt journal ciphertext is truncated" }
+
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.DECRYPT_MODE, loadExistingKey(), GCMParameterSpec(GCM_TAG_BITS, iv))
+        cipher.updateAAD(FILE_HEADER.toByteArray(Charsets.UTF_8))
+        cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
+    } catch (error: Exception) {
+        throw IllegalStateException(
+            "Receipt journal authentication failed; refusing to discard accounting history",
+            error
+        )
+    }
+
+    private fun getOrCreateKey(): SecretKey {
+        loadExistingKeyOrNull()?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
+                .setUserAuthenticationRequired(false)
+                .build()
+        )
+        return generator.generateKey()
+    }
+
+    private fun loadExistingKey(): SecretKey =
+        loadExistingKeyOrNull()
+            ?: throw IllegalStateException(
+                "Receipt journal encryption key is missing; refusing to discard accounting history"
+            )
+
+    private fun loadExistingKeyOrNull(): SecretKey? {
+        val store = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        return store.getKey(KEY_ALIAS, null) as? SecretKey
+    }
+
+    private fun encodeBase64(value: ByteArray): String =
+        Base64.encodeToString(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+
+    private fun decodeBase64(value: String): ByteArray {
+        val decoded = Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        require(encodeBase64(decoded) == value) { "Receipt journal contains non-canonical base64" }
+        return decoded
     }
 
     private fun decodeAndVerifyChain(
@@ -129,8 +239,16 @@ internal class MeshTransferReceiptStore(context: Context) {
 
     companion object {
         private const val JOURNAL_FILE = "meshnet-transfer-receipts.json"
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        private const val KEY_ALIAS = "meshnet-transfer-receipts-v1"
+        private const val TRANSFORMATION = "AES/GCM/NoPadding"
+        private const val FILE_HEADER = "MESHNET-TRANSFER-RECEIPTS-V1"
+        private const val GCM_IV_BYTES = 12
+        private const val GCM_TAG_BITS = 128
+        private const val GCM_TAG_BYTES = GCM_TAG_BITS / 8
         private const val MAX_RECEIPTS = 2048
         private const val MAX_JOURNAL_BYTES = 2 * 1024 * 1024
+        private const val MAX_ENCRYPTED_JOURNAL_BYTES = (MAX_JOURNAL_BYTES + 2) / 3 * 4 + 128
         private val PROCESS_LOCK = Any()
     }
 }
