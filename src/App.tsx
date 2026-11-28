@@ -72,7 +72,7 @@ export default function App() {
               <p className="mt-0.5 text-xs text-slate-400">Live peer-to-peer device console</p>
             </div>
           </div>
-          <div className="hidden items-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-500/5 px-3 py-1.5 text-xs text-emerald-200 sm:flex"><ShieldCheck className="h-3.5 w-3.5" /> Local-first mode</div>
+          <div className={`hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs sm:flex ${runtime.native ? "border-emerald-500/25 bg-emerald-500/5 text-emerald-200" : "border-amber-500/25 bg-amber-500/5 text-amber-200"}`}><ShieldCheck className="h-3.5 w-3.5" /> {runtime.native ? "Android · local runtime" : "Browser preview · no radio access"}</div>
         </div>
       </header>
 
