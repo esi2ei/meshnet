@@ -183,3 +183,10 @@ MeshNet is intended to be a fully offline-capable, decentralized, peer-to-peer m
 - Branch protection: repository rulesets endpoint returned empty; branches API marked main unprotected. GET branch protection returned 403 to connected integration. No permission to configure protection was available. Dependabot/Code Scanning/Secret Scanning alert queues could not be read through the integration; do not claim them clear.
 - Workflow and security posture: only one MeshNet workflow, pinned actions, contents:read, no pull_request_target; no CI lockfile; no release workflow. No quantitative before/after CI or artifact saving baseline; do not claim measured savings.
 - Main open PRs at this checkpoint: #2, #29, #37. #34 and #35 already merged. No other open PRs were present in the live list.
+
+
+## Live repository audit — 2026-11-28 (new session)
+- At session start, verified the canonical repository as `esi2ei/meshnet`, repository ID `1268313307`, owner `esi2ei`, public, not archived, default branch `main`. Repository URL is exactly https://github.com/esi2ei/meshnet.
+- Read this memory file from the dedicated `assistant-memory` branch before repository work. Current live state, PR inventory, CI runs, and app source-distribution findings must be revalidated in this session; preceding checkpoints are historical only.
+- User requested a current repository/PR audit, safe merges only after validation, repair of merge blockers, and investigation/fix of why application source code is visible in the app. No project changes or merges have been made in this session as of this entry.
+- Safety constraints retained: never force-push, bypass branch protection, suppress required checks, or merge a Draft/deferred PR without independently verifying exact-head CI and product/security acceptance. Report checks that are unavailable or not run as such.
