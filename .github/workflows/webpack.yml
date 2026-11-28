@@ -91,7 +91,9 @@ jobs:
         working-directory: mobile
         env:
           MESHNET_PREBUILT_WEB_ASSETS: "true"
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+        run: |
+          set -o pipefail
+          gradle --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee "$RUNNER_TEMP/meshnet-android-build.log"
 
       - name: Verify debug APK signature and checksum
         if: success()
@@ -122,11 +124,22 @@ jobs:
           script: |
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
               gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest \
-                -Pandroid.testInstrumentationRunnerArguments.class=com.meshnet.app.MeshTransferReceiptStoreTest,com.meshnet.app.MeshOfflineWalletStoreTest,com.meshnet.app.MeshGroupMembershipStoreTest,com.meshnet.app.MeshMembershipSyncProtocolTest,com.meshnet.app.BundledDashboardAssetsTest,com.meshnet.app.MeshRouterReceiptTest,com.meshnet.app.MeshSecretStoreTest
+                -Pandroid.testInstrumentationRunnerArguments.class=com.meshnet.app.MeshTransferReceiptStoreTest,com.meshnet.app.MeshOfflineWalletStoreTest,com.meshnet.app.MeshGroupMembershipStoreTest,com.meshnet.app.MeshMembershipSyncProtocolTest,com.meshnet.app.BundledDashboardAssetsTest,com.meshnet.app.MeshRouterReceiptTest,com.meshnet.app.MeshGroupDeliveryLedgerTest,com.meshnet.app.MeshSecretStoreTest
             else
               gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest
             fi
 
+      - name: Upload Android build and test diagnostics
+        if: ${{ !cancelled() && failure() }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: meshnet-android-diagnostics-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/meshnet-android-build.log
+            ${{ runner.temp }}/meshnet-android-tests.log
+            mobile/app/build/reports/
+          if-no-files-found: warn
+          retention-days: 3
       # Successful pull-request checks do not need downloadable build artifacts.
       # Keep diagnostics on failure; allow explicit manual runs to retain the APK.
       - name: Upload debug APK artifact
