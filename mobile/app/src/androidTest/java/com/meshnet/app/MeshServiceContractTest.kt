@@ -122,4 +122,12 @@ class MeshServiceContractTest {
         contract.maximumChargeFor(contract.maxBillableBytes + 1)
     }
 
+    @Test(expected = IllegalArgumentException::class)
+    fun refusesSignatureFromPrivateKeyThatDoesNotMatchPartyIdentity() {
+        val provider = keyPair()
+        val consumer = keyPair()
+        val impostor = keyPair()
+        unsignedContract(provider, consumer).signAsProvider(impostor.private)
+    }
+
 }
