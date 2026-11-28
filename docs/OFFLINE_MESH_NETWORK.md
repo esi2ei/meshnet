@@ -77,6 +77,11 @@ The completion branch removes that check from the three relay paths. A frame is 
 
 A regression test places the relay's own ID in attacker-controlled hop metadata and verifies that the relay still forwards the frame without learning a route to the fabricated victim.
 
+
+### Relay TTL metadata invariant
+
+The router does not use mutable `hops` membership to suppress a relay; local per-frame deduplication remains the forwarding guard. When forwarding, it normalizes the current node ID to the final hop entry. If the untrusted metadata already contained the current relay, TTL is not decremented a second time; otherwise the relay decrements TTL once. This preserves MeshFrame v6's decode invariant `ttl + hops.size == MAX_TTL + 1` while keeping the route-history field out of the trust decision. The forged-hop regression test reaches the relay with a structurally valid TTL/hops pair and checks that no route to the fabricated victim is learned.
+
 ## Local content recovery policy
 
 The offline library preserves local content when its catalogue metadata is damaged, the configured storage quota is exceeded, a blob fails integrity validation, or a crash occurs between writing a blob and committing the catalogue index. New writes stop when the library cannot safely establish quota/integrity state. The user can explicitly remove selected records or re-publish the same content to repair/re-index it. Orphan blobs are not silently deleted at startup. This policy protects data but does not yet provide encrypted private-library ACLs, peer backup or full user-directed export/restore.
@@ -102,4 +107,4 @@ Until the gaps above are implemented and validated, MeshNet should be presented 
 
 ## Validation and release boundary update — 2026-11-28
 
-Run #156 successfully completed Node 22 web typecheck/build, Android `:app:assembleDebug` and APK signature verification, but its emulator instrumentation wrapper failed before invoking Gradle/JUnit because a multiline `if/fi` script was split across shells. Run #162 also built and signed the APK successfully, then failed before JUnit because the emulator step lacked `MESHNET_PREBUILT_WEB_ASSETS=true` and Gradle attempted `vite build` in the Android job (`vite: not found`). The workflow now uses single-line shell-safe commands and passes the already-tested web bundle flag to both emulator paths. The current pending PR run must provide the first real targeted JUnit evidence after these fixes. No two- or three-phone radio/OEM validation is implied by emulator success.
+**Final targeted CI evidence — run #179 (`46103437101`):** current application/test code at commit `798d12bebdcb8cb365c1cbd52df10...` passed Node 22 web typecheck/build, Android debug APK assembly, APK signature verification and the focused API 36 suite (**187/187 tests passed; 0 failures/errors/skips**). The current branch head later received a documentation-only update. Earlier workflow-wrapper, prebuilt-assets and source/test failures were corrected; they are retained in the development roadmap for traceability. The complete Android instrumentation suite was not run, and emulator success does not imply physical two-/three-phone BLE/Wi-Fi, Android OEM/background or radio interoperability evidence. No independent cryptographic or smart-contract audit has been completed.
