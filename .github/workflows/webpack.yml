@@ -45,7 +45,16 @@ jobs:
       - name: Build production bundle
         run: npm run build
 
+      - name: Upload the tested web dashboard for Android packaging
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: meshnet-web-dist-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
   android:
+    needs: web
     name: Android debug APK and instrumentation tests
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -60,15 +69,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Node.js for the bundled dashboard
-        uses: actions/setup-node@v7.1.0
+      - name: Download the tested web dashboard
+        uses: actions/download-artifact@v7.0.2
         with:
-          node-version: 22.x
-          cache: npm
-          cache-dependency-path: package.json
-
-      - name: Install dashboard dependencies
-        run: npm install --no-audit --no-fund
+          name: meshnet-web-dist-${{ github.sha }}
+          path: dist
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4.0.4
@@ -84,6 +89,8 @@ jobs:
 
       - name: Build debug APK
         working-directory: mobile
+        env:
+          MESHNET_PREBUILT_WEB_ASSETS: "true"
         run: gradle --no-daemon --stacktrace :app:assembleDebug
 
       - name: Verify debug APK signature and checksum
