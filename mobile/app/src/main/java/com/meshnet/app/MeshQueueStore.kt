@@ -185,8 +185,11 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
         writableDatabase.delete("directed_targets", "message_id = ?", arrayOf(messageId))
 
     /**
-     * Directed messages can only be retired by a receipt signed by their intended destination.
-     * Broadcast messages accept a receipt from any authenticated group member.
+     * A directed message can only be retired by its intended destination.
+     *
+     * Group broadcasts fail closed until a cryptographically authenticated, durable
+     * membership roster and per-member receipt ledger exist. A shared group key proves
+     * group-key possession, not that every intended member received the message.
      */
     @Synchronized
     fun receiptMatches(messageId: String, receiptOrigin: String): Boolean {
@@ -198,13 +201,14 @@ class MeshQueueStore(context: Context) : SQLiteOpenHelper(
             arrayOf(messageId)
         ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
         if (recordedDestination != null) return recordedDestination == receiptOrigin
-        val encoded = writableDatabase.rawQuery(
+
+        val encoded = db.rawQuery(
             "SELECT frame FROM outbox WHERE message_id = ? AND frame_kind = ? LIMIT 1",
             arrayOf(messageId, MeshFrame.KIND_MESSAGE)
-        ).use { cursor -> if (cursor.moveToFirst()) cursor.getBlob(0) else null } ?: return true
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getBlob(0) else null } ?: return false
         val frame = runCatching { MeshFrame.decode(encoded) }.getOrNull() ?: return false
-        val destination = frame.destination
-        return destination == null || destination == receiptOrigin
+        val destination = frame.destination ?: return false
+        return destination == receiptOrigin
     }
 
     /**
