@@ -4,9 +4,9 @@ This document is the working source of truth for the completion branch. It disti
 
 ## Branch and delivery policy
 
-- Stable baseline: `main` at merge commit `a5aecaab8af0f33ab161fba3c57c29cdda606fe7` (PR #30, 2026-11-28).
+- Stable baseline: `main` at commit `8828dc37602acac84957497d5f76fe81c77ffd4a` (PR #33, CI artifact-retention optimization, 2026-11-28).
 - Trial artifact only: release/trial-apk (PR #15). Do not put feature work on this branch.
-- Mainline regression gate: PR #30 is merged. Run #193 validated its exact source head with Node 22 checks, Android debug APK assembly/signature verification, and 167/167 focused API 36 instrumentation tests; the full instrumentation suite remained intentionally skipped.
+- Mainline regression gate: PR #33 is merged. Run #228 validates the current completion-branch head `af99a516f453dedb3b7be1a2751395246f0e016e` with Node 22 bridge contract, TypeScript typecheck, Vite production build, Android debug APK assembly/signature verification, and 195/195 focused API 36 instrumentation tests. The full instrumentation suite remains unrun.
 - Ongoing engineering: work/offline-mesh-completion. All follow-up source, test, and documentation work belongs here.
 - Keep changes grouped by topic, with matching tests and documentation in the same commit where practical.
 - Open or update one draft PR for this completion branch after a coherent batch is ready; do not merge it automatically.
@@ -56,7 +56,7 @@ The GitHub requirements set contains 12 open issues (#17–#28). Their state is 
 
 - [x] Raise the queue database schema to v10 and atomically quarantine pre-v6 outbox frames and replay markers before clearing them from active dispatch/replay tables.
 - [x] Expose bounded read-only access to quarantined frame bytes and replay metadata for recovery tooling; quarantined frames are never returned by the live pending queue.
-- [x] Validate migration coverage on API 36: instrumentation covers every legacy schema version 1–7 (including original frame bytes, metadata, retry count and replay markers) and verifies a compatible v9-to-v10 migration preserves its live outbox. Exact-head CI run #226 passed 195 tests with zero failures, errors or skips.
+- [x] Validate migration coverage on API 36: instrumentation covers every legacy schema version 1–7 (including original frame bytes, metadata, retry count and replay markers) and verifies a compatible v9-to-v10 migration preserves its live outbox. Exact-head CI run #228 passed 195 tests with zero failures, errors or skips.
 - [ ] Add a user-facing export/review/discard flow and physical-device upgrade/interruption/restart evidence. Do not advertise user-facing recovery until that flow exists.
 - [x] Detect missing/unusable device identity keys and fail closed when the installation marker/fingerprint or legacy membership/delivery evidence shows an identity already existed; preserve a valid pre-marker Keystore identity and record its fingerprint. Covered by API 36 identity key-loss/legacy-state instrumentation tests.
 - [ ] Continue the remaining #32 P0 work: end-to-end group delivery semantics; explicit user-facing encrypted identity recovery/re-enrollment, portability and revocation; and independently reviewed per-device session/group-key lifecycle.
@@ -535,8 +535,8 @@ Branch heads and Actions runs change with every commit, so this roadmap intentio
 - Check the current head SHA and Draft/open state in [PR #29](https://github.com/esi2ei/meshnet/pull/29).
 - Check the status of all required jobs for that exact SHA in [PR #29 checks](https://github.com/esi2ei/meshnet/pull/29/checks).
 - Do not use a successful run from an earlier SHA as evidence for newer code, even when the intervening change appears small.
-- **Run #210** on code/test SHA `2e6264388e868a85bb06aa36d6cf942b4e78a6db` passed the Node 22 bridge-preservation guard, TypeScript typecheck and production web build; Android debug APK assembly and signature/checksum verification; and the focused Android API 36 instrumentation step. The full Android instrumentation suite was skipped by design. This run validates the new bridge guard and runtime-status serializer regression class.
-- The later comparison from `2e6264388e868a85bb06aa36d6cf942b4e78a6db` to the review branch head contained documentation-only changes in `docs/DEVELOPMENT_ROADMAP.md` and `mobile/README.md`; no application, test, workflow or package source changed in that interval. Run #213 is validating the newest documentation head: its Node 22 job passed and its Android job was still in progress at the time of review.
+- **Current exact-head validation — Run #228:** `af99a516f453dedb3b7be1a2751395246f0e016e` passed the Node 22 bridge contract, TypeScript typecheck, Vite production build, Android debug APK assembly, APK signature verification and focused Android API 36 instrumentation (195 tests, 0 failures, 0 skipped). See [Actions run #228](https://github.com/esi2ei/meshnet/actions/runs/46140018146).
+- The full non-targeted Android instrumentation suite remains unrun; physical multi-device/OEM tests, independent cryptographic and smart-contract audits, and legal/carrier approval remain separate pending gates.
 - The full, non-targeted Android instrumentation suite, physical multi-phone/OEM tests, independent cryptographic audit, smart-contract audit and legal/carrier approval remain separate gates.
 
 **Delivery policy:** PR #29 remains Draft until the current-head checks and code-level acceptance criteria pass. No automatic merge to `main`.
