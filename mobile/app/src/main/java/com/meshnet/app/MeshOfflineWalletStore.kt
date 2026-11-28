@@ -1,6 +1,8 @@
 package com.meshnet.app
 
 import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
@@ -12,6 +14,10 @@ import java.security.Signature
 import java.security.spec.X509EncodedKeySpec
 import java.util.UUID
 import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 /**
  * Offline signed payment-request/receipt envelope.
@@ -24,6 +30,7 @@ import java.security.KeyStore
 class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
     private val walletId = walletId.also { require(it.matches(Regex("[a-zA-Z0-9_-]{1,32}"))) { "Invalid local wallet ID" } }
     private val keyAlias = "meshnet-offline-wallet-signing-$walletId"
+    private val storageKeyAlias = "meshnet-offline-wallet-storage-$walletId"
     data class Receipt(
         val id: String,
         val sender: String,
@@ -98,10 +105,11 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         )
         // Keep the display history bounded independently; replay IDs are never pruned.
         while (history.length() > MAX_HISTORY_ENTRIES) history.remove(0)
+        val encodedIds = JSONArray().apply { received.sorted().forEach { put(it) } }.toString()
         check(preferences.edit()
-            .putStringSet(KEY_RECEIVED_IDS, received)
-            .putString(KEY_HISTORY, history.toString())
-            .commit()) { "Could not persist offline payment receipt and replay protection" }
+            .putString(KEY_RECEIVED_IDS, encryptPreference(KEY_RECEIVED_IDS, encodedIds))
+            .putString(KEY_HISTORY, encryptPreference(KEY_HISTORY, history.toString()))
+            .commit()) { "Could not persist encrypted offline payment receipt and replay protection" }
         return receipt
     }
 
@@ -138,9 +146,9 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
             .put("createdAt", createdAt)
             .put("payload", payload)
             .put("status", "QUEUED"))
-        check(preferences.edit().putString(KEY_OUTGOING, entries.toString()).commit()) {
-            "Could not persist outgoing offline transfer"
-        }
+        check(preferences.edit()
+            .putString(KEY_OUTGOING, encryptPreference(KEY_OUTGOING, entries.toString()))
+            .commit()) { "Could not persist encrypted outgoing offline transfer" }
     }
 
     /** The recipient signs an application-level acknowledgement after its receipt is durable. */
@@ -197,9 +205,9 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
             "Acknowledgement does not match the queued recipient and amount"
         }
         item.put("status", "RECEIVED").put("acknowledgedAt", acknowledgedAt)
-        check(preferences.edit().putString(KEY_OUTGOING, entries.toString()).commit()) {
-            "Could not persist recipient acknowledgement"
-        }
+        check(preferences.edit()
+            .putString(KEY_OUTGOING, encryptPreference(KEY_OUTGOING, entries.toString()))
+            .commit()) { "Could not persist encrypted recipient acknowledgement" }
         return OutgoingTransfer(id, recipient, amount, item.getLong("createdAt"), "RECEIVED")
     }
 
@@ -231,7 +239,8 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
     }
 
     private fun readOutgoing(): JSONArray =
-        runCatching { JSONArray(preferences.getString(KEY_OUTGOING, "[]")) }.getOrDefault(JSONArray())
+        runCatching { JSONArray(readEncryptedPreference(KEY_OUTGOING, "[]")) }
+            .getOrElse { throw IllegalStateException("Offline wallet outgoing history is corrupt", it) }
 
     private fun canonicalAcknowledgement(json: JSONObject): ByteArray {
         val fields = listOf("version", "voucherId", "sender", "recipient", "amountMinor", "recipientPublicKey", "acknowledgedAt")
@@ -260,6 +269,7 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         check(preferences.edit().clear().commit()) { "Could not clear offline wallet data" }
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         if (keyStore.containsAlias(keyAlias)) keyStore.deleteEntry(keyAlias)
+        if (keyStore.containsAlias(storageKeyAlias)) keyStore.deleteEntry(storageKeyAlias)
     }
 
     private fun identity(): KeyPair {
@@ -320,11 +330,99 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         return decoded
     }
 
-    private fun readIds(): MutableSet<String> =
-        preferences.getStringSet(KEY_RECEIVED_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
+    /**
+     * Wallet records are encrypted separately per preference key so values cannot be swapped
+     * between replay protection, history and outgoing vouchers without GCM authentication failing.
+     * Legacy plaintext values are migrated on first read; malformed encrypted data and a missing
+     * Keystore key fail closed rather than appearing as an empty wallet.
+     */
+    private fun readEncryptedPreference(key: String, defaultValue: String): String {
+        val stored = preferences.all[key] ?: return defaultValue
+        val value = stored as? String
+            ?: throw IllegalStateException("Wallet preference $key has an unsupported legacy type")
+        if (value.startsWith("$STORAGE_PREFIX|")) return decryptPreference(key, value)
+        if (value.startsWith("MNW")) {
+            throw IllegalStateException("Wallet preference $key has an unknown encryption envelope")
+        }
+        check(preferences.edit().putString(key, encryptPreference(key, value)).commit()) {
+            "Could not migrate wallet preference $key to encrypted storage"
+        }
+        return value
+    }
+
+    private fun readIds(): MutableSet<String> {
+        val stored = preferences.all[KEY_RECEIVED_IDS] ?: return mutableSetOf()
+        if (stored is Set<*>) {
+            val migrated = stored.mapNotNull { it as? String }.toSet()
+            require(migrated.size <= MAX_RECEIVED_PAYMENTS) { "Legacy wallet replay set exceeds its limit" }
+            val encoded = JSONArray().apply { migrated.sorted().forEach { put(it) } }.toString()
+            check(preferences.edit()
+                .putString(KEY_RECEIVED_IDS, encryptPreference(KEY_RECEIVED_IDS, encoded))
+                .commit()) { "Could not migrate encrypted wallet replay protection" }
+            return migrated.toMutableSet()
+        }
+        val array = runCatching {
+            JSONArray(readEncryptedPreference(KEY_RECEIVED_IDS, "[]"))
+        }.getOrElse { throw IllegalStateException("Offline wallet replay protection is corrupt", it) }
+        require(array.length() <= MAX_RECEIVED_PAYMENTS) { "Offline wallet replay protection exceeds its limit" }
+        return (0 until array.length()).map { array.getString(it) }.toMutableSet()
+    }
 
     private fun readHistory(): JSONArray =
-        runCatching { JSONArray(preferences.getString(KEY_HISTORY, "[]")) }.getOrDefault(JSONArray())
+        runCatching { JSONArray(readEncryptedPreference(KEY_HISTORY, "[]")) }
+            .getOrElse { throw IllegalStateException("Offline wallet receipt history is corrupt", it) }
+
+    private fun encryptPreference(key: String, plaintext: String): String {
+        val cipher = Cipher.getInstance(STORAGE_TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateStorageKey())
+        cipher.updateAAD(storageAdditionalData(key))
+        val encrypted = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+        return "$STORAGE_PREFIX|${encode(cipher.iv)}|${encode(encrypted)}"
+    }
+
+    private fun decryptPreference(key: String, encoded: String): String = try {
+        val parts = encoded.split('|')
+        require(parts.size == 3 && parts[0] == STORAGE_PREFIX) {
+            "Wallet preference $key has a malformed encryption envelope"
+        }
+        val iv = decodeCanonicalBase64(parts[1])
+        require(iv.size == STORAGE_IV_BYTES) { "Wallet preference $key has an invalid IV" }
+        val ciphertext = decodeCanonicalBase64(parts[2])
+        require(ciphertext.size >= STORAGE_TAG_BYTES) { "Wallet preference $key is truncated" }
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        val secretKey = keyStore.getKey(storageKeyAlias, null) as? SecretKey
+            ?: throw IllegalStateException("Wallet encryption key is missing for $walletId")
+        val cipher = Cipher.getInstance(STORAGE_TRANSFORMATION)
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(STORAGE_TAG_BITS, iv))
+        cipher.updateAAD(storageAdditionalData(key))
+        cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
+    } catch (error: Exception) {
+        throw IllegalStateException(
+            "Wallet preference $key authentication failed; refusing to discard wallet history",
+            error
+        )
+    }
+
+    private fun getOrCreateStorageKey(): SecretKey {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        (keyStore.getKey(storageKeyAlias, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                storageKeyAlias,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
+                .setUserAuthenticationRequired(false)
+                .build()
+        )
+        return generator.generateKey()
+    }
+
+    private fun storageAdditionalData(key: String): ByteArray =
+        "meshnet-offline-wallet-storage-v1|$walletId|$key".toByteArray(Charsets.UTF_8)
 
     private fun addressFor(publicKey: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(publicKey).joinToString("") { "%02x".format(it.toInt() and 0xff) }
@@ -344,6 +442,11 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         private const val KEY_HISTORY = "received_payment_history"
         private const val KEY_OUTGOING = "outgoing_payment_history"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        private const val STORAGE_PREFIX = "MNW1"
+        private const val STORAGE_TRANSFORMATION = "AES/GCM/NoPadding"
+        private const val STORAGE_IV_BYTES = 12
+        private const val STORAGE_TAG_BITS = 128
+        private const val STORAGE_TAG_BYTES = STORAGE_TAG_BITS / 8
         private const val KEY_ALGORITHM = "EC"
         private const val SIGNATURE_ALGORITHM = "SHA256withECDSA"
         private const val VERSION = 1
