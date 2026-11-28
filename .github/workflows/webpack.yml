@@ -136,8 +136,10 @@ jobs:
           disable-animations: true
           script: MESHNET_PREBUILT_WEB_ASSETS=true bash -o pipefail -c 'gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"'
 
-      - name: Upload Android diagnostics on failure
-        if: ${{ !cancelled() && failure() }}
+      # Keep successful PR runs lean. Bundle Android reports with diagnostics only
+      # after a failure or an explicit manual validation run.
+      - name: Upload Android diagnostics and test reports when needed
+        if: ${{ !cancelled() && (failure() || github.event_name == 'workflow_dispatch') }}
         uses: actions/upload-artifact@v7.0.2
         with:
           name: meshnet-android-diagnostics-${{ github.sha }}
@@ -145,6 +147,7 @@ jobs:
             ${{ runner.temp }}/meshnet-android-build.log
             ${{ runner.temp }}/meshnet-android-tests.log
             mobile/app/build/reports/
+            mobile/app/build/outputs/androidTest-results/connected/
           if-no-files-found: warn
           retention-days: 3
 
@@ -159,13 +162,3 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload Android test reports
-        if: ${{ !cancelled() && (failure() || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request') }}
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: meshnet-android-test-reports-${{ github.sha }}
-          path: |
-            mobile/app/build/reports/androidTests/connected/
-            mobile/app/build/outputs/androidTest-results/connected/
-          if-no-files-found: ignore
-          retention-days: 3
