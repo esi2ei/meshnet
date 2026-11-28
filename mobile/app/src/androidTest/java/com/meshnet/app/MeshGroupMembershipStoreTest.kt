@@ -112,6 +112,17 @@ class MeshGroupMembershipStoreTest {
     }
 
     @Test
+    fun futureDatedMembershipEventIsRejected() {
+        val identity = MeshDeviceIdentity.generateEphemeral()
+        val event = MeshMembershipEvent.create(
+            identity, group, 1, MeshMembershipEvent.JOIN,
+            createdAt = System.currentTimeMillis() + 10 * 60 * 1000L
+        )
+        assertFalse(event.verify())
+        assertTrue(runCatching { store.append(event) }.isFailure)
+    }
+
+    @Test
     fun offlineReplicaMergeIsIdempotentAcrossGroups() {
         val identity = MeshDeviceIdentity.generateEphemeral()
         val first = MeshMembershipEvent.create(identity, group, 1, MeshMembershipEvent.JOIN)
