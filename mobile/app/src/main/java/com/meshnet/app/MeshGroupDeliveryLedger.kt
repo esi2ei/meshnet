@@ -269,6 +269,16 @@ internal class MeshGroupDeliveryLedger(context: Context) : SQLiteOpenHelper(
                 db.setTransactionSuccessful()
                 return false
             }
+            val snapshotCount = db.rawQuery("SELECT COUNT(*) FROM delivery_snapshots", null).use {
+                if (it.moveToFirst()) it.getInt(0) else MAX_SNAPSHOTS
+            }
+            val recipientCount = db.rawQuery("SELECT COUNT(*) FROM delivery_recipients", null).use {
+                if (it.moveToFirst()) it.getInt(0) else MAX_TOTAL_RECIPIENTS
+            }
+            require(snapshotCount < MAX_SNAPSHOTS &&
+                recipientCount + snapshot.recipients.size <= MAX_TOTAL_RECIPIENTS) {
+                "Delivery snapshot ledger is full; resolve or export pending delivery records"
+            }
             db.insertOrThrow(
                 "delivery_snapshots", null,
                 ContentValues().apply {
@@ -336,6 +346,12 @@ internal class MeshGroupDeliveryLedger(context: Context) : SQLiteOpenHelper(
                 db.setTransactionSuccessful()
                 return false
             }
+            val receiptCount = db.rawQuery("SELECT COUNT(*) FROM delivery_receipt_events", null).use {
+                if (it.moveToFirst()) it.getInt(0) else MAX_RECEIPT_EVENTS
+            }
+            require(receiptCount < MAX_RECEIPT_EVENTS) {
+                "Delivery receipt ledger is full; export or reconcile before accepting more receipts"
+            }
             db.insertOrThrow(
                 "delivery_receipt_events", null,
                 ContentValues().apply {
@@ -401,6 +417,9 @@ internal class MeshGroupDeliveryLedger(context: Context) : SQLiteOpenHelper(
     companion object {
         private const val DATABASE_NAME = "meshnet-group-delivery.db"
         private const val DATABASE_VERSION = 1
+        private const val MAX_SNAPSHOTS = 6000
+        private const val MAX_TOTAL_RECIPIENTS = 250000
+        private const val MAX_RECEIPT_EVENTS = 250000
         private fun sha256(bytes: ByteArray): String =
             MessageDigest.getInstance("SHA-256").digest(bytes)
                 .joinToString("") { "%02x".format(it.toInt() and 0xff) }
