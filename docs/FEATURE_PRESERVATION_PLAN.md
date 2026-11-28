@@ -124,7 +124,7 @@ The guard protects the bridge surface against accidental deletion or rename; it 
 ### FP-00 — Freeze the capability baseline
 
 - [x] Record implemented, partial, prototype and planned capabilities in the roadmap and this contract.
-- [ ] Add/confirm a capability-to-screen-to-bridge-to-native-owner-to-store-to-test mapping for every exposed user action.
+- [ ] Add/confirm a capability-to-screen-to-bridge-to-native-owner-to-store-to-test mapping for every exposed user action; use the [release test plan](RELEASE_TEST_PLAN.md) for physical-device evidence.
 - [ ] Capture baseline behavior with focused characterization tests before moving each area.
 - [ ] Record unsupported hardware, permissions and external-service conditions as capability-specific degraded states.
 
