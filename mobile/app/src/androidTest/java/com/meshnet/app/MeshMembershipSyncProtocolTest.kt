@@ -147,7 +147,7 @@ class MeshMembershipSyncProtocolTest {
         )
         assertTrue(senderProtocol.accept(receiver.nodeId, "~GM1|S|$group"))
         assertTrue(packets.any { it.startsWith("~GM1|P|") })
-        assertTrue(notices.any { it.contains("partial") })
+        assertTrue(notices.any { it.contains("Legacy peer supports one page only") })
         packets.forEach { receiverProtocol.accept(sender.nodeId, it) }
         assertEquals("INCOMPLETE", receiverStore.roster(group).single().status)
     }
