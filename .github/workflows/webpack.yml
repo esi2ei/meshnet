@@ -91,7 +91,9 @@ jobs:
         working-directory: mobile
         env:
           MESHNET_PREBUILT_WEB_ASSETS: "true"
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+        run: |
+          set -o pipefail
+          gradle --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee "$RUNNER_TEMP/meshnet-android-build.log"
 
       - name: Verify debug APK signature and checksum
         if: success()
@@ -124,13 +126,13 @@ jobs:
       # Successful pull-request checks do not need downloadable build artifacts.
       # Keep diagnostics on failure; allow explicit manual runs to retain the APK.
       - name: Upload debug APK artifact
-        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && hashFiles('mobile/app/build/outputs/apk/debug/app-debug.apk') != '' }}
+        if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.head_ref == 'release/trial-apk' && github.event.pull_request.head.repo.full_name == github.repository)) && hashFiles('mobile/app/build/outputs/apk/debug/app-debug.apk') != '' }}
         uses: actions/upload-artifact@v7.0.2
         with:
           name: meshnet-debug-apk-${{ github.sha }}
           path: mobile/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
 
       - name: Upload Android test reports
         if: ${{ failure() || github.event_name == 'workflow_dispatch' }}
