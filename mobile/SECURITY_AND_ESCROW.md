@@ -114,7 +114,7 @@ The journal is bounded to 2,048 receipts and 2 MiB. It stores signed accounting 
 - A missing storage key, malformed/unknown envelope, failed GCM authentication or malformed stored JSON fails closed rather than returning an empty history or silently dropping individual rows.
 - In-progress chunks are bounded by 16 envelopes, 512 KiB total, chunk count/index/length, valid message prefix and a 24-hour TTL; malformed records fail closed.
 - The signing identity and storage-encryption key are deleted together by the explicit wallet `clear()` operation.
-- Instrumentation coverage is authored for ciphertext-at-rest, reopen/read, legacy migration, missing-key, tamper, malformed rows and encrypted pending-envelope persistence. These tests are not considered passed until the current PR head's targeted CI run finishes.
+- Instrumentation coverage for ciphertext-at-rest, reopen/read, legacy migration, missing-key, tamper, malformed rows and encrypted pending-envelope persistence passed as part of run #179's focused API 36 suite (187/187 across 22 classes; 0 failures, errors or skips). The full Android instrumentation suite remains a manual workflow option and was not run.
 
 **Integrity and capacity policy:** malformed outgoing or incoming history rows fail closed instead of being silently omitted from the UI or retry queue. Receipt history is capped at 1,000 records; when full, new incoming vouchers are rejected with an explicit export/reconcile requirement rather than evicting older receipts. Replay protection remains bounded at 4,096 IDs and is never pruned automatically.
 
