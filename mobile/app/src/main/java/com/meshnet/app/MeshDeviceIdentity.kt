@@ -42,14 +42,23 @@ internal class MeshDeviceIdentity private constructor(
         val signer = Signature.getInstance("SHA256withECDSA")
         signer.initSign(privateKey)
         signer.update(signingBytes(frame))
-        val encoded = Base64.encodeToString(
-            signer.sign(), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
-        )
+        val encoded = encode(signer.sign())
         return frame.copy(signature = encoded)
+    }
+
+    /** Signs a domain-separated, canonical application record without exporting the private key. */
+    fun signDetached(domain: String, payload: ByteArray): String {
+        require(domain.matches(Regex("[a-z0-9.-]{1,80}"))) { "Invalid signature domain" }
+        require(payload.size in 1..MAX_DETACHED_PAYLOAD_BYTES) { "Invalid signed payload size" }
+        val signer = Signature.getInstance("SHA256withECDSA")
+        signer.initSign(privateKey)
+        signer.update(detachedSigningBytes(domain, payload))
+        return encode(signer.sign())
     }
 
     companion object {
         private const val KEY_ALIAS = "meshnet-device-identity-p256-v1"
+        private const val MAX_DETACHED_PAYLOAD_BYTES = 16 * 1024
 
         fun loadOrCreate(context: Context): MeshDeviceIdentity {
             val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -97,15 +106,42 @@ internal class MeshDeviceIdentity private constructor(
             }.getOrDefault(false)
         }
 
+        /** Verifies detached application records against the same P-256 device identity. */
+        internal fun verifyDetached(
+            publicKey: String,
+            expectedNodeId: String,
+            domain: String,
+            payload: ByteArray,
+            signature: String
+        ): Boolean = runCatching {
+            if (!domain.matches(Regex("[a-z0-9.-]{1,80}"))) return@runCatching false
+            if (payload.size !in 1..MAX_DETACHED_PAYLOAD_BYTES) return@runCatching false
+            val publicBytes = decodeCanonicalBase64(publicKey) ?: return@runCatching false
+            val signatureBytes = decodeCanonicalBase64(signature) ?: return@runCatching false
+            if (nodeIdFor(publicBytes) != expectedNodeId) return@runCatching false
+            val decoded = KeyFactory.getInstance("EC")
+                .generatePublic(X509EncodedKeySpec(publicBytes)) as? ECPublicKey
+                ?: return@runCatching false
+            if (!isP256(decoded)) return@runCatching false
+            Signature.getInstance("SHA256withECDSA").run {
+                initVerify(decoded)
+                update(detachedSigningBytes(domain, payload))
+                verify(signatureBytes)
+            }
+        }.getOrDefault(false)
+
+        private fun detachedSigningBytes(domain: String, payload: ByteArray): ByteArray =
+            ("meshnet-detached-v1|$domain|".toByteArray(Charsets.UTF_8) + payload)
+
         private fun decodeCanonicalBase64(value: String): ByteArray? {
             val decoded = runCatching {
                 Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
             }.getOrNull() ?: return null
-            val canonical = Base64.encodeToString(
-                decoded, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
-            )
-            return decoded.takeIf { canonical == value }
+            return decoded.takeIf { encode(it) == value }
         }
+
+        private fun encode(bytes: ByteArray): String =
+            Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
 
         private fun isP256(publicKey: ECPublicKey): Boolean = runCatching {
             val expected = AlgorithmParameters.getInstance("EC").apply {
