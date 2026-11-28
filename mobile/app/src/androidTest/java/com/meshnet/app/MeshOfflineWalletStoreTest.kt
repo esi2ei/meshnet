@@ -4,6 +4,7 @@ import androidx.test.core.app.ApplicationProvider
 import android.content.Context
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -13,6 +14,7 @@ class MeshOfflineWalletStoreTest {
     private lateinit var context: Context
     private lateinit var sender: MeshOfflineWalletStore
     private lateinit var senderId: String
+    private lateinit var recipientId: String
     private lateinit var recipient: MeshOfflineWalletStore
 
     @Before
@@ -20,8 +22,9 @@ class MeshOfflineWalletStoreTest {
         context = ApplicationProvider.getApplicationContext()
         val suffix = UUID.randomUUID().toString().replace("-", "").take(12)
         senderId = "sender-$suffix"
+        recipientId = "recipient-$suffix"
         sender = MeshOfflineWalletStore(context, senderId)
-        recipient = MeshOfflineWalletStore(context, "recipient-$suffix")
+        recipient = MeshOfflineWalletStore(context, recipientId)
     }
 
     @After
@@ -137,6 +140,71 @@ class MeshOfflineWalletStoreTest {
         } finally {
             other.clear()
         }
+    }
+
+    @Test
+    fun offlineWalletReplayHistoryAndOutgoingVoucherAreEncryptedAtRest() {
+        val voucher = sender.createPayment(recipient.address(), 875L)
+        sender.recordOutgoing(voucher)
+        val receipt = recipient.acceptPayment(voucher)
+
+        val senderPreferences = context.getSharedPreferences(
+            "meshnet-offline-wallet-v1-$senderId", Context.MODE_PRIVATE
+        )
+        val recipientPreferences = context.getSharedPreferences(
+            "meshnet-offline-wallet-v1-$recipientId", Context.MODE_PRIVATE
+        )
+        val outgoing = senderPreferences.getString("outgoing_payment_history", null)
+        val replayIds = recipientPreferences.getString("received_payment_ids", null)
+        val history = recipientPreferences.getString("received_payment_history", null)
+
+        assertTrue(outgoing?.startsWith("MNW1|") == true)
+        assertTrue(replayIds?.startsWith("MNW1|") == true)
+        assertTrue(history?.startsWith("MNW1|") == true)
+        assertFalse(outgoing!!.contains(voucher))
+        assertFalse(history!!.contains(receipt.id))
+
+        val reopenedSender = MeshOfflineWalletStore(context, senderId)
+        val reopenedRecipient = MeshOfflineWalletStore(context, recipientId)
+        assertEquals(voucher, reopenedSender.pendingOutgoingVouchers().single().payload)
+        assertEquals(receipt.id, reopenedRecipient.history().single().id)
+    }
+
+    @Test
+    fun legacyPlaintextWalletHistoryMigratesOnFirstRead() {
+        val preferences = context.getSharedPreferences(
+            "meshnet-offline-wallet-v1-$senderId", Context.MODE_PRIVATE
+        )
+        assertTrue(preferences.edit().putString("outgoing_payment_history", "[]").commit())
+
+        assertTrue(MeshOfflineWalletStore(context, senderId).outgoingHistory().isEmpty())
+        assertTrue(
+            preferences.getString("outgoing_payment_history", null)?.startsWith("MNW1|") == true
+        )
+    }
+
+    @Test
+    fun missingWalletStorageKeyDoesNotResetOutgoingHistory() {
+        val voucher = sender.createPayment(recipient.address(), 120L)
+        sender.recordOutgoing(voucher)
+        val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        keyStore.deleteEntry("meshnet-offline-wallet-storage-$senderId")
+
+        assertFalse(runCatching { sender.pendingOutgoingVouchers() }.isSuccess)
+    }
+
+    @Test
+    fun tamperedWalletCiphertextFailsClosed() {
+        val voucher = sender.createPayment(recipient.address(), 120L)
+        sender.recordOutgoing(voucher)
+        val preferences = context.getSharedPreferences(
+            "meshnet-offline-wallet-v1-$senderId", Context.MODE_PRIVATE
+        )
+        val original = preferences.getString("outgoing_payment_history", null)!!
+        val tampered = original.dropLast(1) + if (original.last() == 'A') "B" else "A"
+        assertTrue(preferences.edit().putString("outgoing_payment_history", tampered).commit())
+
+        assertFalse(runCatching { sender.outgoingHistory() }.isSuccess)
     }
 
 }
