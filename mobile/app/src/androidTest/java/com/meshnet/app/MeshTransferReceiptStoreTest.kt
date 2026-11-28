@@ -61,6 +61,13 @@ class MeshTransferReceiptStoreTest {
         store.append(contract, receipt(2, 1024, 1024, MeshTransferReceipt.GENESIS_RECEIPT_HASH))
     }
 
+    @Test(expected = IllegalStateException::class)
+    fun corruptJournalFailsClosedInsteadOfAppearingEmpty() {
+        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+            .edit().putString("chains", "{").commit()
+        MeshTransferReceiptStore(context).verifiedChain(contract)
+    }
+
     @Test
     fun secondReceiptMustExtendPersistedHashAndCumulativeTotals() {
         val store = MeshTransferReceiptStore(context)
