@@ -102,18 +102,22 @@ class MeshOfflineLibraryTest {
         assertFalse(library.items().any { it.id == id })
     }
 
-    @Test fun corruptedExistingBlobIsRemovedAndSameContentCanBePublishedAgain() {
+    @Test fun corruptedExistingBlobIsPreservedUntilExplicitRepair() {
         val first = library.publish(Uri.fromFile(source))
-        library.localFile(first.id)!!.writeText("tampered bytes")
+        val blob = library.localFile(first.id)!!
+        blob.writeText("tampered bytes")
 
         assertNull(library.localFile(first.id))
+        assertTrue("Integrity failure must preserve the original blob for recovery", blob.exists())
+        assertFalse(library.isCatalogHealthy)
         val repaired = library.publish(Uri.fromFile(source))
 
         assertEquals(first.id, repaired.id)
+        assertTrue(library.isCatalogHealthy)
         assertArrayEquals(source.readBytes(), library.localFile(repaired.id)!!.readBytes())
     }
 
-    @Test fun recoveryEnforcesLocalItemCountAndDeletesUnindexedBlobs() {
+    @Test fun overQuotaRecoveryPreservesEveryIndexedBlobUntilOwnerRemovesItems() {
         val entries = org.json.JSONArray()
         var overflowId: String? = null
         val now = System.currentTimeMillis()
@@ -137,8 +141,35 @@ class MeshOfflineLibraryTest {
 
         val recovered = MeshOfflineLibrary(context)
 
+        assertFalse(recovered.isCatalogHealthy)
+        assertTrue(recovered.isCatalogOverQuota)
+        assertEquals(MeshOfflineLibrary.MAX_LOCAL_ITEMS + 1, recovered.items().count { it.local })
+        assertTrue("Over-quota content is preserved", File(root, "$overflowId.blob").exists())
+        assertFalse(runCatching { recovered.publish(Uri.fromFile(source)) }.isSuccess)
+
+        assertTrue("Owner can explicitly remove a selected item", recovered.removeLocal(overflowId!!))
+        assertTrue(recovered.isCatalogHealthy)
         assertEquals(MeshOfflineLibrary.MAX_LOCAL_ITEMS, recovered.items().count { it.local })
         assertFalse(File(root, "$overflowId.blob").exists())
+    }
+
+    @Test fun unindexedBlobFromInterruptedCatalogueCommitIsPreservedAndCanBeReindexed() {
+        val id = MessageDigest.getInstance("SHA-256").digest(source.readBytes())
+            .joinToString("") { "%02x".format(it) }
+        val orphan = File(root, "$id.blob").apply { writeBytes(source.readBytes()) }
+        File(root, "catalog.json").writeText(org.json.JSONObject()
+            .put("local", org.json.JSONArray())
+            .put("remote", org.json.JSONArray())
+            .put("pending", org.json.JSONArray())
+            .toString())
+
+        val recovered = MeshOfflineLibrary(context)
+
+        assertTrue("Unindexed content may be from a crash between blob and index commit", orphan.exists())
+        assertTrue(recovered.items().isEmpty())
+        val reindexed = recovered.publish(Uri.fromFile(source))
+        assertEquals(id, reindexed.id)
+        assertTrue(recovered.localFile(id)!!.exists())
     }
 
     @Test fun localLibraryEnforcesPerItemSizeLimit(){
@@ -147,4 +178,42 @@ class MeshOfflineLibraryTest {
         try{assertThrows(IllegalArgumentException::class.java){library.publish(Uri.fromFile(oversized))}}
         finally{oversized.delete()}
     }
+    @Test fun malformedLocalCatalogueEntryPreservesContentBlobsAndBlocksMutation() {
+        val bytes = "keep this published file".toByteArray()
+        val id = MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+        val blob = File(root, "$id.blob").apply { writeBytes(bytes) }
+        val index = File(root, "catalog.json")
+        val original = org.json.JSONObject()
+            .put("local", org.json.JSONArray().put(org.json.JSONObject()
+                .put("id", id)
+                .put("name", "preserve.txt"))) // Missing size and createdAt: ownership is untrusted.
+            .put("remote", org.json.JSONArray())
+            .put("pending", org.json.JSONArray())
+            .toString()
+        index.writeText(original)
+
+        val recovered = MeshOfflineLibrary(context)
+
+        assertFalse(recovered.isCatalogHealthy)
+        assertTrue("A malformed local index row must not cause blob deletion", blob.exists())
+        assertEquals("Corrupt catalog must not be overwritten during recovery", original, index.readText())
+        assertFalse(runCatching { recovered.publish(Uri.fromFile(source)) }.isSuccess)
+        assertTrue(blob.exists())
+    }
+
+    @Test fun malformedCatalogueRootPreservesAllContentBlobs() {
+        val bytes = "orphan but potentially recoverable".toByteArray()
+        val id = MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+        val blob = File(root, "$id.blob").apply { writeBytes(bytes) }
+        File(root, "catalog.json").writeText("{")
+
+        val recovered = MeshOfflineLibrary(context)
+
+        assertFalse(recovered.isCatalogHealthy)
+        assertTrue(blob.exists())
+        assertFalse(runCatching { recovered.removeLocal(id) }.isSuccess)
+    }
+
 }

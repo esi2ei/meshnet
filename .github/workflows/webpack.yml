@@ -39,6 +39,9 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Verify native bridge capability contract
+        run: npm run check:bridge
+
       - name: Typecheck
         run: npm run lint
 
@@ -121,7 +124,7 @@ jobs:
           working-directory: mobile
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: MESHNET_PREBUILT_WEB_ASSETS=true bash -o pipefail -c 'gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.meshnet.app.MeshTransferReceiptStoreTest,com.meshnet.app.MeshOfflineWalletStoreTest,com.meshnet.app.MeshGroupMembershipStoreTest,com.meshnet.app.MeshMembershipSyncProtocolTest,com.meshnet.app.BundledDashboardAssetsTest,com.meshnet.app.MeshRouterReceiptTest,com.meshnet.app.MeshGroupDeliveryLedgerTest,com.meshnet.app.MeshOfflineLibraryTest,com.meshnet.app.MeshSecretStoreTest,com.meshnet.app.MeshQueueStoreTest,com.meshnet.app.MeshRouteRegistryTest,com.meshnet.app.MeshIpPacketRouterTest,com.meshnet.app.MeshFileTransferTest,com.meshnet.app.MeshOfflinePortalServerTest,com.meshnet.app.MeshPeerRegistryTest,com.meshnet.app.MeshDeviceIdentityTest,com.meshnet.app.MeshCryptoTest,com.meshnet.app.MeshFrameTest,com.meshnet.app.MeshServiceContractTest,com.meshnet.app.MeshWalletAuthorizationStoreTest,com.meshnet.app.MeshOfflineWalletEnvelopeTest,com.meshnet.app.MeshSocketPolicyTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"'
+          script: MESHNET_PREBUILT_WEB_ASSETS=true bash -o pipefail -c 'gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.meshnet.app.MeshRuntimeStatusSerializerTest,com.meshnet.app.MeshTransferReceiptStoreTest,com.meshnet.app.MeshOfflineWalletStoreTest,com.meshnet.app.MeshGroupMembershipStoreTest,com.meshnet.app.MeshMembershipSyncProtocolTest,com.meshnet.app.BundledDashboardAssetsTest,com.meshnet.app.MeshRouterReceiptTest,com.meshnet.app.MeshGroupDeliveryLedgerTest,com.meshnet.app.MeshOfflineLibraryTest,com.meshnet.app.MeshSecretStoreTest,com.meshnet.app.MeshQueueStoreTest,com.meshnet.app.MeshRouteRegistryTest,com.meshnet.app.MeshIpPacketRouterTest,com.meshnet.app.MeshFileTransferTest,com.meshnet.app.MeshOfflinePortalServerTest,com.meshnet.app.MeshPeerRegistryTest,com.meshnet.app.MeshDeviceIdentityTest,com.meshnet.app.MeshCryptoTest,com.meshnet.app.MeshFrameTest,com.meshnet.app.MeshServiceContractTest,com.meshnet.app.MeshWalletAuthorizationStoreTest,com.meshnet.app.MeshOfflineWalletEnvelopeTest,com.meshnet.app.MeshSocketPolicyTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"'
 
       - name: Run full Android instrumentation suite on API 36
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_android_instrumentation }}
@@ -137,7 +140,7 @@ jobs:
           script: MESHNET_PREBUILT_WEB_ASSETS=true bash -o pipefail -c 'gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest 2>&1 | tee "$RUNNER_TEMP/meshnet-android-tests.log"'
 
       # Keep successful PR runs lean. Bundle Android reports with diagnostics only
-      # after a failure or an explicit manual validation run.
+      # after a failure or an explicit manual workflow dispatch.
       - name: Upload Android diagnostics and test reports when needed
         if: ${{ !cancelled() && (failure() || github.event_name == 'workflow_dispatch') }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

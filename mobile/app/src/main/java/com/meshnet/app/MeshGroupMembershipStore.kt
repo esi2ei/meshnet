@@ -8,12 +8,12 @@ import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
 
-private const val MEMBERSHIP_MAX_CLOCK_SKEW_MS = 5L * 60L * 1000L
-
 /**
  * Self-authenticating membership event. A signature proves control of one device key only;
  * it does not prove that the signer is authorized by a group owner or that this roster is global.
  */
+private const val MEMBERSHIP_MAX_CLOCK_SKEW_MS = 5L * 60L * 1000L
+
 internal data class MeshMembershipEvent(
     val groupId: String,
     val eventId: String,
@@ -105,6 +105,11 @@ internal data class MeshMembershipEvent(
         private const val MAX_EVENT_BYTES = 4096
     }
 }
+
+internal data class MeshMembershipSyncRecord(
+    val rowId: Long,
+    val event: MeshMembershipEvent
+)
 
 internal data class MeshMembershipState(
     val memberId: String,
@@ -234,6 +239,46 @@ internal class MeshGroupMembershipStore(
                     add(event)
                 }
             }.asReversed()
+        }
+    }
+
+
+    /** Stable high-water mark used to bound one peer-sync snapshot. */
+    @Synchronized
+    fun syncHighWatermark(groupId: String): Long {
+        require(groupId.matches(Regex("[a-f0-9]{64}")))
+        return readableDatabase.rawQuery(
+            "SELECT COALESCE(MAX(rowid), 0) FROM membership_events WHERE group_id = ?",
+            arrayOf(groupId)
+        ).use { if (it.moveToFirst()) it.getLong(0) else 0L }
+    }
+
+    /**
+     * Cursor-based page over a fixed rowid snapshot. New events appended during a sync have
+     * larger rowids and cannot shift or enter earlier pages; retries are idempotent by event ID.
+     */
+    @Synchronized
+    fun syncEventsAfterRowId(
+        groupId: String,
+        afterRowId: Long,
+        throughRowId: Long,
+        limit: Int = 16
+    ): List<MeshMembershipSyncRecord> {
+        require(groupId.matches(Regex("[a-f0-9]{64}")))
+        require(afterRowId >= 0L && throughRowId >= afterRowId)
+        require(limit in 1..MAX_SYNC_PAGE)
+        return readableDatabase.rawQuery(
+            "SELECT rowid, encoded FROM membership_events " +
+                "WHERE group_id = ? AND rowid > ? AND rowid <= ? ORDER BY rowid ASC LIMIT ?",
+            arrayOf(groupId, afterRowId.toString(), throughRowId.toString(), limit.toString())
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val event = MeshMembershipEvent.decode(cursor.getString(1))
+                    require(event.verify()) { "Stored membership event failed signature verification" }
+                    add(MeshMembershipSyncRecord(cursor.getLong(0), event))
+                }
+            }
         }
     }
 

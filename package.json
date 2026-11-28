@@ -11,7 +11,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "check:bridge": "node scripts/check-bridge-contract.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.79.0",

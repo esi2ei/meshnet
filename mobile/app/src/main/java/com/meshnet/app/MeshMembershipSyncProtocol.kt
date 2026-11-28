@@ -19,8 +19,12 @@ internal class MeshMembershipSyncProtocol(
         val createdAt: Long,
         val chunks: MutableMap<Int, String> = mutableMapOf()
     )
+    private data class SyncProgress(val snapshotRowId: Long, val cursorRowId: Long)
+    private data class ServedSync(val snapshotRowId: Long, val nextCursorRowId: Long)
 
     private val assemblies = linkedMapOf<String, Assembly>()
+    private val syncProgressByPeer = linkedMapOf<String, SyncProgress>()
+    private val servedSyncByPeer = linkedMapOf<String, ServedSync>()
     private val lastResponseByPeer = linkedMapOf<String, Long>()
     private val lastPublishedByEvent = linkedMapOf<String, Long>()
     private var lastSyncRequestAt = 0L
@@ -52,7 +56,8 @@ internal class MeshMembershipSyncProtocol(
         val minimumInterval = if (force) MIN_FORCED_SYNC_INTERVAL_MS else SYNC_REQUEST_INTERVAL_MS
         if (now - lastSyncRequestAt < minimumInterval) return false
         lastSyncRequestAt = now
-        return send(null, "$PREFIX|S|$groupId")
+        if (force) syncProgressByPeer.clear()
+        return send(null, "$PREFIX|S|$groupId|0|0")
     }
 
     /** Returns true when the payload belongs to this control protocol (including rejected input). */
@@ -66,27 +71,101 @@ internal class MeshMembershipSyncProtocol(
         if (fields[2] != expectedGroupTag) return true
         when (fields[1]) {
             "S" -> {
-                if (fields.size != 3 || origin == localNodeId) return true
+                if (fields.size !in setOf(3, 5) || origin == localNodeId) return true
                 val now = System.currentTimeMillis()
-                if (now - (lastResponseByPeer[origin] ?: 0L) < SYNC_RESPONSE_INTERVAL_MS) return true
-                if (lastResponseByPeer.size >= MAX_SYNC_PEERS && origin !in lastResponseByPeer) {
-                    lastResponseByPeer.remove(lastResponseByPeer.keys.first())
+
+                if (fields.size == 3) {
+                    // Backward compatibility: older v6 peers send a three-field request
+                    // and understand only the legacy total-count marker. Preserve that
+                    // bounded single-page exchange; new peers use the cursor form below.
+                    if (now - (lastResponseByPeer[origin] ?: 0L) < SYNC_RESPONSE_INTERVAL_MS) return true
+                    if (lastResponseByPeer.size >= MAX_SYNC_PEERS && origin !in lastResponseByPeer) {
+                        lastResponseByPeer.remove(lastResponseByPeer.keys.first())
+                    }
+                    lastResponseByPeer[origin] = now
+                    val total = store.eventCount(groupId)
+                    val page = store.eventsForSync(groupId, LEGACY_SYNC_EVENTS)
+                    if (total > page.size) {
+                        send(origin, "$PREFIX|P|$groupId|$total")
+                        onEvent("Legacy peer supports one page only: $total membership events exist; this response contains the latest ${page.size}")
+                    }
+                    page.forEach { sendEvent(it, origin) }
+                    return true
                 }
-                lastResponseByPeer[origin] = now
-                val total = store.eventCount(groupId)
-                val page = store.eventsForSync(groupId, MAX_SYNC_EVENTS)
-                if (total > page.size) {
-                    send(origin, "$PREFIX|P|$groupId|$total")
-                    onEvent("Membership sync is partial: peer has $total events; this response contains the latest ${page.size}")
+
+                val afterRowId = fields[3].toLongOrNull() ?: return true
+                val requestedSnapshot = fields[4].toLongOrNull() ?: return true
+                if (afterRowId < 0L || requestedSnapshot < 0L || afterRowId > requestedSnapshot) return true
+
+                val highWatermark = store.syncHighWatermark(groupId)
+                val snapshot = if (requestedSnapshot == 0L) highWatermark else requestedSnapshot
+                if (snapshot > highWatermark || afterRowId > snapshot) {
+                    onEvent("Rejected membership sync cursor outside the local snapshot")
+                    return true
                 }
-                page.forEach { sendEvent(it, origin) }
+
+                if (requestedSnapshot == 0L) {
+                    if (now - (lastResponseByPeer[origin] ?: 0L) < SYNC_RESPONSE_INTERVAL_MS) return true
+                    if (lastResponseByPeer.size >= MAX_SYNC_PEERS && origin !in lastResponseByPeer) {
+                        lastResponseByPeer.remove(lastResponseByPeer.keys.first())
+                    }
+                    lastResponseByPeer[origin] = now
+                } else {
+                    val served = servedSyncByPeer[origin] ?: return true
+                    if (served.snapshotRowId != snapshot || served.nextCursorRowId != afterRowId) return true
+                }
+
+                val page = store.syncEventsAfterRowId(groupId, afterRowId, snapshot, MAX_SYNC_EVENTS)
+                val completePageQueued = page.all { record ->
+                    sendEvent(record.event, origin) == expectedChunkCount(record.event)
+                }
+                if (!completePageQueued) {
+                    onEvent("Membership sync page was only partially queued; retry from the beginning on reconnect")
+                    return true
+                }
+                val nextCursor = page.lastOrNull()?.rowId ?: afterRowId
+                val done = page.size < MAX_SYNC_EVENTS || nextCursor >= snapshot
+                if (done) {
+                    servedSyncByPeer.remove(origin)
+                } else {
+                    if (servedSyncByPeer.size >= MAX_SYNC_PEERS && origin !in servedSyncByPeer) {
+                        servedSyncByPeer.remove(servedSyncByPeer.keys.first())
+                    }
+                    servedSyncByPeer[origin] = ServedSync(snapshot, nextCursor)
+                }
+                send(origin, "$PREFIX|P|$groupId|$snapshot|$nextCursor|${if (done) 1 else 0}")
                 return true
             }
             "P" -> {
-                if (fields.size != 4) return true
-                val total = fields[3].toIntOrNull() ?: return true
-                if (total > MAX_SYNC_EVENTS) {
-                    onEvent("Peer membership history exceeds the current sync page limit; roster may remain incomplete")
+                // Older peers can report only a total count; keep the limitation explicit.
+                if (fields.size == 4) {
+                    val total = fields[3].toIntOrNull() ?: return true
+                    if (total > MAX_SYNC_EVENTS) {
+                        onEvent("Legacy peer reports $total membership events but does not support cursor paging")
+                    }
+                    return true
+                }
+                if (fields.size != 6) return true
+                val snapshot = fields[3].toLongOrNull() ?: return true
+                val cursor = fields[4].toLongOrNull() ?: return true
+                val done = when (fields[5]) { "1" -> true; "0" -> false; else -> return true }
+                if (snapshot < 0L || cursor < 0L || cursor > snapshot || (!done && cursor == 0L)) return true
+
+                val previous = syncProgressByPeer[origin]
+                if (previous != null &&
+                    (previous.snapshotRowId != snapshot || cursor <= previous.cursorRowId)
+                ) return true
+                if (!done && previous == null && syncProgressByPeer.size >= MAX_SYNC_PEERS) {
+                    syncProgressByPeer.remove(syncProgressByPeer.keys.first())
+                }
+                if (done) {
+                    syncProgressByPeer.remove(origin)
+                    onEvent("Membership sync page sequence completed with snapshot row $snapshot")
+                    return true
+                }
+                syncProgressByPeer[origin] = SyncProgress(snapshot, cursor)
+                if (!send(origin, "$PREFIX|S|$groupId|$cursor|$snapshot")) {
+                    onEvent("Membership sync continuation could not be queued; it will restart on reconnect")
                 }
                 return true
             }
@@ -97,6 +176,14 @@ internal class MeshMembershipSyncProtocol(
             }
             else -> return true
         }
+    }
+
+    private fun expectedChunkCount(event: MeshMembershipEvent): Int {
+        val encoded = Base64.encodeToString(
+            event.encode().toByteArray(Charsets.UTF_8),
+            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        )
+        return (encoded.length + CHUNK_CHARS - 1) / CHUNK_CHARS
     }
 
     private fun sendEvent(event: MeshMembershipEvent, destination: String?): Int {
@@ -188,7 +275,8 @@ internal class MeshMembershipSyncProtocol(
         private const val MAX_PAYLOAD_BYTES = 120
         private const val MAX_EVENT_BYTES = 720
         private const val MAX_ASSEMBLIES = 64
-        private const val MAX_SYNC_EVENTS = 64
+        private const val MAX_SYNC_EVENTS = 16
+        private const val LEGACY_SYNC_EVENTS = 64
         private const val SYNC_REQUEST_INTERVAL_MS = 15_000L
         private const val MIN_FORCED_SYNC_INTERVAL_MS = 2_000L
         private const val PUBLISH_INTERVAL_MS = 10_000L
