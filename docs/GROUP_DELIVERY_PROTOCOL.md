@@ -130,7 +130,7 @@ Do not enable “all members delivered” or retire group broadcasts until all o
 2. JOIN/LEAVE event verification, local durable log, automatic local JOIN, and snapshot-bounded paged v6 peer synchronization exist; crash-resumable cursor persistence, durable retry/outbox delivery, replay recovery and lifecycle/roster UX remain required;
 3. roster reconciliation and stale-view signaling are implemented;
 4. local immutable snapshots and per-member receipt events/recipient rows are transactionally persisted; integration with the original outbox message transaction remains required;
-5. sender and receiver adversarial instrumentation tests pass (test source added for local snapshot/receipt primitives; execution is still pending);
+5. targeted API 36 instrumentation for local membership, snapshot and receipt primitives passes on the current code batch (run #179: 187/187 across 22 selected classes); live protocol-v7 message/router/outbox integration remains unimplemented;
 6. physical multi-device offline/reconnect tests pass;
 7. UI clearly distinguishes delivered, partially delivered, offline, expired and cancelled states.
 
@@ -140,10 +140,14 @@ Until all gates pass, retain the current fail-closed broadcast ACK behavior. The
 
 The former most-recent-64-only response is removed for updated peers. A responder now captures a rowid high-watermark, returns up to 16 signed events per page, and records the exact next cursor it has issued to that peer. The requester cannot jump over rows or change the snapshot. The continuation is still in memory only, and the chunks remain v6 ephemeral (not durable outbox messages). This is a bounded best-effort reconciliation improvement, not a crash-resumable or globally authoritative membership protocol.
 
-The current PR adds targeted API 36 regression coverage for more than 64 events, immediate page continuation, reversed fragment arrival, and rejection of an unissued cursor. These tests are not considered passed until the corrected CI run reports their results for the current PR head.
+The current PR adds targeted API 36 regression coverage for more than 64 events, immediate page continuation, reversed fragment arrival, rejection of an unissued cursor and legacy v6 compatibility. These tests passed in run #179 (`46103437101`) on code/test commit `798d12bebdcb8cb365c1cbd52df10...`; the final branch commit after this run contains documentation-only changes.
 
 ## Compatibility with older protocol-v6 peers
 
 Updated peers request cursor paging with the extended five-field sync request. When a responder receives the original three-field `~GM1|S|<groupId>` request, it preserves the legacy exchange: one bounded page of at most 64 events and the original four-field total-count marker. If the sender has more than 64 records, it emits a partial-history warning; an older peer cannot consume the new cursor continuation. This maintains wire compatibility without falsely claiming full history delivery to older clients. To obtain all pages, both peers must support the extended cursor form.
 
-Regression-test source verifies both the 70-event cursor path between updated peers and the legacy single-page marker for an older three-field request. These are authored tests, not passing evidence until the corrected current-head API 36 run completes.
+Regression tests verify both the 70-event cursor path between updated peers and the legacy single-page marker for an older three-field request. Both passed in run #179 as part of the 187-case API 36 targeted suite.
+
+## Targeted CI evidence — 2026-11-28
+
+GitHub Actions run #179 (`46103437101`) passed on application/test commit `798d12bebdcb8cb365c1cbd52df10...`: Node 22 web typecheck/build, Android debug APK assembly and signature verification, and all 187 selected API 36 instrumentation tests (22 test classes; 0 failures, 0 errors, 0 skipped). The suite includes membership cursor paging, legacy v6 sync compatibility, immutable local delivery snapshot/receipt primitives and route relay/forged-hop regression. The full instrumentation suite and physical multi-device offline/reconnect tests remain unrun. Group delivery remains partial because these local primitives are not yet bound into protocol v7, the durable router/outbox, or the UI.
