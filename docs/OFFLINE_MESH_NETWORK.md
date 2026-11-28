@@ -12,7 +12,7 @@ This is still **not public Internet access**. The VPN captures only 100.64.0.0/1
 
 - BLE/GATT and Android Wi-Fi Direct / Wi-Fi Aware transports.
 - Versioned, authenticated MeshNet frames with TTL and route metadata.
-- Bounded reverse-route learning and peer-targeted delivery.
+- Bounded reverse-route learning and peer-targeted delivery. A mutable `hops` list is not used as proof that the current relay has already forwarded a frame; local per-frame relay deduplication and TTL bound forwarding.
 - Durable outbox and message receipts.
 - File-transfer and voice paths exposed through the Android bridge.
 - Live peer and observed-route telemetry in the local dashboard.
@@ -69,6 +69,18 @@ The HTTP portal now serves files already present in the local library through th
 - Verify permissions, foreground-service lifecycle, background restrictions and OEM-specific Wi-Fi behavior.
 - Run release signing, dependency/security review and an independent cryptographic audit before production distribution.
 
+## Routing metadata and relay suppression
+
+The current router treats the `hops` list as mutable routing metadata, not as a signed proof of the physical path. Earlier relay guards also used `frame.hops.contains(nodeId)` to suppress forwarding. Since every holder of the shared group encryption key can produce a valid group ciphertext, a malicious member could insert an intermediate node ID into the mutable list and suppress a legitimate relay.
+
+The completion branch removes that check from the three relay paths. A frame is forwarded at most once per node using local per-frame deduplication, and TTL bounds the remaining relay depth. When forwarding, the current node ID is normalized to the final hop entry so repeated copies of that node do not accumulate. This prevents a forged hop entry from suppressing an otherwise eligible relay; it does **not** create authenticated per-hop path attestations. Signed hop proofs, authenticated peer sessions, physical loop/recovery testing and resource-abuse simulations remain open.
+
+A regression test places the relay's own ID in attacker-controlled hop metadata and verifies that the relay still forwards the frame without learning a route to the fabricated victim.
+
+## Local content recovery policy
+
+The offline library preserves local content when its catalogue metadata is damaged, the configured storage quota is exceeded, a blob fails integrity validation, or a crash occurs between writing a blob and committing the catalogue index. New writes stop when the library cannot safely establish quota/integrity state. The user can explicitly remove selected records or re-publish the same content to repair/re-index it. Orphan blobs are not silently deleted at startup. This policy protects data but does not yet provide encrypted private-library ACLs, peer backup or full user-directed export/restore.
+
 ## Acceptance criteria for an offline intranet milestone
 
 1. Three or more devices can discover and form a multi-hop network without a router or mobile-data connection.
@@ -87,3 +99,7 @@ See the organized task list and evidence checklist in docs/DEVELOPMENT_ROADMAP.m
 ## Current release boundary
 
 Until the gaps above are implemented and validated, MeshNet should be presented as an offline-first mesh messaging and local file/voice transport prototype, not as a replacement for public Internet, a production secure messenger, or a settled offline payment network.
+
+## Validation and release boundary update — 2026-11-28
+
+Run #156 successfully completed Node 22 web typecheck/build, Android `:app:assembleDebug` and APK signature verification. Its Android instrumentation step did not execute: the emulator booted, but the action split a multiline conditional shell script into separate invocations and exited with a shell syntax error before Gradle/JUnit ran. The PR workflow was corrected to invoke a single-line shell command for the focused suite and to keep the manual full-suite path separate. The next run must be treated as the first actual targeted instrumentation result for these changes. No two- or three-phone radio/OEM validation is implied by emulator success.
