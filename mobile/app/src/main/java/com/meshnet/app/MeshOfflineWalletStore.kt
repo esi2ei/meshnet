@@ -91,9 +91,12 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         require(received.size < MAX_RECEIVED_PAYMENTS) {
             "Offline receipt protection is full; reconcile/export wallet history before accepting more vouchers"
         }
+        val history = readHistory()
+        require(history.length() < MAX_HISTORY_ENTRIES) {
+            "Offline wallet receipt history is full; export or reconcile it before accepting more vouchers"
+        }
         received.add(id)
         val receipt = Receipt(id, sender, recipient, amount, ASSET_CODE, createdAt)
-        val history = readHistory()
         history.put(
             JSONObject()
                 .put("id", receipt.id)
@@ -103,8 +106,6 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
                 .put("asset", receipt.asset)
                 .put("createdAt", receipt.createdAt)
         )
-        // Keep the display history bounded independently; replay IDs are never pruned.
-        while (history.length() > MAX_HISTORY_ENTRIES) history.remove(0)
         val encodedIds = JSONArray().apply { received.sorted().forEach { put(it) } }.toString()
         check(preferences.edit()
             .putString(KEY_RECEIVED_IDS, encryptPreference(KEY_RECEIVED_IDS, encodedIds))
@@ -215,26 +216,56 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
     @Synchronized
     fun pendingOutgoingVouchers(): List<PendingVoucher> {
         val array = readOutgoing()
-        return (0 until array.length()).mapNotNull { index ->
-            runCatching {
+        require(array.length() <= MAX_OUTGOING_ENTRIES) { "Offline wallet outgoing history exceeds its limit" }
+        return buildList {
+            for (index in 0 until array.length()) {
                 val item = array.getJSONObject(index)
-                if (item.getString("status") == "RECEIVED") return@runCatching null
-                PendingVoucher(item.getString("id"), item.getString("payload"))
-            }.getOrNull()
+                val id = item.getString("id")
+                val status = item.getString("status")
+                require(id.matches(Regex("[A-Za-z0-9_-]{1,64}")) && status in OUTGOING_STATUSES) {
+                    "Offline wallet outgoing entry $index is malformed"
+                }
+                val recipient = item.getString("recipient")
+                val amount = item.getLong("amountMinor")
+                val createdAt = item.getLong("createdAt")
+                require(recipient.matches(Regex("[0-9a-f]{64}")) &&
+                    amount in 1..MAX_AMOUNT_MINOR && createdAt > 0L) {
+                    "Offline wallet outgoing entry $index has invalid terms"
+                }
+                val payload = item.getString("payload")
+                val voucher = verifyPaymentPayload(payload)
+                require(voucher.getString("id") == id &&
+                    voucher.getString("sender") == address() &&
+                    voucher.getString("recipient") == recipient &&
+                    voucher.getLong("amountMinor") == amount &&
+                    voucher.getLong("createdAt") == createdAt) {
+                    "Offline wallet outgoing entry $index does not match its signed voucher"
+                }
+                if (status != "RECEIVED") add(PendingVoucher(id, payload))
+            }
         }
     }
 
     @Synchronized
     fun outgoingHistory(): List<OutgoingTransfer> {
         val array = readOutgoing()
-        return (0 until array.length()).mapNotNull { index ->
-            runCatching {
+        require(array.length() <= MAX_OUTGOING_ENTRIES) { "Offline wallet outgoing history exceeds its limit" }
+        return buildList {
+            for (index in 0 until array.length()) {
                 val item = array.getJSONObject(index)
-                OutgoingTransfer(
-                    item.getString("id"), item.getString("recipient"), item.getLong("amountMinor"),
-                    item.getLong("createdAt"), item.getString("status")
-                )
-            }.getOrNull()
+                val id = item.getString("id")
+                val status = item.getString("status")
+                val recipient = item.getString("recipient")
+                val amount = item.getLong("amountMinor")
+                val createdAt = item.getLong("createdAt")
+                require(id.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
+                    recipient.matches(Regex("[0-9a-f]{64}")) &&
+                    amount in 1..MAX_AMOUNT_MINOR && createdAt > 0L &&
+                    status in OUTGOING_STATUSES) {
+                    "Offline wallet outgoing entry $index is malformed"
+                }
+                add(OutgoingTransfer(id, recipient, amount, createdAt, status))
+            }
         }
     }
 
@@ -253,14 +284,23 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
     @Synchronized
     fun history(): List<Receipt> {
         val array = readHistory()
-        return (0 until array.length()).mapNotNull { index ->
-            runCatching {
+        require(array.length() <= MAX_HISTORY_ENTRIES) { "Offline wallet receipt history exceeds its limit" }
+        return buildList {
+            for (index in 0 until array.length()) {
                 val item = array.getJSONObject(index)
-                Receipt(
+                val receipt = Receipt(
                     item.getString("id"), item.getString("sender"), item.getString("recipient"),
                     item.getLong("amountMinor"), item.getString("asset"), item.getLong("createdAt")
                 )
-            }.getOrNull()
+                require(receipt.id.matches(Regex("[A-Za-z0-9_-]{1,64}")) &&
+                    receipt.sender.matches(Regex("[0-9a-f]{64}")) &&
+                    receipt.recipient.matches(Regex("[0-9a-f]{64}")) &&
+                    receipt.amountMinor in 1..MAX_AMOUNT_MINOR &&
+                    receipt.asset == ASSET_CODE && receipt.createdAt > 0L) {
+                    "Offline wallet receipt history entry $index is malformed"
+                }
+                add(receipt)
+            }
         }
     }
 
@@ -365,7 +405,12 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
             JSONArray(readEncryptedPreference(KEY_RECEIVED_IDS, "[]"))
         }.getOrElse { throw IllegalStateException("Offline wallet replay protection is corrupt", it) }
         require(array.length() <= MAX_RECEIVED_PAYMENTS) { "Offline wallet replay protection exceeds its limit" }
-        return (0 until array.length()).map { array.getString(it) }.toMutableSet()
+        val ids = (0 until array.length()).map { array.getString(it) }
+        require(ids.all { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) } &&
+            ids.distinct().size == ids.size) {
+            "Offline wallet replay protection contains malformed or duplicate IDs"
+        }
+        return ids.toMutableSet()
     }
 
     private fun readHistory(): JSONArray =
@@ -447,6 +492,7 @@ class MeshOfflineWalletStore(context: Context, walletId: String = "primary") {
         private const val STORAGE_IV_BYTES = 12
         private const val STORAGE_TAG_BITS = 128
         private const val STORAGE_TAG_BYTES = STORAGE_TAG_BITS / 8
+        private val OUTGOING_STATUSES = setOf("QUEUED", "RECEIVED")
         private const val KEY_ALGORITHM = "EC"
         private const val SIGNATURE_ALGORITHM = "SHA256withECDSA"
         private const val VERSION = 1
