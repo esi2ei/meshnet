@@ -58,14 +58,57 @@ internal class MeshDeviceIdentity private constructor(
 
     companion object {
         private const val KEY_ALIAS = "meshnet-device-identity-p256-v1"
+        private const val IDENTITY_STATE_PREFERENCES = "meshnet-device-identity-state"
+        private const val IDENTITY_INITIALIZED_KEY = "identity_initialized"
+        private const val IDENTITY_NODE_ID_KEY = "node_id"
         private const val MAX_DETACHED_PAYLOAD_BYTES = 16 * 1024
 
+        /**
+         * Reuses the installation's existing identity. A missing alias is only treated as
+         * first-run when there is no durable evidence that this installation has used an
+         * identity before. This prevents a lost Keystore key from silently forking the node ID.
+         */
         fun loadOrCreate(context: Context): MeshDeviceIdentity {
-            val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-            val existing = store.getEntry(KEY_ALIAS, null) as? KeyStore.PrivateKeyEntry
-            if (existing != null) return MeshDeviceIdentity(
-                existing.privateKey, existing.certificate.publicKey.encoded
+            val appContext = context.applicationContext
+            val state = appContext.getSharedPreferences(
+                IDENTITY_STATE_PREFERENCES, Context.MODE_PRIVATE
             )
+            val initialized = state.getBoolean(IDENTITY_INITIALIZED_KEY, false)
+            val recordedNodeId = state.getString(IDENTITY_NODE_ID_KEY, null)
+            if (initialized && recordedNodeId.isNullOrBlank()) {
+                throw IllegalStateException(
+                    "Saved MeshNet device identity metadata is incomplete; refusing to replace the identity"
+                )
+            }
+            if (!initialized && recordedNodeId != null) {
+                throw IllegalStateException(
+                    "Saved MeshNet device identity metadata is inconsistent; refusing to replace the identity"
+                )
+            }
+
+            val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            val aliasExists = store.containsAlias(KEY_ALIAS)
+            val existing = store.getEntry(KEY_ALIAS, null) as? KeyStore.PrivateKeyEntry
+            if (existing != null) {
+                val identity = MeshDeviceIdentity(
+                    existing.privateKey, existing.certificate.publicKey.encoded
+                )
+                if (recordedNodeId != null && recordedNodeId != identity.nodeId) {
+                    throw IllegalStateException(
+                        "The saved MeshNet identity key no longer matches its recorded device fingerprint"
+                    )
+                }
+                persistIdentityState(state, identity.nodeId)
+                return identity
+            }
+
+            if (initialized || recordedNodeId != null || aliasExists || hasPersistedIdentityRecords(appContext)) {
+                throw IllegalStateException(
+                    "The saved MeshNet device identity key is missing or unusable. " +
+                        "MeshNet stopped to avoid creating a different device identity; " +
+                        "preserve local data and use an explicit recovery or re-enrollment process."
+                )
+            }
 
             val generator = KeyPairGenerator.getInstance("EC", "AndroidKeyStore")
             generator.initialize(
@@ -76,8 +119,39 @@ internal class MeshDeviceIdentity private constructor(
                     .build()
             )
             val pair = generator.generateKeyPair()
-            return MeshDeviceIdentity(pair.private, pair.public.encoded)
+            val identity = MeshDeviceIdentity(pair.private, pair.public.encoded)
+            persistIdentityState(state, identity.nodeId)
+            return identity
         }
+
+        private fun persistIdentityState(
+            preferences: android.content.SharedPreferences,
+            nodeId: String
+        ) {
+            val recordedNodeId = preferences.getString(IDENTITY_NODE_ID_KEY, null)
+            if (recordedNodeId != null && recordedNodeId != nodeId) {
+                throw IllegalStateException(
+                    "The saved MeshNet device identity key does not match its recorded fingerprint"
+                )
+            }
+            check(
+                preferences.edit()
+                    .putBoolean(IDENTITY_INITIALIZED_KEY, true)
+                    .putString(IDENTITY_NODE_ID_KEY, nodeId)
+                    .commit()
+            ) { "Unable to persist MeshNet device identity metadata" }
+        }
+
+        /**
+         * These stores are created only after the device identity has been loaded by the
+         * mesh startup path. Their presence therefore identifies legacy installations that
+         * predate the explicit identity marker but already have signed identity-bound data.
+         */
+        private fun hasPersistedIdentityRecords(context: Context): Boolean =
+            listOf(
+                "meshnet-group-membership.db",
+                "meshnet-group-delivery.db"
+            ).any { databaseName -> context.getDatabasePath(databaseName).exists() }
 
         fun generateEphemeral(): MeshDeviceIdentity {
             val generator = KeyPairGenerator.getInstance("EC")
