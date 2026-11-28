@@ -4,7 +4,7 @@ This document is the working source of truth for the completion branch. It disti
 
 ## Branch and delivery policy
 
-- Stable baseline: main at merge commit 0fe421254c8b8e60ec0b03f064d5309bea278079 (2026-11-28; includes merged PRs #34 and #35).
+- Stable baseline: main at source-viewer fix merge commit `ca3c26c62df50ad613051dc315ed46531b95560c` (2026-11-28; includes the earlier PR #37 data-preservation migration and PR #38 APK source-bundle boundary fix).
 - Trial artifact only: release/trial-apk (PR #15). Do not put feature work on this branch.
 - Ongoing engineering: work/offline-mesh-completion. All follow-up source, test, and documentation work belongs here.
 - Keep changes grouped by topic, with matching tests and documentation in the same commit where practical.
@@ -194,10 +194,11 @@ This section records the live repository state after the PR audit; it supersedes
 
 ### Existing pull requests
 
-- **PR #2 — Mobile Wallet Adapter 2.2.1:** remains Draft/deferred. Exact-head run #53 failed Android :app:checkDebugAarMetadata: the dependency requires compileSdk 37 / AGP 9.1+, while the branch uses API 36 / AGP 8.9.1. Compared with main at `0fe421254c8b8e60ec0b03f064d5309bea278079`, its branch is 2 commits ahead and 144 commits behind. Do not merge this dependency bump independently; revisit only as part of a coordinated toolchain migration.
-- **PR #29 — default-deny unverified receipts:** remains Draft. Current exact-head run #237 on `c41e48dfbc89c63619776baf1ba6c4503bee7259` passed the Node 22 bridge contract/typecheck/web build, Android debug APK assembly/signature verification and **197 focused API 36 emulator tests**. The full Android instrumentation suite was skipped (manual workflow dispatch only), and physical-device checks remain Pending / Not Run. This does not close its product/security gates: per-device E2EE and ratchets/forward secrecy, key enrollment/revocation/recovery, protocol-v7 durable group receipt and router/outbox/UI integration, crash-resumable membership sync, private file controls, and independent cryptographic review.
-- **PR #34 — VPN packet-drop diagnostics:** merged as 48a2a5f578bffb0e2a6cf82532f1052bc70c5d9d. Exact-head run #232 passed 169 focused API 36 tests (0 failed / 0 skipped), Node/web build, APK assembly and signature/checksum validation. It adds a cumulative, rate-limited diagnostic when the mesh does not fully accept a packet from the VPN TUN. It does not implement durable packet queueing, sender backpressure, fragment retry or retransmission; issue #32 remains open.
-- **PR #35 — immutable GitHub Actions references:** merged as 0fe421254c8b8e60ec0b03f064d5309bea278079. Synchronized-head run #234 passed Node 22, Android APK/signature checks and 169 focused API 36 tests (0 failed / 0 skipped). All 12 uses occurrences in the workflow now pin full upstream commit SHAs. GitHub did not mark the pinned android-actions/setup-android and reactivecircus/android-emulator-runner commits as verified; SHA pinning prevents tag drift but does not establish their signature provenance.
+- **PR #38 — APK source-bundle boundary:** merged into main as `ca3c26c62df50ad613051dc315ed46531b95560c`. Exact-head run #247 passed Node typecheck/build, Android debug APK assembly, APK signature/checksum verification and focused API 36 instrumentation. The APK artifact was inspected; raw repository-source markers and source-map assets were absent.
+- **PR #41 — fail closed on device identity-key loss:** active validation on its exact main-based head. It persists the node fingerprint and refuses silent identity replacement; it does not implement key recovery, migration or revocation.
+- **PR #42 — API 37 / MWA 2.2.1 toolchain migration:** active validation. It upgrades AGP/Gradle/compileSdk and adopts AGP built-in Kotlin; the latest exact-head run must pass before merge.
+- **PR #29 — default-deny receipts and completion work:** remains Draft; do not merge wholesale while the critical security and group-delivery acceptance criteria are unresolved.
+- **PR #2 — old Dependabot MWA update:** stale and superseded by PR #42; do not merge independently.
 
 ### Test-status policy
 
