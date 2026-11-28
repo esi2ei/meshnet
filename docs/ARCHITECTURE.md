@@ -39,7 +39,6 @@ The APK serves Vite output from its own assets through AndroidX WebViewAssetLoad
 | `src/components/PhoneWorkspace.tsx` | User-facing native service controls |
 | `src/components/MeshSimulator.tsx` | Direct radio links and observed multi-hop frame routes |
 | `src/components/SystemInfo.tsx` | Native service and transport event history |
-| `src/components/CodeExporter.tsx` | Read-only local source browser populated at Vite build time |
 | `mobile/app/src/main/java/com/meshnet/app/` | Android activity, foreground service, transports, protocol and storage |
 | `mobile/app/src/androidTest/` | Android instrumentation and storage/protocol tests |
 | `mobile/app/src/main/AndroidManifest.xml` | Android permissions, components and foreground-service declarations |
@@ -64,11 +63,11 @@ Current topology sources:
 
 These are direct links to the remote socket endpoint. They are not proof of end-to-end reachability, route quality, or a stable device identity. A transport may reconnect with a different IP address.
 
-## Source browser scope
+## Client bundle boundary
 
-The source browser imports text files from the repository checkout during Vite build. It includes frontend, Android, instrumentation tests, Rust/Anchor, Gradle, project configuration, workflow, scripts, and Markdown documentation. It excludes generated outputs, dependency caches, IDE state, and binary assets. Paths are displayed relative to the repository root.
+The installed APK contains the production-built dashboard assets and its runtime UI code. It must not include raw repository source, native Android implementation files, instrumentation tests, build scripts, or internal documentation in the JavaScript bundle. Do not add repository-wide `import.meta.glob(..., { query: '?raw' })` imports or an in-app source browser. Source maps must remain disabled for packaged builds. Android instrumentation verifies that representative source-file markers and source-map assets are absent from the dashboard bundle.
 
-The viewer is a read-only snapshot of the source at build time. It is not an editor, does not fetch GitHub at runtime, and does not replace the compiler or tests. If new source extensions are introduced, update the allowlist in `src/components/CodeExporter.tsx`.
+The Git repository remains the canonical source distribution. Removing source files from the APK prevents the application from exposing the full checkout as a browsable in-app feature; it does not make client-side JavaScript or Android bytecode impossible to reverse engineer.
 
 ## Engineering rules
 
