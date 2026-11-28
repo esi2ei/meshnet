@@ -49,6 +49,9 @@ class MeshRouterReceiptTest {
         val senderQueue = mutableListOf<ByteArray>()
         val relayQueue = mutableListOf<ByteArray>()
         val destinationEvents = mutableListOf<String>()
+        val relayMessages = mutableListOf<String>()
+        val observedPeers = mutableListOf<String?>()
+        val acceptedRouteObservations = mutableListOf<Boolean>()
         val relayRoutes = mutableListOf<List<String>>()
         val destinationRoutes = mutableListOf<List<String>>()
         val learnedRoutes = MeshRouteRegistry()
@@ -70,13 +73,14 @@ class MeshRouterReceiptTest {
             nodeId = relayIdentity.nodeId,
             crypto = MeshCrypto(passphrase.toCharArray()),
             send = { relayQueue.add(it); true },
-            onMessage = {},
+            onMessage = { relayMessages.add(it) },
             hasReceived = { it in relaySeen },
             markReceived = { id, _ -> !relaySeen.add(id) },
             acknowledge = { 0 },
             onRouteObserved = { path, peer ->
                 relayRoutes.add(path)
-                learnedRoutes.observe(path, 100L, peer)
+                observedPeers.add(peer)
+                acceptedRouteObservations.add(learnedRoutes.observe(path, 100L, peer))
             },
             identity = relayIdentity
         )
@@ -105,6 +109,9 @@ class MeshRouterReceiptTest {
             forgedPath.copy(nonce = forgedCiphertext.first, ciphertext = forgedCiphertext.second).encode(),
             "ble-peer-address"
         )
+        assertEquals("Relay route callback was not reached: $relayMessages", listOf(listOf(senderIdentity.nodeId, relayIdentity.nodeId)), relayRoutes)
+        assertEquals(listOf("ble-peer-address"), observedPeers)
+        assertEquals(listOf(true), acceptedRouteObservations)
         assertTrue(learnedRoutes.nextHopsFor("victim_01", 100L).isEmpty())
         assertEquals(listOf("ble-peer-address"), learnedRoutes.nextHopsFor(senderIdentity.nodeId, 100L))
 
