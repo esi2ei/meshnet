@@ -130,4 +130,68 @@ class MeshServiceContractTest {
         unsignedContract(provider, consumer).signAsProvider(impostor.private)
     }
 
+    private fun digest(value: String): String =
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private fun signedContract(provider: KeyPair, consumer: KeyPair): MeshServiceContract =
+        unsignedContract(provider, consumer)
+            .signAsProvider(provider.private)
+            .signAsConsumer(consumer.private)
+
+    @Test
+    fun validatesMutuallySignedMonotonicReceiptChain() {
+        val provider = keyPair()
+        val consumer = keyPair()
+        val contract = signedContract(provider, consumer)
+        val firstUnsigned = MeshTransferReceipt.create(
+            contract, 1, 1024, 1024, contract.maximumChargeFor(1024),
+            digest("first payload"), MeshTransferReceipt.GENESIS_RECEIPT_HASH, contract.validFrom
+        )
+        val first = firstUnsigned.signAsProvider(contract, provider.private)
+            .signAsConsumer(contract, consumer.private)
+        assertTrue(first.verifyNext(contract, null))
+        assertTrue(MeshTransferReceipt.decode(first.encode()).verifyNext(contract, null))
+
+        val secondUnsigned = MeshTransferReceipt.create(
+            contract, 2, 2048, 3072, contract.maximumChargeFor(3072),
+            digest("second payload"), digest(first.encode()), contract.validFrom + 1
+        )
+        val second = secondUnsigned.signAsProvider(contract, provider.private)
+            .signAsConsumer(contract, consumer.private)
+        assertTrue(second.verifyNext(contract, first))
+        assertEquals(
+            second.cumulativeChargeMinor - first.cumulativeChargeMinor,
+            second.incrementalChargeMinor(first)
+        )
+    }
+
+    @Test
+    fun rejectsReceiptWithAlteredByteCountOrBrokenChain() {
+        val provider = keyPair()
+        val consumer = keyPair()
+        val contract = signedContract(provider, consumer)
+        val unsigned = MeshTransferReceipt.create(
+            contract, 1, 1024, 1024, contract.maximumChargeFor(1024),
+            digest("payload"), MeshTransferReceipt.GENESIS_RECEIPT_HASH, contract.validFrom
+        )
+        val receipt = unsigned.signAsProvider(contract, provider.private)
+            .signAsConsumer(contract, consumer.private)
+        assertFalse(receipt.copy(payloadBytes = 2048).verifyNext(contract, null))
+        assertFalse(receipt.copy(previousReceiptHash = "1".repeat(64)).verifyNext(contract, null))
+    }
+
+    @Test
+    fun rejectsSkippedReceiptSequence() {
+        val provider = keyPair()
+        val consumer = keyPair()
+        val contract = signedContract(provider, consumer)
+        val receipt = MeshTransferReceipt.create(
+            contract, 2, 1024, 1024, contract.maximumChargeFor(1024),
+            digest("payload"), MeshTransferReceipt.GENESIS_RECEIPT_HASH, contract.validFrom
+        ).signAsProvider(contract, provider.private).signAsConsumer(contract, consumer.private)
+        assertFalse(receipt.verifyNext(contract, null))
+    }
+
 }
