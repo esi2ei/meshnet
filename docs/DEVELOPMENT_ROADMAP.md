@@ -264,3 +264,12 @@ No issue is closed by this continuation. No production-readiness claim is made. 
 - Corrected the completion branch to use distinct sender and receiver database files and added an assertion that the receiver starts empty before synchronization. This makes the test exercise the actual export/chunk/import path rather than shared local persistence.
 - The historical run #179 remains recorded as a successful execution on its exact SHA, but its membership-sync test is not accepted as proof of independent peer synchronization. The new PR synchronization run must validate the corrected fixture before that coverage is considered CI-verified.
 - No production protocol or stored database schema changed in this correction; the database-name parameter defaults to the existing production database name.
+
+
+## Current head after mainline synchronization — 2026-11-28
+
+- Branch head: `5284faf8880040b8702ecac9afba5438562e1ecc`; this is a two-parent merge commit that includes current `main` at `a5aecaab8af0f33ab161fba3c57c29cdda606fe7`. The branch is now 0 commits behind `main` and the merge base is current `main`.
+- The membership sync fixture now uses separate sender and receiver databases and asserts the receiver is empty before the protocol exchange. The legacy partial-history test from mainline was retained alongside the paged-sync coverage.
+- The current branch workflow is aligned with PR #30's failure diagnostics and API 36 test configuration, while keeping `cancel-in-progress: false` so a new push cannot silently cancel a long emulator run.
+- The prior #179 result (187/187) predates the isolated-store correction and is historical only. The current branch has one additional partial-history test; CI must report and validate the actual current count before membership sync is marked CI-verified.
+- No fresh Actions run is visible for this merge commit yet. Do not treat source review or the previous run as a substitute for the pending CI evidence.
