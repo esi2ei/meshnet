@@ -140,7 +140,7 @@ Until all gates pass, retain the current fail-closed broadcast ACK behavior. The
 
 The former most-recent-64-only response is removed for updated peers. A responder now captures a rowid high-watermark, returns up to 16 signed events per page, and records the exact next cursor it has issued to that peer. The requester cannot jump over rows or change the snapshot. The continuation is still in memory only, and the chunks remain v6 ephemeral (not durable outbox messages). This is a bounded best-effort reconciliation improvement, not a crash-resumable or globally authoritative membership protocol.
 
-The current PR adds targeted API 36 regression coverage for more than 64 events, immediate page continuation, reversed fragment arrival, rejection of an unissued cursor and legacy v6 compatibility. These tests passed in run #179 (`46103437101`) on code/test commit `798d12bebdcb8cb365c1cbd52df10...`; the final branch commit after this run contains documentation-only changes.
+The current PR adds targeted API 36 regression coverage for more than 64 events, immediate page continuation, reversed fragment arrival, rejection of an unissued cursor and legacy v6 compatibility. These tests passed in run #179 (`46103437101`) on code/test commit `798d12bebdcb8cb365c1cbd52d60552d5e431570`; the final branch commit after this run contains documentation-only changes.
 
 ## Compatibility with older protocol-v6 peers
 
@@ -150,4 +150,4 @@ Regression tests verify both the 70-event cursor path between updated peers and 
 
 ## Targeted CI evidence — 2026-11-28
 
-GitHub Actions run #179 (`46103437101`) passed on application/test commit `798d12bebdcb8cb365c1cbd52df10...`: Node 22 web typecheck/build, Android debug APK assembly and signature verification, and all 187 selected API 36 instrumentation tests (22 test classes; 0 failures, 0 errors, 0 skipped). The suite includes membership cursor paging, legacy v6 sync compatibility, immutable local delivery snapshot/receipt primitives and route relay/forged-hop regression. The full instrumentation suite and physical multi-device offline/reconnect tests remain unrun. Group delivery remains partial because these local primitives are not yet bound into protocol v7, the durable router/outbox, or the UI.
+GitHub Actions run #179 (`46103437101`) passed on application/test commit `798d12bebdcb8cb365c1cbd52d60552d5e431570`: Node 22 web typecheck/build, Android debug APK assembly and signature verification, and all 187 selected API 36 instrumentation tests (22 test classes; 0 failures, 0 errors, 0 skipped). The suite includes membership cursor paging, legacy v6 sync compatibility, immutable local delivery snapshot/receipt primitives and route relay/forged-hop regression. The full instrumentation suite and physical multi-device offline/reconnect tests remain unrun. Group delivery remains partial because these local primitives are not yet bound into protocol v7, the durable router/outbox, or the UI.
