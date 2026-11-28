@@ -8,6 +8,7 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.net.VpnService
 import java.io.File
+import java.io.ByteArrayInputStream
 import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
@@ -18,6 +19,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -42,6 +44,21 @@ import java.math.BigInteger
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.TimeUnit
+
+internal object MeshWebViewSecurityPolicy {
+    private const val BUNDLED_HOST = "appassets.androidplatform.net"
+
+    fun isBundledAsset(uri: Uri): Boolean {
+        if (!uri.scheme.equals("https", ignoreCase = true) ||
+            !uri.host.equals(BUNDLED_HOST, ignoreCase = true) ||
+            uri.userInfo != null || uri.port != -1
+        ) return false
+        val path = uri.path ?: return false
+        if (!path.startsWith("/assets/web/")) return false
+        if (path.contains('\\\\') || path.contains('\\u0000')) return false
+        return path.split('/').none { it == "." || it == ".." }
+    }
+}
 
 class MainActivity : Activity() {
     private lateinit var status: TextView
@@ -152,34 +169,43 @@ class MainActivity : Activity() {
             overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
             addJavascriptInterface(MeshNetBridge(), "MeshNetNative")
             webViewClient = object : WebViewClient() {
-                private fun isBundledAsset(url: Uri): Boolean =
-                    url.scheme == "https" &&
-                        url.host == "appassets.androidplatform.net" &&
-                        url.path?.startsWith("/assets/web/") == true
+                private fun blockedResponse(): WebResourceResponse =
+                    WebResourceResponse(
+                        "text/plain",
+                        "UTF-8",
+                        403,
+                        "Forbidden",
+                        mapOf("Cache-Control" to "no-store"),
+                        ByteArrayInputStream(ByteArray(0))
+                    )
+
+                private fun interceptBundledAsset(url: Uri): WebResourceResponse {
+                    // addJavascriptInterface is visible to every frame. Block external and
+                    // unknown subresources instead of allowing WebView to fall back to network.
+                    if (!MeshWebViewSecurityPolicy.isBundledAsset(url)) return blockedResponse()
+                    return assetLoader.shouldInterceptRequest(url) ?: blockedResponse()
+                }
 
                 override fun shouldInterceptRequest(
                     view: WebView?,
                     request: WebResourceRequest
-                ): android.webkit.WebResourceResponse? =
-                    assetLoader.shouldInterceptRequest(request.url)
+                ): WebResourceResponse? = interceptBundledAsset(request.url)
 
                 @Suppress("DEPRECATION")
                 override fun shouldInterceptRequest(
                     view: WebView?,
                     url: String?
-                ): android.webkit.WebResourceResponse? {
-                    val requestUrl = url ?: return null
-                    return assetLoader.shouldInterceptRequest(Uri.parse(requestUrl))
-                }
+                ): WebResourceResponse? =
+                    url?.let { interceptBundledAsset(Uri.parse(it)) } ?: blockedResponse()
 
                 override fun shouldOverrideUrlLoading(
                     view: WebView?,
                     request: WebResourceRequest
-                ): Boolean = !isBundledAsset(request.url)
+                ): Boolean = !MeshWebViewSecurityPolicy.isBundledAsset(request.url)
 
                 @Suppress("DEPRECATION")
                 override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
-                    url == null || !isBundledAsset(Uri.parse(url))
+                    url == null || !MeshWebViewSecurityPolicy.isBundledAsset(Uri.parse(url))
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
