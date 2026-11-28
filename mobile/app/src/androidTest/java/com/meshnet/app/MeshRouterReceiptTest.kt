@@ -105,8 +105,8 @@ class MeshRouterReceiptTest {
         val relayed = relayQueue.map { MeshFrame.decode(it) }
             .first { it.kind == MeshFrame.KIND_MESSAGE }
         assertEquals(original.id, relayed.id)
-        assertEquals(MeshFrame.MAX_TTL - 1, relayed.ttl)
-        assertEquals(listOf("sender_01", "relay_001"), relayed.hops)
+        assertEquals(MeshFrame.MAX_TTL - 2, relayed.ttl)
+        assertEquals(listOf("sender_01", "victim_01", "relay_001"), relayed.hops)
         assertEquals(
             "route-bound hello",
             MeshCrypto(passphrase.toCharArray()).decrypt(
