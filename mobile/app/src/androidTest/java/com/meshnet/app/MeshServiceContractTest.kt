@@ -178,7 +178,7 @@ class MeshServiceContractTest {
         )
         val receipt = unsigned.signAsProvider(contract, provider.private)
             .signAsConsumer(contract, consumer.private)
-        assertFalse(receipt.copy(payloadBytes = 2048).verifyNext(contract, null))
+        assertFalse(receipt.copy(payloadBytes = 2048, cumulativePayloadBytes = 2048).verifyNext(contract, null))
         assertFalse(receipt.copy(previousReceiptHash = "1".repeat(64)).verifyNext(contract, null))
     }
 
