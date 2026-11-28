@@ -15,6 +15,7 @@ import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -28,6 +29,40 @@ internal fun isMatchingDnsResponse(query: ByteArray, response: ByteArray): Boole
     if (query[0] != response[0] || query[1] != response[1]) return false
     val flags = response[2].toInt() and 0xff
     return (flags and 0x80) != 0
+}
+
+/**
+ * Rate-limited, cumulative diagnostics for packets the mesh did not fully accept.
+ *
+ * This makes the existing best-effort IP path observable; it does not queue or retry packets.
+ */
+internal class MeshVpnPacketDropReporter(
+    private val nowMillis: () -> Long,
+    private val onReport: (Long) -> Unit,
+    private val reportIntervalMillis: Long = DEFAULT_REPORT_INTERVAL_MS
+) {
+    private var droppedPackets = 0L
+    private var lastReportAt: Long? = null
+
+    init {
+        require(reportIntervalMillis > 0L) { "Report interval must be positive" }
+    }
+
+    @Synchronized
+    fun recordDrop(): Long {
+        droppedPackets += 1
+        val now = nowMillis()
+        val last = lastReportAt
+        if (last == null || now - last >= reportIntervalMillis) {
+            lastReportAt = now
+            onReport(droppedPackets)
+        }
+        return droppedPackets
+    }
+
+    companion object {
+        const val DEFAULT_REPORT_INTERVAL_MS = 5_000L
+    }
 }
 
 /**
@@ -192,12 +227,22 @@ class MeshVpnService : VpnService() {
     private fun readPackets(service: MeshForegroundService) {
         val stream = input ?: return
         val buffer = ByteArray(MeshIpPacketRouter.MAX_PACKET_BYTES)
+        val dropReporter = MeshVpnPacketDropReporter(
+            nowMillis = SystemClock::elapsedRealtime,
+            onReport = { droppedPackets ->
+                service.reportExternalEvent(
+                    "Offline IP overlay: $droppedPackets outgoing packet(s) were not fully accepted by the mesh; delivery is not confirmed. Check the route and retry the transfer."
+                )
+            }
+        )
         try {
             while (running.get()) {
                 val count = stream.read(buffer)
                 if (count < 0) break
                 if (count == 0) continue
-                service.sendIpPacket(buffer.copyOf(count))
+                if (!service.sendIpPacket(buffer.copyOf(count))) {
+                    dropReporter.recordDrop()
+                }
             }
         } catch (_: IOException) {
             if (running.get()) fail("Offline IP tunnel read failed")
