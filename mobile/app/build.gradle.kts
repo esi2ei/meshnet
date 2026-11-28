@@ -1,10 +1,38 @@
 import java.io.File
 import org.gradle.api.GradleException
-import org.gradle.api.tasks.Sync
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
+import javax.inject.Inject
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+}
+
+abstract class BundleWebDashboard : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val sourceDirectory: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @get:Inject
+    abstract val fileSystemOperations: FileSystemOperations
+
+    @TaskAction
+    fun bundleAssets() {
+        fileSystemOperations.sync {
+            from(sourceDirectory.get().asFile)
+            into(outputDirectory.get().asFile)
+        }
+    }
 }
 
 // Build the React dashboard from the repository root and package it as local APK assets.
@@ -26,12 +54,19 @@ val buildWebDashboard = tasks.register<Exec>("buildWebDashboard") {
     }
 }
 
-val bundleWebDashboard = tasks.register<Sync>("bundleWebDashboard") {
+val bundleWebDashboard = tasks.register<BundleWebDashboard>("bundleWebDashboard") {
     group = "build"
     description = "Package the Vite dashboard inside the Android application assets."
     dependsOn(buildWebDashboard)
-    from(repositoryRoot.resolve("dist"))
-    into(bundledWebAssets.map { it.dir("web") })
+    sourceDirectory.set(repositoryRoot.resolve("dist"))
+    outputDirectory.set(bundledWebAssets.map { it.dir("web") })
+}
+
+androidComponents.onVariants { variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(
+        bundleWebDashboard,
+        BundleWebDashboard::outputDirectory
+    )
 }
 
 val releaseStoreFilePath = providers.environmentVariable("MESHNET_RELEASE_STORE_FILE").orNull?.takeIf { it.isNotBlank() }
@@ -84,9 +119,8 @@ tasks.configureEach {
 }
 
 android {
-    sourceSets.getByName("main").assets.srcDir(bundledWebAssets)
     namespace = "com.meshnet.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.meshnet.app"
@@ -127,7 +161,7 @@ kotlin {
 
 dependencies {
     implementation("androidx.webkit:webkit:1.18.0")
-    implementation("com.solanamobile:mobile-wallet-adapter-clientlib-ktx:2.0.7")
+    implementation("com.solanamobile:mobile-wallet-adapter-clientlib-ktx:2.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

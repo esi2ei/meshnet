@@ -27,7 +27,7 @@ The installed app does not contain an in-app repository source browser and does 
 
 ## Build locally (no CI)
 
-Requirements on current main: Node.js/npm 22+, JDK 17, Android SDK Platform 36, Android Gradle Plugin 8.13.2, Kotlin Gradle Plugin 2.4.21, and Gradle 8.13. From the repository root, install the web dependencies, then build Android. The Android Gradle preBuild task runs the Vite production build and bundles its output:
+Requirements on current main: Node.js/npm 22+, JDK 17, Android SDK Platform 37, Android Gradle Plugin 9.1.1, Kotlin Gradle Plugin 2.4.21 (standalone plugin; built-in Kotlin/new DSL temporarily disabled), and Gradle 9.3.1. From the repository root, install the web dependencies, then build Android. The Android Gradle preBuild task runs the Vite production build and bundles its output:
 
 Google Play has required new apps and updates to target Android 16 (API 36) or higher since August 31, 2026. This branch is configured for API 36; confirm API-level behavior and device compatibility in your manual test pass.
 
@@ -57,7 +57,7 @@ For a multi-hop BLE check, use three phones with each device within BLE range of
 
 The repository workflow runs automatically for pull requests and also supports manual `workflow_dispatch`. Every PR run performs the Node typecheck/build, Android debug APK assembly/signature verification and focused API 36 emulator instrumentation. A manual run can opt into the full Android instrumentation suite and keep a downloadable debug APK. The Android job:
 
-1. Builds the debug-signed APK with JDK 17, Gradle 8.13, and Android SDK Platform 36.
+1. Builds the debug-signed APK with JDK 17, Gradle 9.3.1, and Android SDK Platform 37.
 2. Verifies the APK signature and prints its SHA-256 checksum.
 3. Runs the focused instrumentation suite on an Android 16 (API 36) Google APIs emulator; the full suite is manual-only.
 4. Uploads the APK only for manual validation and the explicitly configured trial branch; routine PR artifacts are not retained except for the web build and failure diagnostics.

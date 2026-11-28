@@ -12,7 +12,7 @@ From the repository root:
     npm run lint
     npm run build
 
-For Android packaging on current main, install JDK 17, Android SDK Platform 36, AGP 8.13.2, Kotlin Gradle Plugin 2.4.21 and Gradle 8.13, then run:
+For Android packaging on current main, install JDK 17, Android SDK Platform 37, AGP 9.1.1, standalone Kotlin Gradle Plugin 2.4.21, and Gradle 9.3.1, then run:
 
     cd mobile
     gradle :app:assembleDebug
