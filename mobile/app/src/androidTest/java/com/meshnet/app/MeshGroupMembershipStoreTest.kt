@@ -99,6 +99,19 @@ class MeshGroupMembershipStoreTest {
     }
 
     @Test
+    fun signedEventsSurviveDatabaseReopen() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val event = MeshMembershipEvent.create(
+            MeshDeviceIdentity.generateEphemeral(), group, 1, MeshMembershipEvent.JOIN
+        )
+        assertTrue(store.append(event))
+        store.close()
+        store = MeshGroupMembershipStore(context)
+        assertEquals(1, store.events(group).size)
+        assertEquals("ACTIVE", store.roster(group).single().status)
+    }
+
+    @Test
     fun offlineReplicaMergeIsIdempotentAcrossGroups() {
         val identity = MeshDeviceIdentity.generateEphemeral()
         val first = MeshMembershipEvent.create(identity, group, 1, MeshMembershipEvent.JOIN)
