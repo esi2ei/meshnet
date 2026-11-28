@@ -286,29 +286,27 @@ class MainActivity : Activity() {
                 )
             }
         }
-        return JSONObject()
-            .put("native", true)
-            .put("platform", "android")
-            .put("running", meshService?.isRunning() == true)
-            .put("onlineIntegrationsEnabled", appPreferences.getBoolean(KEY_ONLINE_INTEGRATIONS, false))
-            .put("walletBusy", walletBusy)
-            .put("walletAddress", walletAddress ?: JSONObject.NULL)
-            .put("offlineWalletAddress", runCatching { offlineWalletStore.address() }.getOrNull() ?: JSONObject.NULL)
-            .put("offlineWalletTransfers", outgoingTransfers)
-            .put("offlineWalletReceipts", receivedReceipts)
-            .put("offlineLibrary", meshService?.offlineLibraryJson() ?: JSONArray())
-            .put("offlineLibraryHealthy", meshService?.offlineLibraryHealthy() ?: JSONObject.NULL)
-            .put("offlineLibraryCorrupt", meshService?.offlineLibraryCorrupt() ?: JSONObject.NULL)
-            .put("offlineLibraryOverQuota", meshService?.offlineLibraryOverQuota() ?: JSONObject.NULL)
-            .put("offlineLibraryCorruptBlobCount", meshService?.offlineLibraryCorruptBlobCount() ?: JSONObject.NULL)
-            .put("offlineNetworkRunning", offlineNodeIp != null)
-            .put("offlineNodeIp", offlineNodeIp ?: JSONObject.NULL)
-            .put("offlinePortalUrl", offlinePortalUrl ?: JSONObject.NULL)
-            .put("recentEvents", events)
-            .put("connectedPeers", peers)
-            .put("observedRoutes", routes)
-            .put("localNodeId", localNodeId ?: JSONObject.NULL)
-            .toString()
+        return MeshRuntimeStatusSerializer.serialize(
+            running = meshService?.isRunning() == true,
+            onlineIntegrationsEnabled = appPreferences.getBoolean(KEY_ONLINE_INTEGRATIONS, false),
+            walletBusy = walletBusy,
+            walletAddress = walletAddress,
+            offlineWalletAddress = runCatching { offlineWalletStore.address() }.getOrNull(),
+            offlineWalletTransfers = outgoingTransfers,
+            offlineWalletReceipts = receivedReceipts,
+            offlineLibrary = meshService?.offlineLibraryJson() ?: JSONArray(),
+            offlineLibraryHealthy = meshService?.offlineLibraryHealthy(),
+            offlineLibraryCorrupt = meshService?.offlineLibraryCorrupt(),
+            offlineLibraryOverQuota = meshService?.offlineLibraryOverQuota(),
+            offlineLibraryCorruptBlobCount = meshService?.offlineLibraryCorruptBlobCount(),
+            offlineNetworkRunning = offlineNodeIp != null,
+            offlineNodeIp = offlineNodeIp,
+            offlinePortalUrl = offlinePortalUrl,
+            recentEvents = events,
+            connectedPeers = peers,
+            observedRoutes = routes,
+            localNodeId = localNodeId
+        )
     }
 
     private fun publishRuntimeStatus(message: String? = null) {
