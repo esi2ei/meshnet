@@ -293,6 +293,7 @@ internal data class MeshTransferReceipt(
             require(cumulativePayloadBytes == previous.cumulativePayloadBytes + payloadBytes)
             require(cumulativeChargeMinor == contract.maximumChargeFor(cumulativePayloadBytes))
         }
+        true
     }.getOrDefault(false)
 
     fun incrementalChargeMinor(previous: MeshTransferReceipt?): Long {
