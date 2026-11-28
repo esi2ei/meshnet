@@ -98,6 +98,14 @@ class MeshMembershipSyncProtocolTest {
             val batch = packets.toList()
             packets.clear()
             assertTrue("Every snapshot page must contain a completion marker", batch.any { it.startsWith("~GM1|P|") })
+            if (pages == 0) {
+                val marker = batch.single { it.startsWith("~GM1|P|") }.split('|')
+                val snapshot = marker[3].toLong()
+                val nextCursor = marker[4].toLong()
+                // A requester cannot skip to an arbitrary row within a valid snapshot.
+                assertTrue(senderProtocol.accept(receiver.nodeId, "~GM1|S|$group|${nextCursor + 1L}|$snapshot"))
+                assertTrue("Unexpected cursor must not produce another page", packets.isEmpty())
+            }
             batch.filterNot { it.startsWith("~GM1|P|") }.reversed()
                 .forEach { assertTrue(receiverProtocol.accept(sender.nodeId, it)) }
             batch.filter { it.startsWith("~GM1|P|") }
