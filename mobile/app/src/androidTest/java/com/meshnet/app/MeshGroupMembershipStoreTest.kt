@@ -128,7 +128,7 @@ class MeshGroupMembershipStoreTest {
         val first = MeshMembershipEvent.create(identity, group, 1, MeshMembershipEvent.JOIN)
         val otherGroup = "c".repeat(64)
         val other = MeshMembershipEvent.create(identity, otherGroup, 1, MeshMembershipEvent.JOIN)
-        assertEquals(1, store.merge(listOf(first, other)))
+        assertEquals(2, store.merge(listOf(first, other)))
         assertEquals(1, store.events(group).size)
         assertEquals(1, store.events(otherGroup).size)
         assertEquals(0, store.merge(listOf(first, other)))
