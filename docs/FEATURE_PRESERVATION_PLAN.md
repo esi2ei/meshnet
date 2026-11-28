@@ -6,6 +6,8 @@ Restructure MeshNet's internals without reducing the product. Existing working c
 
 This document is a binding engineering rule for work on the completion branch. It does not claim that every listed capability is production-ready. It distinguishes implemented behavior from prototypes, partial implementations and planned work so that preservation is not confused with advertising an unfinished feature as complete.
 
+**Baseline boundary for this revision:** PR #36 is based on `main` at `0fe421254c8b8e60ec0b03f064d5309bea278079`. The code refactor is being developed separately in Draft PR #29; files and checks that exist only on PR #29 are not part of `main` and must not be described as merged or enforced on the default branch.
+
 ## Non-negotiable rules
 
 1. **No silent feature removal.** Do not delete, hide, disable, replace or materially narrow an existing user-facing capability as a side effect of refactoring. A proposed product-scope change requires an explicit decision recorded in the roadmap and release notes; it is not an engineering shortcut.
@@ -111,14 +113,11 @@ The native JavaScript bridge is a product surface, not disposable glue. The curr
 
 ### Automated preservation guard
 
-`scripts/check-bridge-contract.mjs` stores the reviewed 31-method contract and checks that:
+**Default-branch status at the PR #36 base:** `scripts/check-bridge-contract.mjs` is not present on `main` at `0fe421254c8b8e60ec0b03f064d5309bea278079`, and the default-branch workflow does not yet enforce this check. Do not assume accidental bridge removals are currently blocked on `main`.
 
-- Kotlin still exposes the same annotated method names.
-- TypeScript still declares the same bridge method names.
-- Every active UI command remains referenced by `PhoneWorkspace.tsx` or `App.tsx`.
-- The one intentionally unreferenced compatibility getter remains explicitly recorded.
+**Draft PR #29 only (not yet merged):** head `c41e48dfbc89c63619776baf1ba6c4503bee7259` adds `scripts/check-bridge-contract.mjs`, which stores the reviewed 31-method contract and checks that Kotlin, TypeScript and active UI command references remain aligned. Its Node 22 CI job runs the check before typecheck. Exact-head workflow run #237 was still in progress when this document was revised; the guard's source and test step have passed, but the overall run is not yet complete.
 
-The Node 22 CI job runs this check before the TypeScript typecheck. It protects the bridge surface against accidental deletion or rename; it does **not** prove that an action's full runtime behavior works. Feature-level tests and physical-device evidence remain mandatory.
+The guard protects the bridge surface against accidental deletion or rename; it does **not** prove that an action's full runtime behavior works. Feature-level tests and physical-device evidence remain mandatory. The guard should be considered part of the default-branch controls only after PR #29 is accepted and merged.
 
 ## Execution sequence
 
@@ -132,11 +131,13 @@ The Node 22 CI job runs this check before the TypeScript typecheck. It protects 
 ### FP-01 — Stabilize boundaries without changing behavior
 ### First behavior-preserving code slice — dashboard runtime status
 
-- [x] Extract the JSON snapshot builder from `MainActivity` into `MeshRuntimeStatusSerializer`; the activity still gathers the same service/store values and calls the existing bridge method.
-- [x] Preserve all existing JSON field names, explicit-null behavior, false/zero values and empty-array behavior.
-- [x] Add focused tests for the complete payload and unavailable optional capabilities.
-- [x] Add the new test to the focused API 36 instrumentation target.
+- [ ] Extract the JSON snapshot builder from `MainActivity` into `MeshRuntimeStatusSerializer`; the activity should continue gathering the same service/store values and calling the existing bridge method.
+- [ ] Preserve all existing JSON field names, explicit-null behavior, false/zero values and empty-array behavior.
+- [ ] Add focused tests for the complete payload and unavailable optional capabilities.
+- [ ] Add the new test to the focused API 36 instrumentation target.
 - [ ] Accept this slice only after the bridge guard, Android build and focused instrumentation test pass on the exact branch head.
+
+**Status at the PR #36 `main` baseline:** the extraction and its focused tests are not present on `main`; `MainActivity.runtimeStatusJson()` remains the implementation. The serializer, tests and bridge guard are present only on Draft PR #29 (head `c41e48dfbc89c63619776baf1ba6c4503bee7259`). The exact-head run #237 had passed the focused test step but had not yet completed overall when this document was revised. Keep the checklist open until that PR has completed exact-head CI and is merged.
 
 This slice deliberately does not move radio, messaging, wallet, file or voice ownership yet. It creates a tested boundary around the dashboard status contract before larger extractions.
 
