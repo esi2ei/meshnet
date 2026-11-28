@@ -1,0 +1,162 @@
+package com.meshnet.app
+
+import android.util.Base64
+import org.json.JSONArray
+import org.json.JSONObject
+import java.security.PrivateKey
+import java.security.PublicKey
+import java.security.Signature
+import java.security.interfaces.ECPublicKey
+import java.security.spec.X509EncodedKeySpec
+import java.security.KeyFactory
+import java.security.MessageDigest
+
+/**
+ * Canonical, mutually signed terms for a peer-provided service.
+ *
+ * This is a contract envelope, not a payment processor or proof that bytes were delivered.
+ * Billable bytes are application payload bytes accepted by the receiving application;
+ * transport framing, routing headers and retransmissions are excluded by definition.
+ * Implementations must create receipts separately and reconcile them idempotently.
+ */
+internal data class MeshServiceContract(
+    val id: String,
+    val service: String,
+    val provider: String,
+    val consumer: String,
+    val unitPriceMinorPerMiB: Long,
+    val maxBillableBytes: Long,
+    val maxCostMinor: Long,
+    val validFrom: Long,
+    val validUntil: Long,
+    val cancellation: String,
+    val relayShares: List<RelayShare>,
+    val providerPublicKey: String,
+    val consumerPublicKey: String,
+    val providerSignature: String? = null,
+    val consumerSignature: String? = null
+) {
+    data class RelayShare(val nodeId: String, val basisPoints: Int)
+
+    init { validateTerms() }
+
+    fun signAsProvider(privateKey: PrivateKey): MeshServiceContract {
+        require(addressFor(decodeKey(providerPublicKey)) == provider) { "Provider key does not match provider address" }
+        return copy(providerSignature = sign(privateKey, canonicalBytes()))
+    }
+
+    fun signAsConsumer(privateKey: PrivateKey): MeshServiceContract {
+        require(addressFor(decodeKey(consumerPublicKey)) == consumer) { "Consumer key does not match consumer address" }
+        return copy(consumerSignature = sign(privateKey, canonicalBytes()))
+    }
+
+    fun verify(): Boolean = runCatching {
+        validateTerms()
+        val providerBytes = decodeKey(providerPublicKey)
+        val consumerBytes = decodeKey(consumerPublicKey)
+        require(addressFor(providerBytes) == provider)
+        require(addressFor(consumerBytes) == consumer)
+        val providerKey = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(providerBytes))
+        val consumerKey = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(consumerBytes))
+        require(providerKey is ECPublicKey && providerKey.params.curve.field.fieldSize == 256)
+        require(consumerKey is ECPublicKey && consumerKey.params.curve.field.fieldSize == 256)
+        verifySignature(providerKey, providerSignature ?: return false, canonicalBytes()) &&
+            verifySignature(consumerKey, consumerSignature ?: return false, canonicalBytes())
+    }.getOrDefault(false)
+
+    fun encode(): String = JSONObject()
+        .put("version", VERSION).put("id", id).put("service", service)
+        .put("provider", provider).put("consumer", consumer)
+        .put("unitPriceMinorPerMiB", unitPriceMinorPerMiB)
+        .put("maxBillableBytes", maxBillableBytes).put("maxCostMinor", maxCostMinor)
+        .put("validFrom", validFrom).put("validUntil", validUntil)
+        .put("cancellation", cancellation)
+        .put("relayShares", JSONArray().apply {
+            relayShares.sortedBy { it.nodeId }.forEach { put(JSONObject().put("nodeId", it.nodeId).put("basisPoints", it.basisPoints)) }
+        })
+        .put("providerPublicKey", providerPublicKey).put("consumerPublicKey", consumerPublicKey)
+        .put("providerSignature", providerSignature ?: JSONObject.NULL)
+        .put("consumerSignature", consumerSignature ?: JSONObject.NULL)
+        .toString()
+
+    /** Exact canonical UTF-8 bytes signed by both parties; JSON key order is irrelevant. */
+    fun canonicalBytes(): ByteArray {
+        validateTerms()
+        val relayText = relayShares.sortedBy { it.nodeId }
+            .joinToString(";") { "${it.nodeId}:${it.basisPoints}" }
+        val fields = listOf(
+            "meshnet-service-contract-v1", id, service, provider, consumer,
+            unitPriceMinorPerMiB.toString(), maxBillableBytes.toString(), maxCostMinor.toString(),
+            validFrom.toString(), validUntil.toString(), cancellation, relayText,
+            providerPublicKey, consumerPublicKey
+        )
+        return fields.joinToString("\n").toByteArray(Charsets.UTF_8)
+    }
+
+    private fun validateTerms() {
+        require(id.matches(Regex("[A-Za-z0-9_-]{16,64}"))) { "Invalid contract ID" }
+        require(service.matches(Regex("[A-Z][A-Z0-9_-]{1,31}"))) { "Invalid service code" }
+        require(provider.matches(Regex("[0-9a-f]{64}")) && consumer.matches(Regex("[0-9a-f]{64}")) && provider != consumer) {
+            "Invalid contract parties"
+        }
+        require(unitPriceMinorPerMiB in 0..MAX_PRICE_MINOR && maxBillableBytes in 1..MAX_BILLABLE_BYTES)
+        require(maxCostMinor in 0..MAX_COST_MINOR && validFrom > 0 && validUntil > validFrom)
+        require(cancellation in ALLOWED_CANCELLATION_POLICIES)
+        require(relayShares.size <= MAX_RELAYS)
+        require(relayShares.map { it.nodeId }.distinct().size == relayShares.size)
+        require(relayShares.all { it.nodeId.matches(Regex("[A-Za-z0-9_-]{1,32}")) && it.basisPoints in 0..10_000 })
+        require(relayShares.sumOf { it.basisPoints } <= 10_000) { "Relay shares exceed 100%" }
+        require(providerPublicKey.matches(BASE64_KEY) && consumerPublicKey.matches(BASE64_KEY))
+        require(providerSignature == null || providerSignature.matches(BASE64_SIGNATURE))
+        require(consumerSignature == null || consumerSignature.matches(BASE64_SIGNATURE))
+    }
+
+    private fun decodeKey(value: String): ByteArray {
+        val decoded = Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        require(encodeBase64(decoded) == value) { "Non-canonical public key encoding" }
+        return decoded
+    }
+
+    private fun sign(key: PrivateKey, bytes: ByteArray): String =
+        Signature.getInstance("SHA256withECDSA").run {
+            initSign(key); update(bytes); encodeBase64(sign())
+        }
+
+    private fun verifySignature(key: PublicKey, encoded: String, bytes: ByteArray): Boolean {
+        val signatureBytes = Base64.decode(encoded, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        if (encodeBase64(signatureBytes) != encoded) return false
+        return Signature.getInstance("SHA256withECDSA").run {
+            initVerify(key); update(bytes); verify(signatureBytes)
+        }
+    }
+
+    companion object {
+        const val BILLING_UNIT = "APPLICATION_PAYLOAD_BYTES"
+        const val VERSION = 1
+        private const val MAX_PRICE_MINOR = 9_000_000_000_000L
+        private const val MAX_BILLABLE_BYTES = 1L shl 40
+        private const val MAX_COST_MINOR = 9_000_000_000_000L
+        private const val MAX_RELAYS = 8
+        private val ALLOWED_CANCELLATION_POLICIES = setOf("MUTUAL_ONLY", "EITHER_BEFORE_START", "EITHER_WITH_NOTICE")
+        private val BASE64_KEY = Regex("[A-Za-z0-9_-]{80,160}")
+        private val BASE64_SIGNATURE = Regex("[A-Za-z0-9_-]{80,120}")
+
+        fun create(
+            id: String, service: String, provider: String, consumer: String,
+            unitPriceMinorPerMiB: Long, maxBillableBytes: Long, maxCostMinor: Long,
+            validFrom: Long, validUntil: Long, cancellation: String,
+            relayShares: List<RelayShare>, providerPublicKey: ByteArray, consumerPublicKey: ByteArray
+        ) = MeshServiceContract(
+            id, service, provider, consumer, unitPriceMinorPerMiB, maxBillableBytes, maxCostMinor,
+            validFrom, validUntil, cancellation, relayShares,
+            encodeBase64(providerPublicKey), encodeBase64(consumerPublicKey)
+        )
+
+        private fun addressFor(publicKey: ByteArray): String =
+            MessageDigest.getInstance("SHA-256").digest(publicKey)
+                .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+        private fun encodeBase64(bytes: ByteArray): String =
+            Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    }
+}
