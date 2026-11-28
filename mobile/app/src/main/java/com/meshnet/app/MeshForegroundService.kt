@@ -29,7 +29,6 @@ class MeshForegroundService : Service() {
     private var wifiAwareTransport: MeshWifiAwareTransport? = null
     private var router: MeshRouter? = null
     private var groupMembershipStore: MeshGroupMembershipStore? = null
-    private var groupDeliveryLedger: MeshGroupDeliveryLedger? = null
     private var membershipSync: MeshMembershipSyncProtocol? = null
     private var localMembershipJoin: MeshMembershipEvent? = null
     private var fileTransfer: MeshFileTransfer? = null
@@ -606,7 +605,6 @@ class MeshForegroundService : Service() {
         }
         val membershipStore = MeshGroupMembershipStore(this)
         groupMembershipStore = membershipStore
-        groupDeliveryLedger = MeshGroupDeliveryLedger(this)
         val localCounter = membershipStore.events(crypto.groupId)
             .filter { it.memberId == nodeId }
             .maxOfOrNull { it.counter }?.plus(1L) ?: 1L
@@ -848,8 +846,6 @@ class MeshForegroundService : Service() {
         localMembershipJoin = null
         groupMembershipStore?.close()
         groupMembershipStore = null
-        groupDeliveryLedger?.close()
-        groupDeliveryLedger = null
         transport?.stop()
         transport = null
         wifiTransport?.stop()
