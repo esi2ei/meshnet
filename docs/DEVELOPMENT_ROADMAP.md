@@ -52,6 +52,14 @@ The GitHub requirements set contains 12 open issues (#17–#28). Their state is 
 | [#27 Android background/local companion/UX](https://github.com/esi2ei/meshnet/issues/27) | Partial: bundled local dashboard, bridge, foreground service, permission controls and resource features exist; background/OEM, accessibility, onboarding and recovery need validation | Continuous; Phases 1, 2, 6 and 10 |
 | [#28 Traceability/integration delivery](https://github.com/esi2ei/meshnet/issues/28) | Partial: detailed roadmap, focused API 36 CI and tests exist; exact-head bridge/status regression and complete requirement evidence are still being validated | Phase 0 and continuous |
 
+### Audit follow-up #32 — preserve incompatible queue state across protocol upgrades
+
+- [x] Raise the queue database schema to v10 and atomically quarantine pre-v6 outbox frames and replay markers before clearing them from active dispatch/replay tables.
+- [x] Expose bounded read-only access to quarantined frame bytes and replay metadata for recovery tooling; quarantined frames are never returned by the live pending queue.
+- [x] Add migration coverage proving the original frame bytes, message metadata, retry count and replay marker survive a v7-to-v10 upgrade, while a compatible v9-to-v10 schema-only upgrade preserves its live outbox.
+- [ ] Add a user-facing export/review/discard flow and physical-device upgrade/interruption/restart evidence. Do not advertise user-facing recovery until that flow exists.
+- [ ] Continue the remaining #32 P0 work: end-to-end group delivery semantics, missing-device-identity fail-closed behavior and independently reviewed per-device session/group-key lifecycle.
+
 The three major prerequisite chains are:
 
 - **Network and communication:** requirements inventory → safe architecture boundaries → transport reliability → device trust/session security → durable message/group delivery → media and file completion.

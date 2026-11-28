@@ -99,7 +99,7 @@ class MeshQueueStoreTest {
     }
 
     @Test
-    fun protocolV6UpgradeClearsIncompatibleQueuedFramesAndReplayIds() {
+    fun protocolV6UpgradeQuarantinesIncompatibleQueuedFramesAndReplayIds() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         store.close()
         context.deleteDatabase("meshnet-outbox.db")
@@ -116,18 +116,19 @@ class MeshQueueStoreTest {
         )
         legacy.execSQL("CREATE TABLE received_ids (frame_id TEXT PRIMARY KEY NOT NULL, created_at INTEGER NOT NULL)")
         val oldFrame = frame("old_frame_01", MeshFrame.KIND_MESSAGE).encode()
-            .toString(Charsets.UTF_8).replace("\"v\":6", "\"v\":5").toByteArray(Charsets.UTF_8)
+            .toString(Charsets.UTF_8).replace("\\"v\\":6", "\\"v\\":5").toByteArray(Charsets.UTF_8)
+        val createdAt = System.currentTimeMillis()
         legacy.insertOrThrow("outbox", null, ContentValues().apply {
             put("frame_id", "legacy-row")
             put("frame", oldFrame)
             put("message_id", "old_frame_01")
             put("frame_kind", MeshFrame.KIND_MESSAGE)
-            put("created_at", System.currentTimeMillis())
-            put("attempts", 0)
+            put("created_at", createdAt)
+            put("attempts", 3)
         })
         legacy.insertOrThrow("received_ids", null, ContentValues().apply {
             put("frame_id", "old_frame_01")
-            put("created_at", System.currentTimeMillis())
+            put("created_at", createdAt)
         })
         legacy.version = 7
         legacy.close()
@@ -135,6 +136,40 @@ class MeshQueueStoreTest {
         store = MeshQueueStore(context)
         assertTrue(store.pending().isEmpty())
         assertFalse(store.hasReceived("old_frame_01"))
+
+        val quarantined = store.quarantinedFrames().single()
+        assertEquals("legacy-row", quarantined.frameId)
+        assertTrue(oldFrame.contentEquals(quarantined.frame))
+        assertEquals("old_frame_01", quarantined.messageId)
+        assertEquals(MeshFrame.KIND_MESSAGE, quarantined.frameKind)
+        assertEquals(3, quarantined.attempts)
+        assertEquals(7, quarantined.sourceVersion)
+        assertTrue(quarantined.reason.isNotBlank())
+
+        val replayMarker = store.quarantinedReplayIds().single()
+        assertEquals("old_frame_01", replayMarker.frameId)
+        assertEquals(7, replayMarker.sourceVersion)
+        assertTrue(replayMarker.reason.isNotBlank())
+    }
+
+    @Test
+    fun nonProtocolUpgradePreservesCompatibleProtocolV6OutboxFrames() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val currentFrame = frame("current_frame_01", MeshFrame.KIND_MESSAGE).encode()
+        assertTrue(store.enqueue(currentFrame))
+        store.close()
+
+        // Simulate a database created by schema v9: the protocol-v6 outbox is compatible
+        // with v10 and must not be quarantined or removed by a storage-only migration.
+        val database = context.openOrCreateDatabase("meshnet-outbox.db", Context.MODE_PRIVATE, null)
+        database.version = 9
+        database.close()
+
+        store = MeshQueueStore(context)
+        val pending = store.pending()
+        assertEquals(1, pending.size)
+        assertTrue(currentFrame.contentEquals(pending.single()))
+        assertTrue(store.quarantinedFrames().isEmpty())
     }
 
     private fun frame(id: String, kind: String, ackFor: String? = null) = MeshFrame(
