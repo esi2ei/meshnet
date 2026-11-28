@@ -46,7 +46,7 @@ The APK serves Vite output from its own assets through AndroidX WebViewAssetLoad
 | `solana/programs/meshnet-escrow/` | Anchor escrow program source; not production-deployed or Android-integrated |
 | `test/fixtures/` | Legacy, explicitly non-production simulation fixtures |
 | `docs/` | Architecture and maintenance documentation |
-| `.github/workflows/` | Manual-only validation workflow |
+| `.github/workflows/` | Pull-request CI plus opt-in full-suite/manual artifact workflow |
 
 ## Live peer lifecycle
 
