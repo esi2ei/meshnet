@@ -68,6 +68,9 @@ internal class MeshTransferReceiptStore(context: Context) {
 
     private fun readRoot(): JSONObject {
         val raw = preferences.getString(KEY_JOURNAL, "{}") ?: "{}"
+        require(raw.toByteArray(Charsets.UTF_8).size <= MAX_JOURNAL_BYTES) {
+            "Receipt journal exceeds its storage limit; refusing to discard accounting history"
+        }
         return try {
             JSONObject(raw)
         } catch (error: Exception) {
