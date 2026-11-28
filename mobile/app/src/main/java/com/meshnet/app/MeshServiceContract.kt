@@ -58,8 +58,8 @@ internal data class MeshServiceContract(
         require(addressFor(consumerBytes) == consumer)
         val providerKey = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(providerBytes))
         val consumerKey = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(consumerBytes))
-        require(providerKey is ECPublicKey && providerKey.params.curve.field.fieldSize == 256)
-        require(consumerKey is ECPublicKey && consumerKey.params.curve.field.fieldSize == 256)
+        require(providerKey is ECPublicKey && isP256(providerKey))
+        require(consumerKey is ECPublicKey && isP256(consumerKey))
         verifySignature(providerKey, providerSignature ?: return false, canonicalBytes()) &&
             verifySignature(consumerKey, consumerSignature ?: return false, canonicalBytes())
     }.getOrDefault(false)
@@ -137,9 +137,34 @@ internal data class MeshServiceContract(
         private const val MAX_BILLABLE_BYTES = 1L shl 40
         private const val MAX_COST_MINOR = 9_000_000_000_000L
         private const val MAX_RELAYS = 8
+        private const val MAX_ENCODED_BYTES = 16 * 1024
         private val ALLOWED_CANCELLATION_POLICIES = setOf("MUTUAL_ONLY", "EITHER_BEFORE_START", "EITHER_WITH_NOTICE")
         private val BASE64_KEY = Regex("[A-Za-z0-9_-]{80,160}")
         private val BASE64_SIGNATURE = Regex("[A-Za-z0-9_-]{80,120}")
+
+        fun decode(payload: String): MeshServiceContract {
+            require(payload.toByteArray(Charsets.UTF_8).size <= MAX_ENCODED_BYTES) { "Contract envelope is too large" }
+            val json = JSONObject(payload)
+            require(json.optInt("version", -1) == VERSION) { "Unsupported service contract version" }
+            val sharesJson = json.getJSONArray("relayShares")
+            require(sharesJson.length() <= MAX_RELAYS) { "Too many relay shares" }
+            val shares = (0 until sharesJson.length()).map { index ->
+                val item = sharesJson.getJSONObject(index)
+                RelayShare(item.getString("nodeId"), item.getInt("basisPoints"))
+            }
+            return MeshServiceContract(
+                id = json.getString("id"), service = json.getString("service"),
+                provider = json.getString("provider"), consumer = json.getString("consumer"),
+                unitPriceMinorPerMiB = json.getLong("unitPriceMinorPerMiB"),
+                maxBillableBytes = json.getLong("maxBillableBytes"), maxCostMinor = json.getLong("maxCostMinor"),
+                validFrom = json.getLong("validFrom"), validUntil = json.getLong("validUntil"),
+                cancellation = json.getString("cancellation"), relayShares = shares,
+                providerPublicKey = json.getString("providerPublicKey"),
+                consumerPublicKey = json.getString("consumerPublicKey"),
+                providerSignature = json.optString("providerSignature").takeIf { it.isNotBlank() && it != "null" },
+                consumerSignature = json.optString("consumerSignature").takeIf { it.isNotBlank() && it != "null" }
+            )
+        }
 
         fun create(
             id: String, service: String, provider: String, consumer: String,
@@ -152,11 +177,20 @@ internal data class MeshServiceContract(
             encodeBase64(providerPublicKey), encodeBase64(consumerPublicKey)
         )
 
+        private fun isP256(key: ECPublicKey): Boolean = runCatching {
+            val expected = java.security.AlgorithmParameters.getInstance("EC").apply {
+                init(java.security.spec.ECGenParameterSpec("secp256r1"))
+            }.getParameterSpec(java.security.spec.ECParameterSpec::class.java)
+            val actual = key.params
+            actual.curve.field.fieldSize == 256 && actual.curve == expected.curve &&
+                actual.generator == expected.generator && actual.order == expected.order &&
+                actual.cofactor == expected.cofactor
+        }.getOrDefault(false)
+
         private fun addressFor(publicKey: ByteArray): String =
             MessageDigest.getInstance("SHA-256").digest(publicKey)
                 .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
         private fun encodeBase64(bytes: ByteArray): String =
             Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-    }
-}
+    }}
