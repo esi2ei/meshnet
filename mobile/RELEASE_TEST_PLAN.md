@@ -74,13 +74,21 @@ Test with files of 1 byte, a few hundred bytes, exactly/around a chunk boundary,
 - Test a provider that grants persistent document URI permission and one that does not; reselect when access has been revoked.
 - Confirm progress and average-throughput readings are monotonic/plausible; they describe acknowledged payload bytes, not guaranteed remote user consumption.
 
-## 7. Voice and foreground-service behavior
+## 7. Voice, VPN and foreground-service behavior
 
 - Record/play a voice note (up to seven seconds), transfer it, stop the mesh service, and play the received note from the private inbox.
 - Start a live group call explicitly. Join from another phone only after the invitation appears. Verify microphone permission is requested only after explicit start/join; reject an invitation without activating the microphone.
 - Test two or more concurrent speakers, mute/stop, invitation expiry, remote end, lock-screen/background behavior, phone calls/audio-focus loss and reacquisition, Bluetooth headset routing, echo, packet loss, and battery use. Confirm focus loss ends the local call, sends the end signal when possible, and restores the previous audio mode and speaker route.
 - Confirm microphone foreground-service promotion is permitted only from the visible user-initiated flow on the supported Android versions. Check that stop/revoke paths restore audio mode and release resources.
 - Record the exact device model, OEM build, AMR-NB codec availability, measured latency, and observed failures.
+
+### VPN packet-delivery visibility
+
+- Connect two physical Android devices to the same local mesh and establish their overlay address announcements. Send representative TCP and UDP traffic between the peers and record packet loss and application-level retry behavior.
+- Remove the receiving peer's route or interrupt the active transport while traffic is flowing. Confirm that a packet the mesh does not fully accept increments the cumulative VPN packet-drop diagnostic and that repeated reports are rate-limited (at most one event per five seconds).
+- Restore the route and retry the application transfer. Record whether the application protocol recovers; do not assume the VPN itself retransmits UDP or that a reported packet was delivered.
+- Verify that the diagnostic count is cumulative for the current VPN reader session and that stopping/restarting the VPN starts a fresh session count.
+- **Current limitation:** this diagnostic reports rejected packets but does not add a durable queue, backpressure to the originating socket, fragment retry, or packet retransmission. Unaccepted traffic may still be lost. The end-to-end VPN delivery/recovery gate remains open until bounded queuing, retry/expiry semantics, and physical-device evidence are implemented and reviewed.
 
 ## 8. Solana Devnet wallet transfer
 
