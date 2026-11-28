@@ -104,7 +104,7 @@ internal class MeshMembershipSyncProtocol(
         }
         var accepted = 0
         chunks.forEachIndexed { index, chunk ->
-            val payload = "$PREFIX|C|$groupId|${event.eventId}|$index|${chunks.size}|$chunk"
+            val payload = "$PREFIX|C|${groupId.take(GROUP_TAG_CHARS)}|${event.eventId}|$index|${chunks.size}|$chunk"
             if (payload.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES &&
                 send(destination, payload)
             ) accepted++
