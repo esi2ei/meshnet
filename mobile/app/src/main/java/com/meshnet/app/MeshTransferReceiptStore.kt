@@ -27,7 +27,7 @@ internal class MeshTransferReceiptStore(context: Context) {
             require(contract.verify()) { "Cannot journal receipts for an invalid contract" }
             val root = readRoot()
             val key = contract.id
-            val chain = decodeAndVerifyChain(root.optJSONArray(key) ?: JSONArray(), contract)
+            val chain = decodeAndVerifyChain(readContractChain(root, key), contract)
 
             val existing = chain.firstOrNull { it.sequence == receipt.sequence }
             if (existing != null) {
@@ -67,8 +67,14 @@ internal class MeshTransferReceiptStore(context: Context) {
     fun verifiedChain(contract: MeshServiceContract): List<MeshTransferReceipt> =
         synchronized(PROCESS_LOCK) {
             require(contract.verify()) { "Cannot read receipts for an invalid contract" }
-            decodeAndVerifyChain(readRoot().optJSONArray(contract.id) ?: JSONArray(), contract)
+            decodeAndVerifyChain(readContractChain(readRoot(), contract.id), contract)
         }
+
+    private fun readContractChain(root: JSONObject, contractId: String): JSONArray {
+        if (!root.has(contractId)) return JSONArray()
+        // A present-but-malformed entry is corruption, not an empty chain.
+        return root.getJSONArray(contractId)
+    }
 
     private fun readRoot(): JSONObject {
         val raw = try {
