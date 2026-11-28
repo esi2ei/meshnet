@@ -202,7 +202,7 @@ class MeshRouterReceiptTest {
     }
 
     @Test
-    fun receiverReturnsAuthenticatedGroupReceiptAndSenderRetiresMessage() {
+    fun groupReceiptIsGeneratedButCannotRetireBroadcastWithoutRoster() {
         val senderQueue = mutableListOf<ByteArray>()
         val receiverQueue = mutableListOf<ByteArray>()
         val senderSeen = mutableSetOf<String>()
@@ -216,7 +216,9 @@ class MeshRouterReceiptTest {
             onMessage = {},
             hasReceived = { it in senderSeen },
             markReceived = { id, _ -> !senderSeen.add(id) },
-            acknowledge = { id -> acknowledged.add(id); 1 }
+            acknowledge = { id -> acknowledged.add(id); 1 },
+            // No authenticated recipient roster exists for group broadcasts yet.
+            validateAcknowledgement = { _, _ -> false }
         )
         val receiver = MeshRouter(
             nodeId = "receiver_01",
@@ -239,7 +241,8 @@ class MeshRouterReceiptTest {
         sender.receive(receipt.encode())
 
         assertEquals(message.id, receipt.ackFor)
-        assertTrue(message.id in acknowledged)
+        assertTrue(acknowledged.isEmpty())
+        assertTrue(senderQueue.any { MeshFrame.decode(it).id == message.id })
     }
     @Test
     fun everyMeshNodeCanOriginateAndReceiveMessagesInBothDirections() {
