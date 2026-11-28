@@ -147,4 +147,42 @@ class MeshOfflineLibraryTest {
         try{assertThrows(IllegalArgumentException::class.java){library.publish(Uri.fromFile(oversized))}}
         finally{oversized.delete()}
     }
+    @Test fun malformedLocalCatalogueEntryPreservesContentBlobsAndBlocksMutation() {
+        val bytes = "keep this published file".toByteArray()
+        val id = MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+        val blob = File(root, "$id.blob").apply { writeBytes(bytes) }
+        val index = File(root, "catalog.json")
+        val original = org.json.JSONObject()
+            .put("local", org.json.JSONArray().put(org.json.JSONObject()
+                .put("id", id)
+                .put("name", "preserve.txt"))) // Missing size and createdAt: ownership is untrusted.
+            .put("remote", org.json.JSONArray())
+            .put("pending", org.json.JSONArray())
+            .toString()
+        index.writeText(original)
+
+        val recovered = MeshOfflineLibrary(context)
+
+        assertFalse(recovered.isCatalogHealthy)
+        assertTrue("A malformed local index row must not cause blob deletion", blob.exists())
+        assertEquals("Corrupt catalog must not be overwritten during recovery", original, index.readText())
+        assertFalse(runCatching { recovered.publish(Uri.fromFile(source)) }.isSuccess)
+        assertTrue(blob.exists())
+    }
+
+    @Test fun malformedCatalogueRootPreservesAllContentBlobs() {
+        val bytes = "orphan but potentially recoverable".toByteArray()
+        val id = MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+        val blob = File(root, "$id.blob").apply { writeBytes(bytes) }
+        File(root, "catalog.json").writeText("{")
+
+        val recovered = MeshOfflineLibrary(context)
+
+        assertFalse(recovered.isCatalogHealthy)
+        assertTrue(blob.exists())
+        assertFalse(runCatching { recovered.removeLocal(id) }.isSuccess)
+    }
+
 }
