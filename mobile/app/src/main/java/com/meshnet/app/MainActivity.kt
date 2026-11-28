@@ -55,7 +55,7 @@ internal object MeshWebViewSecurityPolicy {
         ) return false
         val path = uri.path ?: return false
         if (!path.startsWith("/assets/web/")) return false
-        if (path.contains('\\\\') || path.contains('\\u0000')) return false
+        if (path.contains('\\') || path.any { it == 0.toChar() }) return false
         return path.split('/').none { it == "." || it == ".." }
     }
 }
