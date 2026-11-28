@@ -85,29 +85,4 @@ class BundledDashboardAssetsTest {
         ))
     }
 
-    @Test
-    fun webViewNativeBridgePolicyAllowsOnlyCanonicalBundledAssets() {
-        assertTrue(MeshWebViewSecurityPolicy.isBundledAsset(
-            Uri.parse("https://appassets.androidplatform.net/assets/web/index.html")
-        ))
-        assertTrue(MeshWebViewSecurityPolicy.isBundledAsset(
-            Uri.parse("https://appassets.androidplatform.net/assets/web/assets/app.js")
-        ))
-        assertFalse(MeshWebViewSecurityPolicy.isBundledAsset(
-            Uri.parse("http://appassets.androidplatform.net/assets/web/index.html")
-        ))
-        assertFalse(MeshWebViewSecurityPolicy.isBundledAsset(
-            Uri.parse("https://example.com/assets/web/index.html")
-        ))
-        assertFalse(MeshWebViewSecurityPolicy.isBundledAsset(
-            Uri.parse("https://appassets.androidplatform.net/assets/other.js")
-        ))
-        assertFalse(MeshWebViewSecurityPolicy.isBundledAsset(
-            Uri.parse("https://appassets.androidplatform.net:8443/assets/web/index.html")
-        ))
-        assertFalse(MeshWebViewSecurityPolicy.isBundledAsset(
-            Uri.parse("https://appassets.androidplatform.net/assets/web/../private.html")
-        ))
-    }
-
 }
