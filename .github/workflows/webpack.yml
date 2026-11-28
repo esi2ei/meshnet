@@ -34,10 +34,23 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
-          cache-dependency-path: package.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
+      # Bootstrap and review a lockfile from the exact manifest with the supported Node/npm toolchain.
+      # This artifact is a candidate only; commit it after inspecting the generated dependency graph.
+      - name: Generate candidate npm lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Upload candidate npm lockfile
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: meshnet-npm-lockfile-${{ github.sha }}
+          path: package-lock.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Install dependencies from lockfile
+        run: npm ci --no-audit --no-fund
 
       - name: Typecheck
         run: npm run lint
