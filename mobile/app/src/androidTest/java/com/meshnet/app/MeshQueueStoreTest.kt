@@ -99,57 +99,90 @@ class MeshQueueStoreTest {
     }
 
     @Test
-    fun protocolV6UpgradeQuarantinesIncompatibleQueuedFramesAndReplayIds() {
+    fun everyPreV6DatabaseVersionQuarantinesIncompatibleQueuedFramesAndReplayIds() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        store.close()
-        context.deleteDatabase("meshnet-outbox.db")
-        val legacy = context.openOrCreateDatabase("meshnet-outbox.db", Context.MODE_PRIVATE, null)
-        legacy.execSQL(
-            """CREATE TABLE outbox (
-                frame_id TEXT PRIMARY KEY NOT NULL,
-                frame BLOB NOT NULL,
-                message_id TEXT,
-                frame_kind TEXT NOT NULL DEFAULT 'MESSAGE',
-                created_at INTEGER NOT NULL,
-                attempts INTEGER NOT NULL DEFAULT 0
-            )"""
-        )
-        legacy.execSQL("CREATE TABLE received_ids (frame_id TEXT PRIMARY KEY NOT NULL, created_at INTEGER NOT NULL)")
-        val oldFrame = frame("old_frame_01", MeshFrame.KIND_MESSAGE).encode()
-            .toString(Charsets.UTF_8).replace("\"v\":6", "\"v\":5").toByteArray(Charsets.UTF_8)
-        val createdAt = System.currentTimeMillis()
-        legacy.insertOrThrow("outbox", null, ContentValues().apply {
-            put("frame_id", "legacy-row")
-            put("frame", oldFrame)
-            put("message_id", "old_frame_01")
-            put("frame_kind", MeshFrame.KIND_MESSAGE)
-            put("created_at", createdAt)
-            put("attempts", 3)
-        })
-        legacy.insertOrThrow("received_ids", null, ContentValues().apply {
-            put("frame_id", "old_frame_01")
-            put("created_at", createdAt)
-        })
-        legacy.version = 7
-        legacy.close()
+        (1..7).forEach { legacyVersion ->
+            store.close()
+            context.deleteDatabase("meshnet-outbox.db")
 
-        store = MeshQueueStore(context)
-        assertTrue(store.pending().isEmpty())
-        assertFalse(store.hasReceived("old_frame_01"))
+            val legacy = context.openOrCreateDatabase("meshnet-outbox.db", Context.MODE_PRIVATE, null)
+            if (legacyVersion < 3) {
+                legacy.execSQL(
+                    """CREATE TABLE outbox (
+                        frame_id TEXT PRIMARY KEY NOT NULL,
+                        frame BLOB NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        attempts INTEGER NOT NULL DEFAULT 0
+                    )"""
+                )
+            } else {
+                legacy.execSQL(
+                    """CREATE TABLE outbox (
+                        frame_id TEXT PRIMARY KEY NOT NULL,
+                        frame BLOB NOT NULL,
+                        message_id TEXT,
+                        frame_kind TEXT NOT NULL DEFAULT 'MESSAGE',
+                        created_at INTEGER NOT NULL,
+                        attempts INTEGER NOT NULL DEFAULT 0
+                    )"""
+                )
+            }
+            if (legacyVersion >= 2) {
+                legacy.execSQL(
+                    "CREATE TABLE received_ids (frame_id TEXT PRIMARY KEY NOT NULL, created_at INTEGER NOT NULL)"
+                )
+            }
 
-        val quarantined = store.quarantinedFrames().single()
-        assertEquals("legacy-row", quarantined.frameId)
-        assertTrue(oldFrame.contentEquals(quarantined.frame))
-        assertEquals("old_frame_01", quarantined.messageId)
-        assertEquals(MeshFrame.KIND_MESSAGE, quarantined.frameKind)
-        assertEquals(3, quarantined.attempts)
-        assertEquals(7, quarantined.sourceVersion)
-        assertTrue(quarantined.reason.isNotBlank())
+            val messageId = "old_frame_$legacyVersion"
+            val frameId = "legacy-row-$legacyVersion"
+            val oldFrame = frame(messageId, MeshFrame.KIND_MESSAGE).encode()
+                .toString(Charsets.UTF_8).replace("\\"v\\":6", "\\"v\\":5")
+                .toByteArray(Charsets.UTF_8)
+            val createdAt = 1_700_000_000_000L + legacyVersion
+            legacy.insertOrThrow("outbox", null, ContentValues().apply {
+                put("frame_id", frameId)
+                put("frame", oldFrame)
+                if (legacyVersion >= 3) {
+                    put("message_id", messageId)
+                    put("frame_kind", MeshFrame.KIND_MESSAGE)
+                }
+                put("created_at", createdAt)
+                put("attempts", 3)
+            })
+            if (legacyVersion >= 2) {
+                legacy.insertOrThrow("received_ids", null, ContentValues().apply {
+                    put("frame_id", messageId)
+                    put("created_at", createdAt)
+                })
+            }
+            legacy.version = legacyVersion
+            legacy.close()
 
-        val replayMarker = store.quarantinedReplayIds().single()
-        assertEquals("old_frame_01", replayMarker.frameId)
-        assertEquals(7, replayMarker.sourceVersion)
-        assertTrue(replayMarker.reason.isNotBlank())
+            store = MeshQueueStore(context)
+            assertTrue("v$legacyVersion: legacy frames must not remain dispatchable", store.pending().isEmpty())
+            assertFalse("v$legacyVersion: legacy replay markers must not remain active", store.hasReceived(messageId))
+
+            val quarantined = store.quarantinedFrames().single()
+            assertEquals(frameId, quarantined.frameId)
+            assertTrue(oldFrame.contentEquals(quarantined.frame))
+            assertEquals(if (legacyVersion >= 3) messageId else null, quarantined.messageId)
+            assertEquals(MeshFrame.KIND_MESSAGE, quarantined.frameKind)
+            assertEquals(createdAt, quarantined.createdAt)
+            assertEquals(3, quarantined.attempts)
+            assertEquals(legacyVersion, quarantined.sourceVersion)
+            assertTrue(quarantined.reason.isNotBlank())
+
+            val replayMarkers = store.quarantinedReplayIds()
+            if (legacyVersion == 1) {
+                assertTrue(replayMarkers.isEmpty())
+            } else {
+                val replayMarker = replayMarkers.single()
+                assertEquals(messageId, replayMarker.frameId)
+                assertEquals(createdAt, replayMarker.createdAt)
+                assertEquals(legacyVersion, replayMarker.sourceVersion)
+                assertTrue(replayMarker.reason.isNotBlank())
+            }
+        }
     }
 
     @Test
