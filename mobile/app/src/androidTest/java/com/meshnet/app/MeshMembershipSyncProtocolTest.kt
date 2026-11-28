@@ -39,11 +39,11 @@ class MeshMembershipSyncProtocolTest {
         val event = MeshMembershipEvent.create(sender, group, 1, MeshMembershipEvent.JOIN)
         assertTrue(senderStore.append(event))
         val packets = mutableListOf<String>()
-        val senderProtocol = MeshMembershipSyncProtocol(group, sender.nodeId, senderStore) { _, payload ->
+        val senderProtocol = MeshMembershipSyncProtocol(group, sender.nodeId, senderStore, send = { _, payload ->
             packets.add(payload)
             true
-        }
-        val receiverProtocol = MeshMembershipSyncProtocol(group, receiver.nodeId, receiverStore) { _, _ -> true }
+        })
+        val receiverProtocol = MeshMembershipSyncProtocol(group, receiver.nodeId, receiverStore, send = { _, _ -> true })
 
         assertTrue(senderProtocol.accept(receiver.nodeId, "~GM1|S|$group"))
         assertTrue(packets.isNotEmpty())
@@ -71,10 +71,10 @@ class MeshMembershipSyncProtocolTest {
         senderStore.merge(events)
         val packets = mutableListOf<String>()
         val notices = mutableListOf<String>()
-        val senderProtocol = MeshMembershipSyncProtocol(group, sender.nodeId, senderStore) { _, payload ->
+        val senderProtocol = MeshMembershipSyncProtocol(group, sender.nodeId, senderStore, send = { _, payload ->
             packets.add(payload)
             true
-        }
+        })
         val receiverProtocol = MeshMembershipSyncProtocol(group, receiver.nodeId, receiverStore, { _, _ -> true }) {
             notices.add(it)
         }
@@ -85,7 +85,7 @@ class MeshMembershipSyncProtocolTest {
 
     @Test
     fun syncRequestIsRateLimitedUnlessForced() {
-        val protocol = MeshMembershipSyncProtocol(group, receiver.nodeId, receiverStore) { _, _ -> true }
+        val protocol = MeshMembershipSyncProtocol(group, receiver.nodeId, receiverStore, send = { _, _ -> true })
         assertTrue(protocol.requestSync(force = true))
         assertFalse(protocol.requestSync())
     }
