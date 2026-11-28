@@ -4,7 +4,6 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
-import android.util.Base64
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
@@ -160,7 +159,10 @@ internal class MeshGroupMembershipStore(context: Context) : SQLiteOpenHelper(
                 "SELECT COUNT(*) FROM membership_events WHERE group_id = ?",
                 arrayOf(event.groupId)
             ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else MAX_EVENTS_PER_GROUP }
-            require(count < MAX_EVENTS_PER_GROUP) {
+            val totalCount = db.rawQuery("SELECT COUNT(*) FROM membership_events", null).use {
+                if (it.moveToFirst()) it.getInt(0) else MAX_TOTAL_EVENTS
+            }
+            require(count < MAX_EVENTS_PER_GROUP && totalCount < MAX_TOTAL_EVENTS) {
                 "Membership log is full; export or reconcile before accepting more events"
             }
             db.insertOrThrow(
@@ -238,6 +240,7 @@ internal class MeshGroupMembershipStore(context: Context) : SQLiteOpenHelper(
         private const val DATABASE_NAME = "meshnet-group-membership.db"
         private const val DATABASE_VERSION = 1
         private const val MAX_EVENTS_PER_GROUP = 10000
+        private const val MAX_TOTAL_EVENTS = 50000
         private const val MAX_MERGE_BATCH = 512
     }
 }
